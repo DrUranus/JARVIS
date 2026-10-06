@@ -82,7 +82,7 @@ class JarvisCore:
                  extractor: MemoryExtractor | None = None, memory_limit: int = 5,
                  use_memory_in_prompts: bool = False) -> None:
         self.provider = provider
-        self.tools = tools or ToolRegistry()
+        self.tools = tools or ToolRegistry.strict()  # default-deny unless a configured registry is injected
         self.tasks = tasks or TaskManager()
         self.context = context or Context()
         self.planner = planner or Planner(provider, self.tools)
@@ -91,6 +91,11 @@ class JarvisCore:
         self.extractor = extractor or RuleBasedExtractor()
         self.memory_limit = memory_limit
         self.use_memory_in_prompts = use_memory_in_prompts
+
+    @property
+    def permissions(self):
+        """The permission engine that guards every tool execution (owned by the tool registry)."""
+        return self.tools.permissions
 
     def handle(self, user_input: str) -> Response:
         text = user_input.strip()

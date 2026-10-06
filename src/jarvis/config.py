@@ -60,6 +60,26 @@ class MemorySettings:
     use_in_prompts: bool = False       # privacy: relevant memories are sent to the LLM only if true
 
 
+SECURITY_MODES = ("standard", "lockdown")
+CONFIRMATION_PROVIDERS = ("cli", "deny")
+
+
+@dataclass(frozen=True)
+class SecuritySettings:
+    """Permissions & security. Defaults are restrictive and need no manual configuration."""
+    mode: str = "standard"             # standard: GREEN auto, YELLOW asks | lockdown: only GREEN, nothing else
+    confirmation: str = "cli"          # cli: ask the user in the terminal | deny: never ask (headless; YELLOW denied)
+    policy_file: str | None = None     # optional TOML with explicit allow/confirm/deny rules
+    allowed_roots: tuple[str, ...] = ()  # filesystem roots tools may touch; () = only the workspace directory
+    denied_paths: tuple[str, ...] = ()   # always blocked, even inside allowed roots
+    allow_session_grants: bool = True  # may the user answer "allow for this session"?
+    session_ttl_seconds: int = 3600
+    audit_enabled: bool = True
+    audit_path: str = ""               # "" = <log_dir>/audit.jsonl
+    audit_strict: bool = True          # if the audit log cannot be written, non-GREEN actions are denied
+    audit_green: bool = False          # also log automatically allowed GREEN actions (verbose)
+
+
 @dataclass(frozen=True)
 class Settings:
     mode: str = "development"
@@ -69,10 +89,20 @@ class Settings:
     llm: LLMSettings = field(default_factory=LLMSettings)
     voice: VoiceSettings = field(default_factory=VoiceSettings)
     memory: MemorySettings = field(default_factory=MemorySettings)
+    security: SecuritySettings = field(default_factory=SecuritySettings)
 
     @property
     def is_production(self) -> bool:
         return self.mode == "production"
+
+    @property
+    def effective_fs_roots(self) -> tuple[str, ...]:
+        """Filesystem roots tools may use: the configured ones, else only the workspace directory."""
+        return self.security.allowed_roots or (self.workspace,)
+
+    @property
+    def effective_audit_path(self) -> str:
+        return self.security.audit_path or str(Path(self.log_dir) / "audit.jsonl")
 
     @property
     def effective_log_level(self) -> str:
@@ -94,6 +124,15 @@ class Settings:
             raise ConfigError("voice.silence_threshold must be >= 0")
         if not v.wake_word.strip():
             raise ConfigError("voice.wake_word must not be empty")
+        sec = self.security
+        if sec.mode not in SECURITY_MODES:
+            raise ConfigError(f"security.mode must be one of {SECURITY_MODES}, got {sec.mode!r}")
+        if sec.confirmation not in CONFIRMATION_PROVIDERS:
+            raise ConfigError(f"security.confirmation must be one of {CONFIRMATION_PROVIDERS}, got {sec.confirmation!r}")
+        if sec.session_ttl_seconds <= 0:
+            raise ConfigError("security.session_ttl_seconds must be positive")
+        if any(not r.strip() for r in (*sec.allowed_roots, *sec.denied_paths)):
+            raise ConfigError("security.allowed_roots/denied_paths must not contain empty entries")
         m = self.memory
         if not m.backend.strip():
             raise ConfigError("memory.backend must not be empty")
@@ -107,6 +146,12 @@ class Settings:
 
 
 def _coerce(value: Any, template: Any, name: str) -> Any:
+    if isinstance(template, tuple):  # list-valued settings: TOML list, or an os.pathsep-separated env string
+        if isinstance(value, str):
+            return tuple(p.strip() for p in value.split(os.pathsep) if p.strip())
+        if isinstance(value, (list, tuple)) and all(isinstance(x, str) for x in value):
+            return tuple(value)
+        raise ConfigError(f"{name} must be a list of strings")
     try:
         if isinstance(template, bool):
             return value if isinstance(value, bool) else str(value).lower() in ("1", "true", "yes")

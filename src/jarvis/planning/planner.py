@@ -54,7 +54,7 @@ def _extract_json(text: str) -> dict[str, Any]:
 class Planner:
     def __init__(self, provider: LLMProvider, tools: ToolRegistry | None = None) -> None:
         self._provider = provider
-        self._tools = tools or ToolRegistry()
+        self._tools = tools or ToolRegistry.strict()
 
     def _parse(self, reply: str) -> list[dict[str, Any]]:
         steps = _extract_json(reply).get("steps")

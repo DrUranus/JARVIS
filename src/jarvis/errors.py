@@ -30,8 +30,20 @@ class ToolError(JarvisError):
     """Tool lookup or registration problem."""
 
 
-class PermissionDeniedError(JarvisError):
+class SecurityError(JarvisError):
+    """Base class for permission/security problems."""
+
+
+class PermissionDeniedError(SecurityError):
     """Action blocked by the permission system."""
+
+
+class InvalidRequestError(SecurityError):
+    """Malformed permission request or resource (always treated as a denial)."""
+
+
+class PolicyError(SecurityError):
+    """Invalid or unreadable security policy/configuration (JARVIS refuses to start with it)."""
 
 
 class VoiceError(JarvisError):

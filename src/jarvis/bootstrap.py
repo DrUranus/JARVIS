@@ -7,6 +7,7 @@ from jarvis.llm.factory import create_provider
 from jarvis.memory.factory import create_memory
 from jarvis.memory.guard import SecretGuard
 from jarvis.logging_setup import setup_logging
+from jarvis.permissions.factory import build_permission_engine
 from jarvis.tools.builtin import register_builtin_tools
 from jarvis.tools.registry import ToolRegistry
 
@@ -14,9 +15,13 @@ from jarvis.tools.registry import ToolRegistry
 def build_core(settings: Settings) -> JarvisCore:
     setup_logging(settings.effective_log_level, settings.log_dir)
     provider = create_provider(settings.llm)
-    tools = register_builtin_tools(ToolRegistry())
-    # Secrets of this very configuration (and secret-looking env vars) can never be stored as memories.
+    # Secrets of this very configuration (and secret-looking env vars) can never be stored as memories,
+    # and are redacted from every permission message, prompt, audit event and tool error.
     guard = SecretGuard.from_environment(extra=[settings.llm.api_key, settings.voice.api_key])
+    # Every tool call goes through this engine (strict: restrictive defaults, fail closed). A broken policy
+    # file raises PolicyError here: JARVIS refuses to start rather than run with an unintended policy.
+    permissions = build_permission_engine(settings, redactor=guard)
+    tools = register_builtin_tools(ToolRegistry(permissions), include_demo=not settings.is_production)
     memory = create_memory(settings.memory, guard)
     return JarvisCore(provider=provider, tools=tools, memory=memory, memory_limit=settings.memory.max_relevant,
                       use_memory_in_prompts=settings.memory.use_in_prompts)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import shlex
 import sys
 from typing import Callable, Sequence
 
@@ -12,6 +13,7 @@ from jarvis.config import Settings
 from jarvis.core import JarvisCore
 from jarvis.core.core import format_entries
 from jarvis.errors import JarvisError, VoiceError
+from jarvis.permissions import CliConfirmation
 
 HELP = """Befehle:
   /plan <ziel>   Plan für ein Ziel erstellen
@@ -21,6 +23,10 @@ HELP = """Befehle:
   /remember <t>  Etwas dauerhaft merken
   /memory [q]    Erinnerungen suchen / neueste anzeigen
   /forget <id>   Erinnerung löschen
+  /run <tool> k=v  Tool über die Berechtigungsprüfung ausführen
+  /permissions   Sicherheitsmodus, erlaubte Verzeichnisse, Regeln, Sitzungsfreigaben
+  /audit [n]     Letzte Sicherheitsereignisse
+  /revoke        Sitzungsfreigaben widerrufen
   /voice         Sprachmodus starten (zurück mit „exit“)
   /help          Diese Hilfe
   /exit          Beenden"""
@@ -47,6 +53,14 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
     if cmd == "/reset":
         core.context.clear()
         return "Kontext gelöscht."
+    if cmd == "/run":
+        return _run_tool(core, arg)
+    if cmd == "/permissions":
+        return _describe_permissions(core)
+    if cmd == "/audit":
+        return _tail_audit(core, arg)
+    if cmd == "/revoke":
+        return f"{core.permissions.revoke_session_grants('revoked by user')} Sitzungsfreigabe(n) widerrufen."
     if cmd == "/remember":
         if not arg:
             return "Verwendung: /remember <text>"
@@ -70,6 +84,8 @@ def repl(core: JarvisCore, input_fn: Callable[[str], str] | None = None,
          output_fn: Callable[[str], None] | None = None, settings: Settings | None = None,
          start_voice: bool = False) -> None:
     input_fn, output_fn = input_fn or input, output_fn or print
+    if isinstance(core.permissions.confirmation, CliConfirmation):  # confirmations use this REPL's terminal
+        core.permissions.confirmation.bind_io(input_fn, output_fn)
     output_fn(f"JARVIS {__version__} – /help für Befehle, /exit zum Beenden.")
     if start_voice:
         output_fn(_voice(core, settings, output_fn, input_fn))
@@ -92,6 +108,49 @@ def repl(core: JarvisCore, input_fn: Callable[[str], str] | None = None,
         except JarvisError as exc:
             out = f"Fehler: {exc}"
         output_fn(out)
+
+
+def _run_tool(core: JarvisCore, arg: str) -> str:
+    try:
+        parts = shlex.split(arg)
+    except ValueError as exc:
+        return f"Ungültige Eingabe: {exc}"
+    if not parts:
+        return "Verwendung: /run <tool> key=value ..."
+    kwargs: dict[str, str] = {}
+    for item in parts[1:]:
+        key, sep, value = item.partition("=")
+        if not sep or not key:
+            return f"Ungültiges Argument {item!r}; erwartet key=value"
+        kwargs[key] = value
+    result = core.tools.execute(parts[0], **kwargs)  # permission engine decides; confirmation is asked via the CLI
+    return f"OK: {result.output}" if result.success else f"Nicht ausgeführt: {result.error}"
+
+
+def _describe_permissions(core: JarvisCore) -> str:
+    d = core.permissions.describe()
+    lines = [f"Modus: {d['mode']}   Bestätigung: {d['confirmation'] or 'keine (Rückfrage nicht möglich)'}",
+             "Erlaubte Verzeichnisse: " + (", ".join(d["roots"]) or "keine"),
+             "Gesperrte Pfade: " + (", ".join(d["denied_paths"]) or "keine")]
+    lines.append("Regeln: " + ("" if d["rules"] else "keine"))
+    lines += [f"  {r['id']}: {r['effect']} tool={r['tool'] or '*'} action={r['action'] or '*'}" for r in d["rules"]]
+    grants = d["session_grants"]
+    lines.append("Sitzungsfreigaben: " + ("" if grants else "keine"))
+    lines += [f"  {g['tool']}.{g['action']} {g['resource']}" for g in grants]
+    return "\n".join(lines)
+
+
+def _tail_audit(core: JarvisCore, arg: str) -> str:
+    n = int(arg) if arg.isdigit() else 10
+    events = core.permissions.audit.tail(n)
+    if not events:
+        return "Keine Sicherheitsereignisse protokolliert."
+    def line(e: dict) -> str:
+        what = f"{e['tool']}.{e['action']}" if e.get("tool") and e.get("action") else e.get("tool", "")
+        parts = [e.get("timestamp", "")[11:19], e.get("type", "?"), what, e.get("status", ""), e.get("detail", "")]
+        return "  " + " ".join(p for p in parts if p)
+
+    return "\n".join(line(e) for e in events)
 
 
 def _voice(core: JarvisCore, settings: Settings | None, display: Callable[[str], None] = print,

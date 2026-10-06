@@ -3,9 +3,9 @@
 Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer Agent, dem man ein Ziel nennt und der selbstständig
 **denkt → plant → recherchiert → programmiert → handelt → testet → repariert → lernt → neue Fähigkeiten entwickelt**.
 
-**Status: Phase 1 (Core MVP), Phase 2 (Voice Interface) und Phase 3 (Memory) abgeschlossen.** JARVIS führt Pläne noch nicht autonom aus – Architektur und Schnittstellen dafür stehen.
+**Status: Phase 1 (Core MVP), Phase 2 (Voice Interface), Phase 3 (Memory) und Phase 13 (Permissions & Security, vorgezogen) abgeschlossen.** JARVIS führt Pläne noch nicht autonom aus – Architektur und Schnittstellen dafür stehen.
 
-## Was bisher funktioniert (Phase 1–3)
+## Was bisher funktioniert (Phase 1–3, 13)
 
 - Konfiguration (Defaults < TOML < Umgebungsvariablen), Dev-/Produktionsmodus, Logging, Fehlerhierarchie
 - LLM-Abstraktion: `mock` (offline), `openai`, `anthropic` – austauschbar per Konfiguration
@@ -14,6 +14,7 @@ Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer A
 - Tool-System: Registry, dynamische Registrierung, fehlerisolierte Ausführung, Permission-Level
 - Planner: Ziel → Task mit Subtasks (LLM-JSON, mit Template-Fallback, damit nie „zu komplex“ zurückkommt)
 - CLI (`jarvis>`)
+- **Permissions & Security (Phase 13):** Jede Tool-Ausführung läuft durch eine Berechtigungs-Engine (GREEN/YELLOW/RED, Regeln, Bestätigung, Pfad-Sicherheit, Audit-Log, Secret-Schutz) und schlägt im Zweifel fehl (fail closed)
 - **Memory (Phase 3):** persistentes lokales Langzeitgedächtnis (SQLite) hinter der Schnittstelle `MemoryStore`, mit Secret-Schutz; gemerkt wird nur auf ausdrücklichen Wunsch
 - **Voice (Phase 2):** Speech-to-Text → `JarvisCore.handle` → Text-to-Speech als zusätzliche Oberfläche, mit Wake-Word, Exit-Phrasen und Fallback bei fehlender Hardware
 
@@ -169,10 +170,106 @@ Diese Anfragen werden lokal bearbeitet, gehen nie an das LLM und landen nicht im
 Künftige Agenten/Tools bekommen ein `MemoryStore` injiziert (z. B. `core.memory`) und rufen `add(..., type="task_result", source="agent:coding", metadata={"path": ...})`,
 `search`, `recent`. Sie hängen nur von `jarvis.memory.base`/`models` ab, nie von SQLite.
 
+## Permissions & Security (Phase 13)
+
+Die Berechtigungsschicht sitzt zwischen JARVIS und jedem mächtigen Werkzeug und ist unabhängig von Voice, Memory, LLM-Anbietern und konkreten Tools
+(Import-Regeln sind per Test erzwungen; sie hängt nur von `jarvis.errors` und dem neutralen `jarvis.redaction` ab).
+
+```
+Interface ─▶ Core ─▶ Planner/Tasks ─▶ ToolRegistry.execute ─▶ PermissionEngine ─▶ Policy · Pfad-/Host-Prüfung · Bestätigung ─▶ tool.run
+                                       (einziger Aufrufer von tool.run)           └─ AuditLogger (Secrets geschwärzt)
+```
+
+### Ablauf einer Ausführung
+1. Das **Tool beschreibt** den konkreten Aufruf (`describe_action` → `ActionSpec`: Aktion, Ressource, Grund). Es spricht nie selbst mit der Engine.
+2. Die **Registry** baut daraus eine `PermissionRequest` (Tool, Aktion, Ressource + Typ, Level, Grund, Kontext, ID, Zeitstempel, Argument-Fingerabdruck).
+3. Die **Engine** entscheidet: ungültig → `INVALID_REQUEST`; RED → `DENIED`; Lockdown; Dateipfade/Hosts normalisieren und prüfen; Regeln (deny > confirm > allow);
+   sonst Level-Standard (GREEN erlaubt, YELLOW fragt). Ergebnis ist immer eine `PermissionDecision` mit `status`, `reason`, `matched_rule`, `scope`, `level`.
+4. Bei `CONFIRMATION_REQUIRED` fragt ein **`ConfirmationProvider`** den Nutzer (CLI heute; Voice/GUI/App später über dieselbe Schnittstelle).
+5. Nur bei `ALLOWED` öffnet die Engine einen **einmaligen Ausführungs-Scope**; erst darin läuft `tool.run`. Ergebnis und Entscheidung stehen im `ToolResult`.
+
+Entscheidungsstatus: `allowed`, `denied`, `confirmation_required`, `invalid_request`, `policy_error`, `internal_error` (alle außer `allowed`/`confirmation_required` sind Ablehnungen).
+Jede Ausnahme in der Engine, jeder fehlerhafte Provider, jede kaputte Regel und ein nicht schreibbares Audit-Log (bei nicht-GREEN) enden in einer Ablehnung, nie in einer Freigabe.
+
+### Level
+| Level | Bedeutung | Verhalten |
+|---|---|---|
+| GREEN | sicher, lesend, Analyse, Planung, Tests | automatisch (nur Ablehnungen und Folgenreiches werden geloggt) |
+| YELLOW | ändert etwas / Außenwirkung / Geld | Bestätigung, oder eine bewusst konfigurierte `allow`-Regel |
+| RED | gefährlich/verboten | **immer abgelehnt**; keine Regel, Sitzung, Bestätigung, Modus oder Konfiguration schaltet das frei (eine `allow`-Regel für RED wird beim Laden abgelehnt) |
+
+Das Level setzt das Tool (`permission`). Die Engine kann es nur **anheben**: Aktionsnamen mit Folgen (`write`, `delete`, `send`, `execute`, `pay`, …) sind mindestens YELLOW, egal was ein Tool behauptet.
+Nicht deklarierte Tools zählen in der Anwendung als YELLOW.
+
+### Regeln (`security.policy_file`, Beispiel `config/policy.example.toml`)
+Felder: `id`, `effect` (`deny`/`confirm`/`allow`), `tool`, `action` (exakt oder Glob), `resource_type` (`path`/`domain`/`other`), `resources`, `levels`, `description`.
+- **Deterministisch:** Es gewinnt der sicherste Effekt (deny > confirm > allow), unabhängig von der Reihenfolge; Gleichstand entscheidet die ID. Alle passenden Regeln stehen in `considered_rules`.
+- **Sicher bei fehlenden Infos:** deny/confirm-Regeln mit Ressourcenbedingung greifen auch, wenn die Anfrage keine Ressource nennt; `allow`-Regeln nie.
+- **Kein Wildcard-Zugriff:** `allow` braucht einen exakten Tool-Namen und eine Aktion; `*`, `/`, `*.*`, `*.com` als Ressource werden abgelehnt.
+- Pfadregeln vergleichen echte (aufgelöste) Pfade; deny/confirm-Regeln ignorieren Groß-/Kleinschreibung, `allow`-Regeln nicht.
+- Eine fehlende oder fehlerhafte Policy-Datei ist ein **Startfehler** (JARVIS startet nicht mit einer unbeabsichtigten Policy).
+
+### Bestätigung, Freigaben, Sitzungen
+- Der Nutzer sieht Aktion, Werkzeug, **echten Pfad** (Symlinks aufgelöst, angefragter Pfad zusätzlich), Risiko, Grund. Beispiel: `JARVIS möchte die Aktion „write“ mit „filesystem“ auf /ws/a.txt ausführen. … Risiko: YELLOW … Erlauben?`
+- **Einmalig:** gilt für genau diesen Aufruf (Argumente per Fingerabdruck gebunden), wird beim Ausführen verbraucht, läuft nach 60 s ab.
+- **Sitzung:** nur nach ausdrücklicher Antwort „s“, gebunden an exakt (Tool, Aktion, echte Ressource, Level), läuft ab (`session_ttl_seconds`), widerrufbar (`/revoke`), wird bei Policy-Änderung widerrufen, begrenzt auf 100 Einträge. Bei `confirm`-Regeln („immer fragen“) wird sie gar nicht angeboten.
+- **Dauerhaft:** ausschließlich explizite `allow`-Regeln. Nichts wird implizit gelernt oder gespeichert.
+- `CliConfirmation`: nur `j/ja/y/yes` (einmal) und `s/sitzung/session` erlauben; leere Eingabe, Unbekanntes, EOF und Strg-C bedeuten Nein. `confirmation = "deny"` (headless) fragt nie und lehnt YELLOW ab.
+- Für Voice/GUI: `ConfirmationProvider.confirm(ConfirmationRequest) -> ConfirmationChoice` implementieren (`request.summary` ist ein sprechbarer Satz) und per `engine.set_confirmation_provider(...)` (auditiert) setzen.
+
+### Dateisystem-Grundlage (`PathGuard`)
+Noch kein Dateisystem-Tool, aber die Prüfung, die jedes künftige durchlaufen muss: standardmäßig **nur das Workspace-Verzeichnis** (`security.allowed_roots` erweitert, `denied_paths` sperrt), leere Liste = alles verboten, die Dateisystemwurzel `/` ist nie erlaubt.
+Relative Pfade werden gegen das Basisverzeichnis (nicht das cwd) aufgelöst; `..`-Varianten und `./`, `//`, Schrägstrich am Ende werden normalisiert; Symlinks werden aufgelöst (auch `link/../x` nach OS-Semantik);
+Enthaltensein wird komponentenweise geprüft (`/ws-evil` liegt nicht in `/ws`); NUL-/Steuerzeichen und überlange Pfade sind ungültig. Policy- und Audit-Datei sind gegen Änderung durch Tools geschützt. Die Entscheidung enthält den echten Pfad (`ExecutionGrant.resource`), den das Tool verwenden soll.
+Hosts (`ResourceType.DOMAIN`) werden normalisiert (URL → Host, Kleinbuchstaben, IDNA, keine Zugangsdaten in der URL); `example.com` = exakt, `*.example.com` = echte Subdomains.
+
+### Secrets
+`jarvis.redaction.SecretDetector` (derselbe Detektor wie beim Memory-`SecretGuard`, plus die exakten Werte von `llm.api_key`, `voice.api_key` und aller `*KEY/SECRET/TOKEN/PASSWORD*`-Umgebungsvariablen) schwärzt
+Entscheidungsgründe, Bestätigungstexte, Audit-Ereignisse, Fehlermeldungen und Logzeilen abstürzender Tools. Kontextwerte unter Schlüsseln wie `api_key`/`password` werden immer geschwärzt.
+`repr(PermissionRequest)` zeigt bewusst keine Freitextfelder.
+
+### Audit-Log (`logs/audit.jsonl`, austauschbar über `AuditSink`)
+JSON Lines, Dateirechte 0600, wird beim ersten Ereignis angelegt. Ereignisse: `permission_requested/granted/denied`, `confirmation_requested/accepted/rejected`, `session_grant_created`, `session_grants_revoked`,
+`policy_loaded/changed` (inkl. Fingerabdruck, hinzugefügte/entfernte Regeln), `tool_registered` (nicht-GREEN), `execution_result` (nicht-GREEN), `caller_confirmation_ignored`, `security_error`.
+Gespräche werden nie protokolliert; GREEN nur mit `audit_green = true`. `/audit [n]` zeigt die letzten Ereignisse. Schreibt das Log nicht, werden nicht-GREEN-Aktionen abgelehnt (`audit_strict`).
+
+### Konfiguration `[security]`
+| Schlüssel / Variable `JARVIS_SECURITY_…` | Default | Bedeutung |
+|---|---|---|
+| `mode` / `MODE` | `standard` | `standard` oder `lockdown` (nur GREEN, nichts anderes). Es gibt absichtlich keinen „permissive“-Modus |
+| `confirmation` / `CONFIRMATION` | `cli` | `cli` fragt im Terminal, `deny` fragt nie (YELLOW abgelehnt) |
+| `policy_file` / `POLICY_FILE` | – | TOML mit Regeln |
+| `allowed_roots` / `ALLOWED_ROOTS` | `[]` = nur `workspace` | erlaubte Verzeichnisse (Umgebungsvariable: mit `:` getrennt) |
+| `denied_paths` / `DENIED_PATHS` | `[]` | immer gesperrt |
+| `allow_session_grants`, `session_ttl_seconds` | `true`, `3600` | Sitzungsfreigaben |
+| `audit_enabled`, `audit_path`, `audit_strict`, `audit_green` | `true`, `<log_dir>/audit.jsonl`, `true`, `false` | Audit |
+
+Alle Defaults sind restriktiv; zum Starten ist nichts zu konfigurieren.
+
+### Ausprobieren (Entwicklungsmodus)
+```
+jarvis> /run permission_demo target=notes.txt     # YELLOW: JARVIS fragt; das Demo-Tool verändert nichts
+jarvis> /run permission_demo target=../../etc/passwd   # ohne Rückfrage abgelehnt (außerhalb des Workspace)
+jarvis> /permissions    /audit 20    /revoke
+```
+
+### Neue Tools schreiben
+GREEN: `Tool` mit `permission = PermissionLevel.GREEN` und `run`. Alles andere: `ProtectedTool` ableiten, `_perform` implementieren (nie `run` – das wird beim Definieren der Klasse abgelehnt),
+`describe_action` überschreiben (Aktion, Ressource + `ResourceType`, Grund), `permission` deklarieren. `describe_action` darf keine Nebenwirkungen haben (es läuft vor der Entscheidung).
+Dateipfade immer über `current_grant().resource` (den freigegebenen echten Pfad) verwenden.
+
+### Bekannte Grenzen
+- **Gleicher Prozess = gleiche Vertrauensgrenze.** Python kann Code im selben Prozess nicht einsperren. Die Schicht verhindert versehentliche und naheliegende Umgehungen (Tests dafür vorhanden), nicht absichtlich bösartigen Code mit Zugriff auf Interna oder `ctypes`. Echte Isolation (Subprozess/Container/OS-Sandbox) gehört zu Phase 4/14/15.
+- Ein GREEN-Tool, das lügt, kann außer durch den Aktionsnamen-Boden und deny/confirm-Regeln pro Tool nicht erkannt werden.
+- Pfadprüfung ist eine Momentaufnahme (TOCTOU zwischen Prüfung und Öffnen): künftige Dateitools müssen den freigegebenen echten Pfad verwenden und möglichst ohne Symlink-Folgen öffnen (`O_NOFOLLOW`). Hardlinks, Windows-Kurznamen (8.3), NTFS-Datenströme und Unicode-Normalisierung (macOS) werden nicht gesondert behandelt; Allow-Regeln sind case-sensitiv (sicher), Deny-Regeln nicht (sicher).
+- Das Audit-Log ist nicht manipulationssicher (keine Hash-Kette, keine Rotation); es schützt nur davor, dass JARVIS-Tools es ändern.
+- Die CLI-Bestätigung blockiert ohne Zeitlimit. Der Gesprächsverlauf mit Secrets, die der Nutzer selbst tippt, geht weiterhin an das LLM (nicht Teil dieser Phase).
+- `PermissionEngine.legacy()` (für ein nacktes `ToolRegistry()`, Phase-1-Kompatibilität) ist locker: nicht deklarierte Tools GREEN, `confirmed=True` des Aufrufers gilt. Die Anwendung, `JarvisCore` und `Planner` verwenden strikte Registries (per Test erzwungen).
+
 ## Tests & Entwicklungsworkflow
 
 ```bash
-pytest            # 339 Tests: config, llm, tasks, tools, planner, core, e2e, CLI, voice, memory (ohne Mikrofon/Netzwerk, temporäre DBs)
+pytest            # 714 Tests: config, llm, tasks, tools, planner, core, e2e, CLI, voice, memory, security (ohne Mikrofon/Netzwerk, temporäre DBs)
 ```
 Workflow: Schnittstelle in `base.py` definieren → Implementierung → Test mit `MockProvider` (kein Netzwerk nötig) → `pytest`.
 Verdrahtung ausschließlich in `jarvis/bootstrap.py` (Composition Root).
@@ -188,7 +285,8 @@ src/jarvis/
 ├── planning/   Planner (Ziel → Task)
 ├── tasks/      Task, TaskStatus, TaskManager
 ├── tools/      Tool, ToolRegistry, builtin/
-├── permissions/ GREEN / YELLOW / RED
+├── permissions/ levels · request · decision · engine · policy · paths · resources · grants · confirmation · audit · factory
+├── redaction.py Neutrale Secret-Erkennung (von Memory und Permissions geteilt)
 ├── memory/     base (Interface) · models · validation · ranking · sqlite_store · inmemory · null · guard · guarded · extraction · factory
 ├── voice/      base (Interfaces) · session · factory · console · mock · devices · openai_provider · system_tts
 └── interface/  cli
@@ -225,7 +323,13 @@ Abhängigkeiten zeigen nach innen: Core kennt nur Interfaces (`LLMProvider`, `To
 17. **Zwei Backends von Anfang an** (`sqlite`, `memory`) mit identischen Vertragstests – beweist, dass die Schnittstelle nicht an SQLite hängt.
 18. **Nur ausdrückliches Merken.** Zuverlässige automatische Extraktion braucht ein LLM/Bewertung (spätere Phase); bis dahin ist alles Dauerhafte eine bewusste Handlung.
 19. **Privacy-by-default:** Memory-Inhalte gehen nur mit `use_in_prompts = true` an ein LLM. Die Suche ist keyword-basiert – bewusst, damit auch ohne externe Dienste alles lokal bleibt.
-20. **Ordnerstruktur schlank gehalten:** Platzhalter-Pakete für künftige Module (agents, memory, …) werden erst mit ihrer Phase angelegt, nicht leer vorab.
+21. **Tools beschreiben, die Registry fragt.** Ein Tool kennt die Engine nicht und kann Entscheidungen nicht formen; nur `ToolRegistry.execute` ruft `tool.run` auf (per AST-Test geprüft).
+22. **`ProtectedTool` statt Vertrauen.** `run` ist versiegelt und prüft bei jedem Aufruf einen engine-ausgestellten, an Tool + Argumente gebundenen, einmaligen Grant. Nicht-GREEN-Tools müssen in strikten Registries `ProtectedTool` sein.
+23. **Engine nur anheben, nie absenken; Schalter schreibgeschützt.** Level, Aktionsboden, RED-Invariante, Lockdown; Konfiguration der Engine ist nach dem Bau read-only.
+24. **Fail closed überall**, inkl. nicht beschreibbarem Audit-Log, Provider-Fehlern und kaputten Regeln; Policy-Fehler verhindern den Start.
+25. **Neutrales `jarvis.redaction`.** Memory und Permissions teilen die Secret-Erkennung, ohne voneinander abzuhängen.
+26. **Phase 13 vor Phase 4 vorgezogen**, weil Computersteuerung ohne belastbares Rechtesystem riskant ist (Empfehlung aus Phase 1, jetzt umgesetzt).
+27. **Ordnerstruktur schlank gehalten:** Platzhalter-Pakete für künftige Module (agents, memory, …) werden erst mit ihrer Phase angelegt, nicht leer vorab.
 
 ## Vorbereitung für spätere Phasen
 
@@ -233,14 +337,14 @@ Abhängigkeiten zeigen nach innen: Core kennt nur Interfaces (`LLMProvider`, `To
 |---|---|
 | 2 Voice ✅ | `voice/` – siehe oben. Offen: Streaming-STT/TTS, Unterbrechen (barge-in), lokaler Hotword-Detektor |
 | 3 Memory ✅ | `jarvis/memory/`. Offen: semantische/Vektor-Suche (neues Backend, `MemoryHit.score` ist vorbereitet), persistente Tasks (`TaskManager` hinter Interface, Ergebnisse als `task_result`), automatische Extraktion, Zusammenfassung/Verfall alter Einträge |
-| 4–6 Computer/Browser/Coding | neue `Tool`-Klassen, Permission-Level pro Tool |
+| 4–6 Computer/Browser/Coding | neue `ProtectedTool`-Klassen mit `describe_action` (Pfad/Host/Command als Ressource); Policy-Regeln pro Tool |
 | 7–8 Multi-Agent, Goal Engine | `Task.required_agents`/`subtasks` sind belegt; Executor-Schleife über Subtasks fehlt noch |
 | 9 Self-Repair | Task-Übergang `FAILED → PENDING` (Retry) existiert |
-| 13 Security | `permissions` + `ToolRegistry.execute` als zentrale Kontrollstelle |
+| 13 Security ✅ | `jarvis/permissions/` + `ToolRegistry.execute` als einzige Kontrollstelle. Offen: OS-Sandbox/Subprozess-Isolation, Hash-verkettetes Audit-Log, Voice/GUI-Bestätigung, Netzwerk-/Geld-Policies |
 | 15 Self-Improvement | Provider-/Tool-Registry erlauben Austausch und Rollback von Komponenten |
 
 ## Zukünftige Phasen
 
 1 Core ✅ · 2 Voice ✅ · 3 Memory ✅ · 4 Computer Control · 5 Browser/Internet · 6 Coding Agent · 7 Multi-Agent · 8 Goal Engine ·
-9 Self-Testing/Repair · 10 Business/Research/Finance · 11 GUI · 12 Smartphone · 13 Permissions/Security · 14 Maximum Autonomy · 15 Self-Improvement.
-Empfehlung für eine spätere Änderung: Permissions/Security (13) vor Computer Control (4) vorziehen, da Computersteuerung ohne belastbares Rechtesystem riskant ist.
+9 Self-Testing/Repair · 10 Business/Research/Finance · 11 GUI · 12 Smartphone · 13 Permissions/Security ✅ (vorgezogen) · 14 Maximum Autonomy · 15 Self-Improvement.
+Phase 13 wurde vor Phase 4 vorgezogen (Begründung: Computersteuerung ohne belastbares Rechtesystem ist riskant).

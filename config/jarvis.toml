@@ -41,3 +41,18 @@ recent_limit = 10
 max_content_length = 2000
 max_entries = 10000         # 0 = unlimited
 use_in_prompts = false      # true = relevant memories are added to LLM prompts (sent to the provider if it is remote!)
+
+[security]
+# Defaults are restrictive; no setting here is required to start JARVIS.
+mode = "standard"           # standard: GREEN automatic, YELLOW asks you | lockdown: only GREEN, everything else denied
+confirmation = "cli"        # cli: ask in the terminal | deny: never ask (headless; YELLOW is denied)
+# policy_file = "config/policy.toml"   # explicit allow/confirm/deny rules, see config/policy.example.toml
+allowed_roots = []          # [] = tools may only touch the workspace directory (workspace = ... above)
+denied_paths = []           # always blocked, even inside allowed roots
+allow_session_grants = true # may you answer "allow for this session"?
+session_ttl_seconds = 3600
+audit_enabled = true
+audit_path = ""             # "" = <log_dir>/audit.jsonl
+audit_strict = true         # audit log unwritable -> non-GREEN actions are denied
+audit_green = false         # also log automatic GREEN approvals (verbose)
+# RED actions are never permitted; there is deliberately no setting that changes that.

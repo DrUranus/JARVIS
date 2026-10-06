@@ -7,3 +7,5 @@ logs/*.log
 jarvis.local.toml
 data/
 *.db
+logs/*.jsonl
+config/policy.toml

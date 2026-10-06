@@ -337,7 +337,7 @@ def _imports(path: Path) -> set[str]:
 
 
 def test_memory_package_depends_on_nothing_but_errors_and_config():
-    allowed = ("jarvis.errors", "jarvis.config", "jarvis.memory")
+    allowed = ("jarvis.errors", "jarvis.config", "jarvis.memory", "jarvis.redaction")  # redaction: neutral shared module
     for f in (SRC / "memory").glob("*.py"):
         bad = {m for m in _imports(f) if not m.startswith(allowed)}
         assert not bad, f"{f.name} imports {bad}"
