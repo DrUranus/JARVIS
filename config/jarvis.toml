@@ -1,0 +1,13 @@
+# JARVIS default project configuration.
+# Precedence (low -> high): built-in defaults < this file < environment variables (JARVIS_*).
+mode = "development"        # development | production
+log_level = "INFO"          # overridden to DEBUG in development if not set via env
+log_dir = "logs"
+workspace = "workspace"     # sandbox directory for GREEN file operations
+
+[llm]
+provider = "mock"           # mock | openai | anthropic  (API keys come from env only)
+model = "mock-1"
+temperature = 0.2
+max_tokens = 1024
+timeout = 60
