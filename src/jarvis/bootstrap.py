@@ -14,3 +14,17 @@ def build_core(settings: Settings) -> JarvisCore:
     provider = create_provider(settings.llm)
     tools = register_builtin_tools(ToolRegistry())
     return JarvisCore(provider=provider, tools=tools)
+
+
+def build_voice_session(settings: Settings, core: JarvisCore, display=print, input_fn=input):
+    """Assemble the voice front-end around an existing core.
+
+    Raises VoiceError subclasses (e.g. VoiceUnavailableError) if the configured engines cannot be created;
+    callers decide how to degrade (the CLI falls back to text mode).
+    """
+    from jarvis.voice import VoiceSession, build_listener, build_speaker
+
+    v = settings.voice
+    return VoiceSession(core, build_listener(v, input_fn), build_speaker(v, display), wake_word=v.wake_word,
+                        require_wake_word=v.require_wake_word, speak_responses=v.speak_responses,
+                        display=display)

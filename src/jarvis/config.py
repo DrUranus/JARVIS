@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import tomllib
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -24,12 +24,37 @@ class LLMSettings:
 
 
 @dataclass(frozen=True)
+class VoiceSettings:
+    """Voice interface. Defaults ('console') need no hardware and no API key."""
+    stt_provider: str = "console"      # console | mock | openai
+    tts_provider: str = "console"      # console | mock | system | openai
+    audio_input: str = "sounddevice"   # microphone backend (used by non-console STT)
+    audio_output: str = "system"       # playback backend (used by openai TTS)
+    language: str = "de"
+    wake_word: str = "jarvis"
+    require_wake_word: bool = False
+    speak_responses: bool = True
+    sample_rate: int = 16000
+    max_record_seconds: float = 15.0
+    silence_seconds: float = 1.0
+    silence_threshold: int = 500       # RMS of 16-bit samples below which audio counts as silence
+    stt_model: str = "whisper-1"
+    tts_model: str = "tts-1"
+    tts_voice: str = "alloy"
+    tts_command: str | None = None     # override for the 'system' TTS (e.g. "espeak-ng -v de")
+    base_url: str | None = None
+    timeout: float = 30.0
+    api_key: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True)
 class Settings:
     mode: str = "development"
     log_level: str | None = None
     log_dir: str = "logs"
     workspace: str = "workspace"
     llm: LLMSettings = field(default_factory=LLMSettings)
+    voice: VoiceSettings = field(default_factory=VoiceSettings)
 
     @property
     def is_production(self) -> bool:
@@ -48,6 +73,13 @@ class Settings:
             raise ConfigError("llm.max_tokens must be positive")
         if self.llm.timeout <= 0:
             raise ConfigError("llm.timeout must be positive")
+        v = self.voice
+        if min(v.sample_rate, v.max_record_seconds, v.silence_seconds, v.timeout) <= 0:
+            raise ConfigError("voice.sample_rate/max_record_seconds/silence_seconds/timeout must be positive")
+        if v.silence_threshold < 0:
+            raise ConfigError("voice.silence_threshold must be >= 0")
+        if not v.wake_word.strip():
+            raise ConfigError("voice.wake_word must not be empty")
         return self
 
 
@@ -79,6 +111,21 @@ def _apply(base: Any, data: Mapping[str, Any], prefix: str = "") -> Any:
     return replace(base, **updates)
 
 
+def _apply_env(settings: Settings, env: Mapping[str, str]) -> Settings:
+    """JARVIS_<FIELD> for top-level fields, JARVIS_<SECTION>_<FIELD> for nested sections."""
+    data: dict[str, Any] = {}
+    for f in fields(settings):
+        value = getattr(settings, f.name)
+        if is_dataclass(value):
+            section = {sf.name: env[f"JARVIS_{f.name}_{sf.name}".upper()]
+                       for sf in fields(value) if f"JARVIS_{f.name}_{sf.name}".upper() in env}
+            if section:
+                data[f.name] = section
+        elif f"JARVIS_{f.name}".upper() in env:
+            data[f.name] = env[f"JARVIS_{f.name}".upper()]
+    return _apply(settings, data) if data else settings
+
+
 def load_settings(path: str | Path | None = None, env: Mapping[str, str] | None = None) -> Settings:
     """Build Settings. `env` defaults to os.environ (injectable for tests)."""
     env = os.environ if env is None else env
@@ -96,19 +143,13 @@ def load_settings(path: str | Path | None = None, env: Mapping[str, str] | None 
             raise ConfigError(f"cannot read config {p}: {exc}") from exc
         settings = _apply(settings, data)
 
-    top = {"MODE": "mode", "LOG_LEVEL": "log_level", "LOG_DIR": "log_dir", "WORKSPACE": "workspace"}
-    llm = {"PROVIDER": "provider", "MODEL": "model", "TEMPERATURE": "temperature",
-           "MAX_TOKENS": "max_tokens", "TIMEOUT": "timeout", "BASE_URL": "base_url"}
-    top_data = {v: env[f"JARVIS_{k}"] for k, v in top.items() if f"JARVIS_{k}" in env}
-    llm_data = {v: env[f"JARVIS_LLM_{k}"] for k, v in llm.items() if f"JARVIS_LLM_{k}" in env}
-    if top_data:
-        settings = _apply(settings, top_data)
-    if llm_data:
-        settings = _apply(settings, {"llm": llm_data})
+    settings = _apply_env(settings, env)
 
-    # API keys: provider-specific env var, or generic JARVIS_LLM_API_KEY.
-    key_var = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}.get(settings.llm.provider)
-    api_key = env.get("JARVIS_LLM_API_KEY") or (env.get(key_var) if key_var else None)
-    if api_key:
-        settings = replace(settings, llm=replace(settings.llm, api_key=api_key))
+    # API keys: provider-specific env var unless an explicit JARVIS_*_API_KEY was given.
+    llm_key_var = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}.get(settings.llm.provider)
+    if settings.llm.api_key is None and llm_key_var and env.get(llm_key_var):
+        settings = replace(settings, llm=replace(settings.llm, api_key=env[llm_key_var]))
+    if settings.voice.api_key is None and env.get("OPENAI_API_KEY") and "openai" in (
+            settings.voice.stt_provider, settings.voice.tts_provider):
+        settings = replace(settings, voice=replace(settings.voice, api_key=env["OPENAI_API_KEY"]))
     return settings.validate()

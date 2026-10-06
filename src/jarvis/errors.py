@@ -32,3 +32,23 @@ class ToolError(JarvisError):
 
 class PermissionDeniedError(JarvisError):
     """Action blocked by the permission system."""
+
+
+class VoiceError(JarvisError):
+    """Base class for voice-interface problems."""
+
+
+class VoiceUnavailableError(VoiceError):
+    """Audio hardware, backend library or system tool is missing."""
+
+
+class STTError(VoiceError):
+    """Speech-to-text failure."""
+
+
+class TTSError(VoiceError):
+    """Text-to-speech failure."""
+
+
+class EndOfInput(VoiceError):
+    """The audio/text source is exhausted; the voice session ends cleanly."""

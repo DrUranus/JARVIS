@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+voice = ["sounddevice>=0.4"]   # microphone capture (needs the PortAudio system library)
 
 [project.scripts]
 jarvis = "jarvis.interface.cli:main"

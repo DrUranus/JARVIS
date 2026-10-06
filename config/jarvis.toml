@@ -11,3 +11,23 @@ model = "mock-1"
 temperature = 0.2
 max_tokens = 1024
 timeout = 60
+
+[voice]
+# console = hardware-free simulation (typed lines are "speech", output is printed). Works everywhere.
+stt_provider = "console"    # console | mock | openai
+tts_provider = "console"    # console | mock | system | openai
+audio_input = "sounddevice" # microphone backend for non-console STT
+audio_output = "system"     # playback backend for openai TTS (system | null)
+language = "de"
+wake_word = "jarvis"
+require_wake_word = false   # true: only react to utterances starting with the wake word
+speak_responses = true
+sample_rate = 16000
+max_record_seconds = 15.0
+silence_seconds = 1.0       # silence that ends an utterance
+silence_threshold = 500     # RMS level counted as speech
+stt_model = "whisper-1"
+tts_model = "tts-1"
+tts_voice = "alloy"
+# tts_command = "espeak-ng -v de"   # override for tts_provider = "system"
+# API key: OPENAI_API_KEY or JARVIS_VOICE_API_KEY (environment only)
