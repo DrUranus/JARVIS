@@ -1,6 +1,8 @@
 """Conversation context with a bounded history window."""
 from __future__ import annotations
 
+from typing import Sequence
+
 from jarvis.llm.base import Message
 
 SYSTEM_PROMPT = (
@@ -27,8 +29,10 @@ class Context:
         if len(self._history) > self.max_messages:
             self._history = self._history[-self.max_messages:]
 
-    def build(self) -> list[Message]:
-        return [Message.system(self.system_prompt), *self._history]
+    def build(self, extra_system: Sequence[str] = ()) -> list[Message]:
+        """System prompt, optional per-request system notes (e.g. relevant memories), then the history.
+        Notes are temporary: they are not added to the history."""
+        return [Message.system(self.system_prompt), *(Message.system(t) for t in extra_system), *self._history]
 
     def pop_last_user(self) -> None:
         if self._history and self._history[-1].role.value == "user":

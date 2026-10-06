@@ -5,3 +5,5 @@ __pycache__/
 logs/*.log
 .env
 jarvis.local.toml
+data/
+*.db

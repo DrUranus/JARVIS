@@ -48,6 +48,19 @@ class VoiceSettings:
 
 
 @dataclass(frozen=True)
+class MemorySettings:
+    """Persistent long-term memory. Local only; nothing is sent anywhere by the memory module itself."""
+    enabled: bool = True
+    backend: str = "sqlite"            # sqlite | memory (non-persistent, mainly for tests)
+    path: str = "data/memory.db"       # sqlite file; created on first write
+    max_relevant: int = 5              # max memories retrieved per request (0 = no automatic retrieval)
+    recent_limit: int = 10             # default size of "recent memories" listings
+    max_content_length: int = 2000     # characters per entry
+    max_entries: int = 10000           # 0 = unlimited
+    use_in_prompts: bool = False       # privacy: relevant memories are sent to the LLM only if true
+
+
+@dataclass(frozen=True)
 class Settings:
     mode: str = "development"
     log_level: str | None = None
@@ -55,6 +68,7 @@ class Settings:
     workspace: str = "workspace"
     llm: LLMSettings = field(default_factory=LLMSettings)
     voice: VoiceSettings = field(default_factory=VoiceSettings)
+    memory: MemorySettings = field(default_factory=MemorySettings)
 
     @property
     def is_production(self) -> bool:
@@ -80,6 +94,15 @@ class Settings:
             raise ConfigError("voice.silence_threshold must be >= 0")
         if not v.wake_word.strip():
             raise ConfigError("voice.wake_word must not be empty")
+        m = self.memory
+        if not m.backend.strip():
+            raise ConfigError("memory.backend must not be empty")
+        if m.backend.lower() == "sqlite" and not m.path.strip():
+            raise ConfigError("memory.path must not be empty for the sqlite backend")
+        if m.max_relevant < 0 or m.max_entries < 0:
+            raise ConfigError("memory.max_relevant/max_entries must be >= 0")
+        if m.recent_limit <= 0 or m.max_content_length <= 0:
+            raise ConfigError("memory.recent_limit/max_content_length must be positive")
         return self
 
 

@@ -3,9 +3,9 @@
 Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer Agent, dem man ein Ziel nennt und der selbstständig
 **denkt → plant → recherchiert → programmiert → handelt → testet → repariert → lernt → neue Fähigkeiten entwickelt**.
 
-**Status: Phase 1 (Core MVP) und Phase 2 (Voice Interface) abgeschlossen.** JARVIS führt Pläne noch nicht autonom aus – Architektur und Schnittstellen dafür stehen.
+**Status: Phase 1 (Core MVP), Phase 2 (Voice Interface) und Phase 3 (Memory) abgeschlossen.** JARVIS führt Pläne noch nicht autonom aus – Architektur und Schnittstellen dafür stehen.
 
-## Was bisher funktioniert (Phase 1 + 2)
+## Was bisher funktioniert (Phase 1–3)
 
 - Konfiguration (Defaults < TOML < Umgebungsvariablen), Dev-/Produktionsmodus, Logging, Fehlerhierarchie
 - LLM-Abstraktion: `mock` (offline), `openai`, `anthropic` – austauschbar per Konfiguration
@@ -14,6 +14,7 @@ Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer A
 - Tool-System: Registry, dynamische Registrierung, fehlerisolierte Ausführung, Permission-Level
 - Planner: Ziel → Task mit Subtasks (LLM-JSON, mit Template-Fallback, damit nie „zu komplex“ zurückkommt)
 - CLI (`jarvis>`)
+- **Memory (Phase 3):** persistentes lokales Langzeitgedächtnis (SQLite) hinter der Schnittstelle `MemoryStore`, mit Secret-Schutz; gemerkt wird nur auf ausdrücklichen Wunsch
 - **Voice (Phase 2):** Speech-to-Text → `JarvisCore.handle` → Text-to-Speech als zusätzliche Oberfläche, mit Wake-Word, Exit-Phrasen und Fallback bei fehlender Hardware
 
 ## Installation
@@ -108,10 +109,70 @@ Eigenen Anbieter hinzufügen: `STTProvider`/`TTSProvider` implementieren und per
 - STT-Fehler → Schleife läuft weiter; nach 3 Fehlern in Folge wird der Sprachmodus beendet. Mikrofonausfall beendet ihn sofort, mit Meldung.
 - Pläne werden gesprochen nur zusammengefasst („Plan mit 6 Schritten …“), der volle Plan steht auf dem Bildschirm.
 
+## Memory (Phase 3)
+
+```
+Core ──▶ MemoryStore (Interface) ◀── GuardedMemoryStore (Secret-Filter, Limits) ◀── SqliteMemoryStore | InMemoryStore | (künftig: Vektor/…)
+  │
+  └─ MemoryExtractor (RuleBasedExtractor): erkennt „Merk dir …“ / „Woran erinnerst du dich?“ / „Vergiss …“
+```
+
+**Temporär vs. dauerhaft.** Der Gesprächsverlauf (`Context`) bleibt flüchtig. Dauerhaft wird nur gespeichert, was der Nutzer ausdrücklich verlangt
+(„Merk dir, dass …“, `/remember …`) oder was Code bewusst über die API speichert (`core.remember(...)`, später z. B. Task-Ergebnisse oder Agenten).
+Es gibt keine automatische Extraktion; die Extraktionslogik steht hinter `MemoryExtractor` und ist austauschbar.
+
+**Datenmodell** (`MemoryEntry`): `id` (12 Hex), `content`, `type` (`preference`, `fact`, `project`, `goal`, `decision`, `task_result`,
+`conversation`, `system`, `resource`), `importance` (1–10, 10 = wichtigst), `tags`, `source` (z. B. `user`, `agent:research`),
+`metadata` (JSON, z. B. Dateipfade), `created_at`, `updated_at`.
+
+**Schnittstelle** (`MemoryStore`): `add`, `get`, `search`, `update`, `delete`, `recent` (auch paginiert/gefiltert), `count`, `close`.
+Fehler sind immer `MemoryStoreError`-Unterklassen (`MemoryValidationError`, `SecretRejectedError`, `MemoryNotFoundError`, `MemoryLimitError`, `MemoryDisabledError`).
+
+**Suche** (`ranking.py`): Schlüsselwörter, ohne Stoppwörter, Teilstring-Treffer („Farbe“ findet „Lieblingsfarbe“), Rang nach Trefferanteil, Tag-Bonus,
+Wichtigkeit, Aktualität. Treffer liefern `MemoryHit(entry, score)`; ein späteres semantisches Backend ersetzt nur die Bewertung.
+
+**Dialog und CLI**
+| Eingabe | Wirkung |
+|---|---|
+| „Merk dir, dass meine Lieblingsfarbe blau ist“ / `/remember …` | speichert (Typ wird per Schlüsselwörtern geschätzt; „wichtig“ → Wichtigkeit 8) |
+| „Woran erinnerst du dich?“, „Was weißt du über mich?“ / `/memory [suche]` | listet neueste bzw. passende Erinnerungen |
+| „Vergiss `<id>`“ / `/forget <id>` | löscht genau diese Erinnerung |
+| „Vergiss dass ich Kaffee mag“ | listet nur Kandidaten mit IDs – **unscharfe Treffer löschen nie** |
+
+Diese Anfragen werden lokal bearbeitet, gehen nie an das LLM und landen nicht im Gesprächsverlauf. Bewusst eng gefasst: „Was weißt du über Quantenphysik?“ bleibt eine normale LLM-Frage.
+
+### Konfiguration `[memory]`
+
+| Schlüssel / Variable | Default | Bedeutung |
+|---|---|---|
+| `enabled` / `JARVIS_MEMORY_ENABLED` | `true` | `false` → `NullMemoryStore`: Lesen leer, „Merk dir“ antwortet „deaktiviert“ |
+| `backend` / `JARVIS_MEMORY_BACKEND` | `sqlite` | `sqlite` oder `memory` (nicht persistent); eigene via `register_backend` |
+| `path` / `JARVIS_MEMORY_PATH` | `data/memory.db` | wird beim ersten Schreiben samt Ordner angelegt; `~` wird aufgelöst |
+| `max_relevant` / `JARVIS_MEMORY_MAX_RELEVANT` | `5` | max. Erinnerungen pro Anfrage (`0` = keine automatische Nutzung) |
+| `recent_limit` | `10` | Standardgröße von „neueste“-Listen |
+| `max_content_length` | `2000` | Zeichen pro Eintrag (harte Obergrenze 10 000) |
+| `max_entries` | `10000` | `0` = unbegrenzt; danach `MemoryLimitError` |
+| `use_in_prompts` / `JARVIS_MEMORY_USE_IN_PROMPTS` | `false` | **Datenschutz-Schalter**, siehe unten |
+
+### Datenschutz und Sicherheit
+- **Lokal:** Das Memory-Paket sendet nichts. Die Datenbank liegt in `data/` (git-ignoriert).
+- **`use_in_prompts`:** Nur wenn `true`, werden zur Anfrage passende Erinnerungen als temporäre System-Notiz an das LLM (und den Planner) angehängt – bei
+  `openai`/`anthropic` verlassen sie dann den Rechner. Deshalb standardmäßig aus; die Notiz wird nicht im Verlauf gespeichert und die Erinnerungen werden als Daten, nicht als Anweisungen markiert.
+- **Secrets werden nie gespeichert** (`SecretGuard`, Pflicht-Schicht von `create_memory`): bekannte Schlüsselformate (`sk-…`, `ghp_…`, AWS, Slack, Google, JWT, PEM-Keys),
+  Aussagen wie „Passwort ist …“/`api_key=…`/`token: …`, Zugangsdaten in URLs, lange Zufallstokens sowie die **exakten Werte** der laufenden Konfiguration
+  (`llm.api_key`, `voice.api_key`) und aller Umgebungsvariablen mit `KEY/SECRET/TOKEN/PASSWORD` im Namen. Geprüft werden Inhalt, Tags, Quelle und Metadaten, bei `add` und `update`.
+  Der Fehler nennt nie den Wert. Konservativ: lieber ein Fehlalarm („Mein Passwort ist sicher“) als ein gespeichertes Geheimnis.
+- **SQL:** ausschließlich parametrisierte Abfragen; LIKE-Wildcards in Suchbegriffen werden maskiert.
+- **Robustheit:** fehlende DB → leere Ergebnisse ohne Anlegen einer Datei; leere Datei → Schema wird angelegt; beschädigte oder neuere Datenbank → `MemoryStoreError`, Datei bleibt unangetastet; Memory-Fehler brechen nie den normalen Dialog (nur ausdrückliche Memory-Anfragen melden sie).
+
+### Memory aus anderen Modulen nutzen
+Künftige Agenten/Tools bekommen ein `MemoryStore` injiziert (z. B. `core.memory`) und rufen `add(..., type="task_result", source="agent:coding", metadata={"path": ...})`,
+`search`, `recent`. Sie hängen nur von `jarvis.memory.base`/`models` ab, nie von SQLite.
+
 ## Tests & Entwicklungsworkflow
 
 ```bash
-pytest            # 105 Tests: config, llm, tasks, tools, planner, core, e2e, CLI, voice (ohne Mikrofon/Netzwerk)
+pytest            # 339 Tests: config, llm, tasks, tools, planner, core, e2e, CLI, voice, memory (ohne Mikrofon/Netzwerk, temporäre DBs)
 ```
 Workflow: Schnittstelle in `base.py` definieren → Implementierung → Test mit `MockProvider` (kein Netzwerk nötig) → `pytest`.
 Verdrahtung ausschließlich in `jarvis/bootstrap.py` (Composition Root).
@@ -128,6 +189,7 @@ src/jarvis/
 ├── tasks/      Task, TaskStatus, TaskManager
 ├── tools/      Tool, ToolRegistry, builtin/
 ├── permissions/ GREEN / YELLOW / RED
+├── memory/     base (Interface) · models · validation · ranking · sqlite_store · inmemory · null · guard · guarded · extraction · factory
 ├── voice/      base (Interfaces) · session · factory · console · mock · devices · openai_provider · system_tts
 └── interface/  cli
 ```
@@ -136,6 +198,8 @@ User ─▶ CLI ─▶ JarvisCore ─┬─▶ Context ─▶ LLMProvider ─▶
                            └─▶ Planner ─▶ Task(+Subtasks) ─▶ TaskManager (PLAN)
                                   └─ kennt ToolRegistry
 ```
+Memory ist ein eigenständiges Paket ohne Abhängigkeit zu Core, Voice oder Agenten (per Test erzwungen); der Core bekommt nur ein `MemoryStore`-Objekt injiziert.
+
 Voice ist eine weitere Oberfläche *um* den Core (`Mikrofon → STT → handle(text) → Response → TTS`); der Core bleibt textbasiert und kennt Audio nicht.
 
 Abhängigkeiten zeigen nach innen: Core kennt nur Interfaces (`LLMProvider`, `Tool`), nie konkrete Anbieter.
@@ -156,14 +220,19 @@ Abhängigkeiten zeigen nach innen: Core kennt nur Interfaces (`LLMProvider`, `To
 12. **Optionale Hardware-Abhängigkeit, lazy importiert.** `sounddevice` ist ein Extra; fehlt es, entsteht `VoiceUnavailableError` statt eines Importfehlers. Weiterhin keine Pflicht-Abhängigkeiten.
 13. **Wake-Word auf Transkript-Basis.** Heißt: bei `require_wake_word` läuft das Mikrofon/STT dauerhaft (Kosten/Privatsphäre bei Cloud-STT). Ein lokaler Hotword-Detektor kann später als weiterer `AudioSource` ergänzt werden.
 14. **Konfiguration generisch:** Umgebungsvariablen `JARVIS_<SECTION>_<FIELD>` werden aus den Dataclasses abgeleitet; neue Abschnitte brauchen keine Verdrahtung.
-15. **Ordnerstruktur schlank gehalten:** Platzhalter-Pakete für künftige Module (agents, memory, …) werden erst mit ihrer Phase angelegt, nicht leer vorab.
+15. **Memory hinter `MemoryStore`, Richtlinien als Decorator.** Secret-Filter und Limits liegen in `GuardedMemoryStore`, nicht in den Backends; so gelten sie für jedes künftige Backend. Basisvalidierung (Typen, Längen) liegt gemeinsam in `validation.py`.
+16. **SQLite, stdlib, lazy.** Datei/Schema entstehen erst beim ersten Schreiben (`PRAGMA user_version` als Migrationsanker); Tags in eigener Tabelle für exakte Filter; keine ORM-/Treiberabhängigkeit.
+17. **Zwei Backends von Anfang an** (`sqlite`, `memory`) mit identischen Vertragstests – beweist, dass die Schnittstelle nicht an SQLite hängt.
+18. **Nur ausdrückliches Merken.** Zuverlässige automatische Extraktion braucht ein LLM/Bewertung (spätere Phase); bis dahin ist alles Dauerhafte eine bewusste Handlung.
+19. **Privacy-by-default:** Memory-Inhalte gehen nur mit `use_in_prompts = true` an ein LLM. Die Suche ist keyword-basiert – bewusst, damit auch ohne externe Dienste alles lokal bleibt.
+20. **Ordnerstruktur schlank gehalten:** Platzhalter-Pakete für künftige Module (agents, memory, …) werden erst mit ihrer Phase angelegt, nicht leer vorab.
 
 ## Vorbereitung für spätere Phasen
 
 | Phase | Anschlusspunkt |
 |---|---|
 | 2 Voice ✅ | `voice/` – siehe oben. Offen: Streaming-STT/TTS, Unterbrechen (barge-in), lokaler Hotword-Detektor |
-| 3 Memory | `Context` und `TaskManager` hinter Interfaces mit persistenter Implementierung austauschen; Voice nutzt nur `handle(text)` und profitiert automatisch |
+| 3 Memory ✅ | `jarvis/memory/`. Offen: semantische/Vektor-Suche (neues Backend, `MemoryHit.score` ist vorbereitet), persistente Tasks (`TaskManager` hinter Interface, Ergebnisse als `task_result`), automatische Extraktion, Zusammenfassung/Verfall alter Einträge |
 | 4–6 Computer/Browser/Coding | neue `Tool`-Klassen, Permission-Level pro Tool |
 | 7–8 Multi-Agent, Goal Engine | `Task.required_agents`/`subtasks` sind belegt; Executor-Schleife über Subtasks fehlt noch |
 | 9 Self-Repair | Task-Übergang `FAILED → PENDING` (Retry) existiert |
@@ -172,6 +241,6 @@ Abhängigkeiten zeigen nach innen: Core kennt nur Interfaces (`LLMProvider`, `To
 
 ## Zukünftige Phasen
 
-1 Core ✅ · 2 Voice ✅ · 3 Memory · 4 Computer Control · 5 Browser/Internet · 6 Coding Agent · 7 Multi-Agent · 8 Goal Engine ·
+1 Core ✅ · 2 Voice ✅ · 3 Memory ✅ · 4 Computer Control · 5 Browser/Internet · 6 Coding Agent · 7 Multi-Agent · 8 Goal Engine ·
 9 Self-Testing/Repair · 10 Business/Research/Finance · 11 GUI · 12 Smartphone · 13 Permissions/Security · 14 Maximum Autonomy · 15 Self-Improvement.
 Empfehlung für eine spätere Änderung: Permissions/Security (13) vor Computer Control (4) vorziehen, da Computersteuerung ohne belastbares Rechtesystem riskant ist.

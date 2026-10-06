@@ -10,6 +10,7 @@ from jarvis.bootstrap import build_core, build_voice_session
 from jarvis.config import load_settings
 from jarvis.config import Settings
 from jarvis.core import JarvisCore
+from jarvis.core.core import format_entries
 from jarvis.errors import JarvisError, VoiceError
 
 HELP = """Befehle:
@@ -17,6 +18,9 @@ HELP = """Befehle:
   /tasks         Offene Tasks anzeigen
   /tools         Registrierte Tools anzeigen
   /reset         Gesprächskontext löschen
+  /remember <t>  Etwas dauerhaft merken
+  /memory [q]    Erinnerungen suchen / neueste anzeigen
+  /forget <id>   Erinnerung löschen
   /voice         Sprachmodus starten (zurück mit „exit“)
   /help          Diese Hilfe
   /exit          Beenden"""
@@ -43,6 +47,18 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
     if cmd == "/reset":
         core.context.clear()
         return "Kontext gelöscht."
+    if cmd == "/remember":
+        if not arg:
+            return "Verwendung: /remember <text>"
+        r = core.handle("Merk dir: " + arg)
+        return r.text
+    if cmd == "/memory":
+        found = core.recall(arg)
+        return format_entries(found) if found else "Keine Erinnerungen gefunden."
+    if cmd == "/forget":
+        if not arg:
+            return "Verwendung: /forget <id>"
+        return f"Erinnerung {arg} gelöscht." if core.forget(arg) else f"Keine Erinnerung mit der ID {arg}."
     if cmd == "/voice":
         return _voice(core, settings, output_fn, input_fn)
     if cmd == "/plan":

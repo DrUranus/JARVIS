@@ -73,7 +73,7 @@ class Planner:
             })
         return out
 
-    def plan(self, goal: str, priority: int = 5) -> Task:
+    def plan(self, goal: str, priority: int = 5, context: str = "") -> Task:
         goal = goal.strip()
         if not goal:
             raise PlanningError("cannot plan an empty goal")
@@ -83,6 +83,8 @@ class Planner:
         used_fallback = False
         try:
             system = PLAN_PROMPT.format(tools=", ".join(self._tools.names()) or "none")
+            if context:
+                system += "\n\n" + context
             reply = self._provider.complete(
                 LLMRequest([Message.system(system), Message.user(goal)])
             ).content

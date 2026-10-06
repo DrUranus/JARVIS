@@ -31,3 +31,13 @@ tts_model = "tts-1"
 tts_voice = "alloy"
 # tts_command = "espeak-ng -v de"   # override for tts_provider = "system"
 # API key: OPENAI_API_KEY or JARVIS_VOICE_API_KEY (environment only)
+
+[memory]
+enabled = true
+backend = "sqlite"          # sqlite | memory (non-persistent)
+path = "data/memory.db"     # created on first write; stays on this machine
+max_relevant = 5            # memories retrieved per request (0 = none)
+recent_limit = 10
+max_content_length = 2000
+max_entries = 10000         # 0 = unlimited
+use_in_prompts = false      # true = relevant memories are added to LLM prompts (sent to the provider if it is remote!)
