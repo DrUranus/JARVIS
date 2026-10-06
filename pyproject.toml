@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+computer = ["pyautogui>=0.9.54", "mss>=9.0", "python-xlib>=0.33; sys_platform != 'win32'"]  # mouse/keyboard/screenshots
 voice = ["sounddevice>=0.4"]   # microphone capture (needs the PortAudio system library)
 
 [project.scripts]

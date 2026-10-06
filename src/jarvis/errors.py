@@ -88,3 +88,7 @@ class MemoryDisabledError(MemoryStoreError):
 
 class MemoryLimitError(MemoryStoreError):
     """A configured memory limit (e.g. max_entries) was reached."""
+
+
+class ComputerControlError(JarvisError):
+    """Base class for computer-control problems (see jarvis.computer.errors for the structured subclass)."""

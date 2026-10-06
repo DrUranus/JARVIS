@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 
-from typing import Sequence
+from typing import Any, Sequence
 
 from jarvis.errors import JarvisError, MemoryDisabledError, MemoryStoreError, SecretRejectedError
 from jarvis.core.context import Context
@@ -91,6 +91,9 @@ class JarvisCore:
         self.extractor = extractor or RuleBasedExtractor()
         self.memory_limit = memory_limit
         self.use_memory_in_prompts = use_memory_in_prompts
+        # Optional capabilities plugged in by the composition root (computer control, later browser/vision agents).
+        # The Core treats them as opaque: it never imports them and never calls into them.
+        self.subsystems: dict[str, Any] = {}
 
     @property
     def permissions(self):

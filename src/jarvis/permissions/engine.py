@@ -37,6 +37,9 @@ CONSEQUENTIAL_VERBS = frozenset({
     "append", "truncate", "chmod", "chown", "mkdir", "rmdir", "execute", "exec", "shell", "spawn", "kill",
     "install", "uninstall", "send", "post", "publish", "upload", "pay", "spend", "purchase", "buy", "order",
     "book", "transfer", "sign", "submit", "push", "deploy", "format", "wipe", "drop",
+    # input / UI automation (Phase 4): anything that acts on a screen, window or application is never GREEN
+    "click", "type", "press", "hotkey", "scroll", "drag", "focus", "minimize", "maximize", "restore", "close",
+    "launch", "save",
 })
 _SPLIT = re.compile(r"[._:\-/]+")
 APPROVAL_TTL_SECONDS = 60.0
@@ -160,7 +163,8 @@ class PermissionEngine:
         escalated = f" (action {request.action!r} implies at least {floor.value.upper()})" if level is not request.level else ""
 
         if level is Level.RED:
-            return _Eval(self._deny(DecisionStatus.DENIED, "RED actions are never permitted", request, level=level,
+            why = f": {request.reason}" if request.reason else ""  # the tool's explanation (redacted by _deny)
+            return _Eval(self._deny(DecisionStatus.DENIED, f"RED actions are never permitted{why}", request, level=level,
                                     rule="invariant:red"), level)
         if self._mode is PermissionMode.LOCKDOWN and level is not Level.GREEN:
             return _Eval(self._deny(DecisionStatus.DENIED, "lockdown mode: only GREEN actions are permitted",

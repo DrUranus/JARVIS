@@ -56,3 +56,24 @@ audit_path = ""             # "" = <log_dir>/audit.jsonl
 audit_strict = true         # audit log unwritable -> non-GREEN actions are denied
 audit_green = false         # also log automatic GREEN approvals (verbose)
 # RED actions are never permitted; there is deliberately no setting that changes that.
+
+[computer]
+# Computer control is OFF by default. Enable it deliberately; every action still goes through the permission engine.
+enabled = false
+backend = "auto"            # auto (windows on Windows, x11 elsewhere) | windows | x11 | fake
+default_monitor = 0         # 0 = primary monitor
+screenshot_max_items = 3    # screenshots stay in memory only; saving to disk is an explicit, confirmed action
+max_text_length = 500
+type_interval = 0.02
+max_scroll = 20
+max_actions_per_minute = 120
+show_text_preview = true    # show the beginning of text to be typed in the confirmation prompt (never logged)
+confirm_keyboard_each_time = true
+confirm_window_close_each_time = true
+use_default_apps = true     # Notepad/Calculator/Paint aliases on Windows
+allow_unlisted_apps = false # true: absolute .exe paths may be launched (still confirmed and filtered)
+blocked_processes = ["explorer.exe"]  # extra processes that receive no input (built-in: terminals, shells, security tools...)
+blocked_titles = []
+# Application aliases: only these can be launched (unless allow_unlisted_apps). Terminals/shells/script hosts are always refused.
+# [computer.apps]
+# notepad = "%SystemRoot%\\System32\\notepad.exe"

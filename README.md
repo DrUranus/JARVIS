@@ -3,9 +3,9 @@
 Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer Agent, dem man ein Ziel nennt und der selbstständig
 **denkt → plant → recherchiert → programmiert → handelt → testet → repariert → lernt → neue Fähigkeiten entwickelt**.
 
-**Status: Phase 1 (Core MVP), Phase 2 (Voice Interface), Phase 3 (Memory) und Phase 13 (Permissions & Security, vorgezogen) abgeschlossen.** JARVIS führt Pläne noch nicht autonom aus – Architektur und Schnittstellen dafür stehen.
+**Status: Phase 1 (Core MVP), Phase 2 (Voice), Phase 3 (Memory), Phase 13 (Permissions & Security, vorgezogen) und Phase 4 (Computer Control) abgeschlossen.** JARVIS führt Pläne noch nicht autonom aus – Architektur und Schnittstellen dafür stehen.
 
-## Was bisher funktioniert (Phase 1–3, 13)
+## Was bisher funktioniert (Phase 1–4, 13)
 
 - Konfiguration (Defaults < TOML < Umgebungsvariablen), Dev-/Produktionsmodus, Logging, Fehlerhierarchie
 - LLM-Abstraktion: `mock` (offline), `openai`, `anthropic` – austauschbar per Konfiguration
@@ -14,6 +14,7 @@ Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer A
 - Tool-System: Registry, dynamische Registrierung, fehlerisolierte Ausführung, Permission-Level
 - Planner: Ziel → Task mit Subtasks (LLM-JSON, mit Template-Fallback, damit nie „zu komplex“ zurückkommt)
 - CLI (`jarvis>`)
+- **Computer Control (Phase 4):** Bildschirm, Maus, Tastatur, Fenster und Anwendungen als `ProtectedTool`s – jede Aktion läuft durch die Berechtigungs-Engine; opt-in, Windows-first (`pyautogui` + `mss` + Win32 über `ctypes`), austauschbare Provider
 - **Permissions & Security (Phase 13):** Jede Tool-Ausführung läuft durch eine Berechtigungs-Engine (GREEN/YELLOW/RED, Regeln, Bestätigung, Pfad-Sicherheit, Audit-Log, Secret-Schutz) und schlägt im Zweifel fehl (fail closed)
 - **Memory (Phase 3):** persistentes lokales Langzeitgedächtnis (SQLite) hinter der Schnittstelle `MemoryStore`, mit Secret-Schutz; gemerkt wird nur auf ausdrücklichen Wunsch
 - **Voice (Phase 2):** Speech-to-Text → `JarvisCore.handle` → Text-to-Speech als zusätzliche Oberfläche, mit Wake-Word, Exit-Phrasen und Fallback bei fehlender Hardware
@@ -266,10 +267,100 @@ Dateipfade immer über `current_grant().resource` (den freigegebenen echten Pfad
 - Die CLI-Bestätigung blockiert ohne Zeitlimit. Der Gesprächsverlauf mit Secrets, die der Nutzer selbst tippt, geht weiterhin an das LLM (nicht Teil dieser Phase).
 - `PermissionEngine.legacy()` (für ein nacktes `ToolRegistry()`, Phase-1-Kompatibilität) ist locker: nicht deklarierte Tools GREEN, `confirmed=True` des Aufrufers gilt. Die Anwendung, `JarvisCore` und `Planner` verwenden strikte Registries (per Test erzwungen).
 
+## Computer Control (Phase 4)
+
+JARVIS kann – **nur wenn du es aktivierst** – Bildschirm, Maus, Tastatur, Fenster und Anwendungen bedienen. Alles läuft durch die bestehende
+Berechtigungs-Engine aus Phase 13; es gibt kein zweites Rechtesystem und keine Abkürzung.
+
+```
+Voice/CLI/GUI → Core → Planner/Tasks → Tool (screen, mouse, keyboard, window, app, screen_save) → ToolRegistry
+              → PermissionEngine → Policy / Bestätigung → ComputerController → Provider → Windows (oder X11) → PC
+```
+Der Core importiert weder `jarvis.computer` noch eine Automationsbibliothek (per Test erzwungen). `bootstrap` baut ein *Subsystem*
+(Tools in der Registry + Sicherheitsregeln in der Engine), das der Core nur als opaken Eintrag in `core.subsystems` hält.
+
+### Einrichtung (Windows)
+```powershell
+pip install -e ".[computer]"                     # pyautogui + mss (optional; JARVIS startet auch ohne)
+$env:JARVIS_COMPUTER_ENABLED = "true"            # oder in config/jarvis.toml: [computer] enabled = true
+jarvis                                           # /computer zeigt Status; /run screen action=monitors
+```
+Ohne Bibliothek, ohne Display oder auf einem anderen System bleibt Computer Control **ausgeschaltet** und `/computer` nennt den Grund
+(`nicht verfügbar – [no_display] …`); JARVIS und die CLI laufen normal weiter. Anwendungen müssen als Alias freigegeben werden:
+```toml
+[computer.apps]
+notepad = "%SystemRoot%\\System32\\notepad.exe"     # unter Windows sind Notepad/Rechner/Paint standardmäßig dabei
+```
+Linux/Entwicklung: Backend `x11` (benötigt X11, `python-xlib` und `python3-tk`, weil `pyautogui` sonst beim Import beendet; JARVIS fängt das ab).
+Backend `fake` simuliert einen kleinen Desktop ohne Hardware (`JARVIS_COMPUTER_BACKEND=fake`).
+
+### Werkzeuge
+| Tool | Level | Aktionen | Ressource (was die Engine sieht) |
+|---|---|---|---|
+| `screen` | GREEN | `monitors`, `screenshot` (`monitor=0|all`), `compare` (`a`,`b`), `windows`, `active_window`, `cursor`, `forget` | `screen://monitor/0`, `screen://all`, `screen://windows`, … |
+| `screen_save` | YELLOW | Screenshot (`id`) als `.png` in einen erlaubten Ordner schreiben | echter Pfad (PathGuard), nie überschreiben |
+| `mouse` | YELLOW | `move`, `click`, `double_click`, `right_click`, `scroll` (`x`,`y`,`monitor`,`amount`) | `screen://monitor/0/120/340` |
+| `keyboard` | YELLOW (immer gefragt) | `press` (`key`), `hotkey` (`keys=ctrl+s`), `type` (`text`) | `keyboard://key/ENTER@notepad.exe`, `keyboard://hotkey/CTRL+S@…`, `keyboard://text@notepad.exe` (**nie der Text**) |
+| `window` | YELLOW (`close` immer gefragt) | `focus`, `minimize`, `maximize`, `restore`, `close` (`handle`) | `window://66012/notepad.exe` |
+| `app` | YELLOW | Alias starten (`app`, `args`) | `app://C:/Windows/System32/notepad.exe` (+ `?args=<digest>`) |
+
+Aufruf von Hand: `/run mouse action=click x=100 y=200`, `/run keyboard action=type text="Hallo"`, `/run app app=notepad`.
+Koordinaten sind **monitor-relativ**; Monitor 0 ist der primäre. Eine Policy-Regel kann die URIs mit Globs treffen, z. B. `resources = ["keyboard://*@notepad.exe"]`.
+
+### Sicherheitsmodell
+- **Konservative Klassifikation:** Beobachten ist GREEN; jedes Handeln (auch `move`/`scroll`/`focus`) ist mindestens YELLOW und wird bestätigt. Die Engine hebt Aktionen wie `click`, `type`, `close`, `launch` zusätzlich selbst auf YELLOW, egal was ein Tool behauptet.
+- **RED (immer abgelehnt, nicht konfigurierbar):** Terminals/Shells/Skript-Hosts/System- und Sicherheitswerkzeuge (cmd, PowerShell, wscript, python, regedit, Task-Manager, Windows Security …) als Eingabeziel, zu startendes Programm oder zu schließendes Fenster; Windows-Taste und `Strg+Alt+Entf`/`Strg+Umschalt+Esc`/`Strg+Esc`; nicht freigegebene Anwendungen; Desktop-Shell, Systemprozesse und JARVIS' eigenes Fenster beim Schließen. Die Konfiguration kann diese Listen nur **erweitern** (`blocked_processes`, `blocked_titles`; Standard: `explorer.exe`). RED-Anfragen werden im Audit-Log mit Grund festgehalten.
+- **Immer fragen:** Baseline-Regeln (`computer-baseline-*`, sichtbar in `/permissions`) erzwingen die Rückfrage bei jeder Tastatureingabe und jedem Schließen eines Fensters, ohne Sitzungsfreigabe; eine `allow`-Regel schaltet das nicht ab (confirm schlägt allow), nur die Config-Schalter `confirm_keyboard_each_time` / `confirm_window_close_each_time`.
+- **Zielbindung:** Tastatureingaben gehen nur an das *aktive, inspizierte* Fenster; Prozess steht in der Ressource. Direkt vor dem Tippen/Klicken wird erneut geprüft: ist das Fenster inzwischen ein Terminal oder ein anderes (Fokus wechselte, während du den Prompt gelesen hast) oder hat sich die Bildschirmgröße geändert → `target_changed`/`blocked_target`, es passiert nichts.
+- **Der Controller verlangt selbst einen Grant:** `ComputerController.execute` läuft nur mit einem von der Engine ausgestellten, einmaligen `ExecutionGrant`, der zu *Tool, Aktion und Ressource* passt. Pläne sind HMAC-signiert (Tool, Aktion, Ressource, Level, Grund, Kontext, Ausführungsfunktion): verändert, handgebaut oder vertauscht → `not_authorized`. Es gibt kein `confirmed=`/`force=` – weder an Tools noch am Controller. Provider sind privat im Controller; `register_computer_tools` lehnt lockere Registries ab.
+- **Notaus:** `/computer stop` (setzt per `/computer resume` fort), außerdem `pyautogui`-Fail-Safe: Mauszeiger in eine Bildschirmecke bricht jede Eingabe ab (`failsafe`). Zusätzlich Limit `max_actions_per_minute` (120) und serielle Ausführung (eine Maus, eine Tastatur).
+- **Prompt-Ehrlichkeit:** Fenstertitel/Programmnamen werden von Steuer- und Formatzeichen bereinigt und in Anführungszeichen gesetzt (kein Fälschen von „Risiko: GREEN“-Zeilen); Secrets darin werden geschwärzt.
+
+### Datenschutz
+- **Screenshots** bleiben im Arbeitsspeicher (`screenshot_max_items`, begrenzt), werden nie automatisch gespeichert und nie gesendet (das Paket enthält keinen Netzwerkcode – per AST-Test). Tool-Ergebnisse, Logs und `repr` enthalten nur Metadaten (id, Größe, gekürzter Hash). Speichern ist `screen_save`: bestätigt, nur in erlaubte Ordner, nie überschreibend, Dateirechte 0600.
+- **Getippter Text** steht nie in Ressource, Audit-Log, Logs, Fehlermeldungen oder `repr`. Im Audit steht `keyboard.type` auf `keyboard://text@notepad.exe`. Nur der Bestätigungsprompt zeigt eine Vorschau der ersten 40 Zeichen (Secrets geschwärzt; abschaltbar mit `show_text_preview = false`).
+- Gestartete Programme erben **keine** Umgebungsvariablen mit `KEY/SECRET/TOKEN/PASSWORD` im Namen.
+
+### Anwendungen starten – keine Shell
+`app` löst einen **Alias aus `computer.apps`** zum echten Pfad (Symlinks aufgelöst, muss existieren und ausführbar sein) auf; dieser Pfad ist die Ressource, die die Engine sieht. Gestartet wird mit `subprocess.Popen([exe, *args], shell=False)`: Argumente sind eine Liste, jede Zeichenkette (`&& calc`, `$(id)`, `%PATH%`) kommt wörtlich als *ein* Argument an. Ein Alias-Wert ist ein Pfad, nie eine Kommandozeile. Argumente sind per Digest in der Ressource gebunden (eine Sitzungsfreigabe für `notepad` gilt nicht für `notepad <Datei>`). `allow_unlisted_apps = true` erlaubt zusätzlich absolute `.exe`-Pfade (weiter bestätigt, weiter gefiltert).
+
+### Beobachten → handeln → prüfen
+`screen action=screenshot` → Aktion → `screen action=screenshot` → `screen action=compare a=… b=…` liefert Anteil und Bereich der geänderten Pixel; `jarvis.computer.verify_change(before, after, expect_change=…)` ist der abhängigkeitsfreie Verifikationsschritt. Für einen späteren Vision-Agenten gibt es `ImageObserver.observe(screenshot, instruction)`: er bekommt das `Screenshot`-Objekt aus dem Speicher (nie einen Upload); automatisch ruft ihn nichts auf.
+
+### Fehler (strukturiert, nie ein Absturz)
+`ToolResult.output = {"code", "message"}` bzw. `[code]` in der Fehlermeldung: `disabled`, `backend_unavailable`, `no_display`, `invalid_monitor`, `invalid_coordinates`, `invalid_input`, `window_not_found`, `launch_failed`, `blocked_target`, `target_changed`, `not_authorized`, `unsupported`, `rate_limited`, `failsafe`, `backend_error`. Meldungen enthalten nie getippten Text oder Bildschirminhalt.
+
+### Konfiguration `[computer]` (Umgebung: `JARVIS_COMPUTER_<FELD>`)
+| Schlüssel | Default | Bedeutung |
+|---|---|---|
+| `enabled` | `false` | Opt-in; bei nicht nutzbarem Backend automatisch aus |
+| `backend` | `auto` | `windows` (Windows), `x11` (Linux/Entwicklung), `fake`, `auto` = Plattform |
+| `default_monitor` | `0` | Monitor, wenn keiner angegeben ist (nicht mehr vorhanden → primärer; ein *explizit* falscher bleibt ein Fehler) |
+| `screenshot_max_items`, `screenshot_max_pixels` | `3`, 8K | Speicher-/Größenlimit |
+| `max_text_length`, `type_interval`, `max_scroll`, `max_hotkey_keys`, `action_delay`, `max_actions_per_minute` | `500`, `0.02`, `20`, `4`, `0.05`, `120` | Grenzen |
+| `show_text_preview`, `confirm_keyboard_each_time`, `confirm_window_close_each_time` | `true` | siehe oben |
+| `apps` (TOML-Tabelle), `use_default_apps`, `allow_unlisted_apps` | `{}`, `true`, `false` | erlaubte Anwendungen |
+| `blocked_processes`, `blocked_titles` | `["explorer.exe"]`, `[]` | zusätzliche Sperren (die eingebauten bleiben) |
+
+Koordinaten werden **nie** auf den Bildschirm „geklemmt“: außerhalb ist ein Fehler. Es gibt keinen Schalter, der die Rückfragen, die eingebauten Sperren oder die Berechtigungsprüfung ausschaltet.
+
+### Tests
+Alle Automatiktests nutzen den `FakeBackend` (zeichnet jeden Aufruf auf, simuliert einen kleinen Desktop mit Pixeln, injiziert Fehler) und fingierte `pyautogui`/`mss`/Win32-Schnittstellen. Zusätzlich laufen 11 **echte** Tests (`tests/test_computer_x11_real.py`): echte Maus-/Tastaturereignisse (XTEST), echte Screenshots, echter Subprozess und eine echte X11-Testanwendung auf Xvfb, durch die produktive `build_core`-Verdrahtung. Ohne Xvfb/Bibliotheken werden sie übersprungen.
+`apt install xvfb python3-tk && pip install -e ".[dev,computer]" && pytest tests/test_computer_x11_real.py`
+
+### Bekannte Grenzen
+- **Nur Windows-nah getestet, nicht auf Windows:** Der Windows-Pfad (`pyautogui`/`mss` + Win32-Fensterprovider über `ctypes`) ist gegen eine Fake-API getestet, wurde aber in dieser Umgebung nie auf einem echten Windows ausgeführt. Die Provider-Schnittstellen/Controller/Engine sind real auf X11 verifiziert. Bitte vor dem Einsatz auf Windows einmal `/run screen action=monitors`, `screenshot` und `app app=notepad` von Hand durchspielen.
+- GUI-Automation kann alles, was der Nutzer per Oberfläche kann: Programme mit Befehlszeile oder Skriptfunktion (IDE-Terminals, Browser-Konsole, Office-Makros, Dateimanager) sind nicht pauschal gesperrt. Schutz: jede Tastatureingabe wird mit Ziel und Vorschau bestätigt; Standard-Shells, Run/Start/Suche und Explorer sind gesperrt; weitere Sperren über `blocked_*`. Argumente an freigegebene Programme interpretiert das Programm selbst (z. B. Browser mit Befehls-Flags) – Aliase mit Bedacht wählen; Argumente werden angezeigt und bestätigt.
+- Die Zielprüfung ist eine Momentaufnahme (Fenster-Handles können wiederverwendet werden; minimale Zeitlücke zwischen Prüfung und Ereignis). Erhöhte (Administrator-)Fenster und der UAC-Dialog lassen sich unter Windows ohnehin nicht steuern.
+- `pyautogui` tippt nur ASCII (+ Newline/Tab); anderes wird mit `unsupported` abgelehnt statt still verworfen. Mehrere Monitore mit unterschiedlicher Skalierung (DPI) sind nicht gesondert behandelt. Spiele/Remote-Desktops mit eigenem Eingabepfad können Eingaben ignorieren.
+- Das Fenster-/Monitor-Wissen steht im `screen`-Ergebnis (Fenstertitel können vertraulich sein); `screen`-Beobachtungen sind GREEN und werden nur mit `security.audit_green = true` auditiert (Metadaten stehen immer im Log).
+- Minimieren/Maximieren unter X11 ohne Fenstermanager (Xvfb) ist `unsupported`; X11 ist ein Entwicklungs-/Verifikationsbackend, nicht das Zielsystem.
+
 ## Tests & Entwicklungsworkflow
 
 ```bash
-pytest            # 714 Tests: config, llm, tasks, tools, planner, core, e2e, CLI, voice, memory, security (ohne Mikrofon/Netzwerk, temporäre DBs)
+pytest            # 1249 Tests: config, llm, tasks, tools, planner, core, e2e, CLI, voice, memory, security, computer
+                  # (ohne Mikrofon/Netzwerk/echte Maus; 11 Tests laufen real auf einem virtuellen X11-Display (Xvfb) und werden sonst übersprungen)
 ```
 Workflow: Schnittstelle in `base.py` definieren → Implementierung → Test mit `MockProvider` (kein Netzwerk nötig) → `pytest`.
 Verdrahtung ausschließlich in `jarvis/bootstrap.py` (Composition Root).
@@ -287,6 +378,7 @@ src/jarvis/
 ├── tools/      Tool, ToolRegistry, builtin/
 ├── permissions/ levels · request · decision · engine · policy · paths · resources · grants · confirmation · audit · factory
 ├── redaction.py Neutrale Secret-Erkennung (von Memory und Permissions geteilt)
+├── computer/   backend (Provider-Interfaces) · controller · tools · safety · resources · validation · screenshots · vision · policy · factory · providers/{fake,mss_screen,pyautogui_input,win32_windows,xlib_windows,subprocess_apps}
 ├── memory/     base (Interface) · models · validation · ranking · sqlite_store · inmemory · null · guard · guarded · extraction · factory
 ├── voice/      base (Interfaces) · session · factory · console · mock · devices · openai_provider · system_tts
 └── interface/  cli
@@ -329,7 +421,15 @@ Abhängigkeiten zeigen nach innen: Core kennt nur Interfaces (`LLMProvider`, `To
 24. **Fail closed überall**, inkl. nicht beschreibbarem Audit-Log, Provider-Fehlern und kaputten Regeln; Policy-Fehler verhindern den Start.
 25. **Neutrales `jarvis.redaction`.** Memory und Permissions teilen die Secret-Erkennung, ohne voneinander abzuhängen.
 26. **Phase 13 vor Phase 4 vorgezogen**, weil Computersteuerung ohne belastbares Rechtesystem riskant ist (Empfehlung aus Phase 1, jetzt umgesetzt).
-27. **Ordnerstruktur schlank gehalten:** Platzhalter-Pakete für künftige Module (agents, memory, …) werden erst mit ihrer Phase angelegt, nicht leer vorab.
+27. **Computer Control als Tools + Controller + Provider.** Fünf kleine Provider-Schnittstellen (Screen, Maus, Tastatur, Fenster, Apps) bilden einen austauschbaren `ComputerBackend`; Bibliotheken werden nur lazy in Providern importiert (Import-Hazards wie `KeyError`/`SystemExit` abgefangen).
+28. **Der Controller erzwingt die Berechtigung selbst.** `execute(plan)` braucht einen zu Tool/Aktion/Ressource passenden Grant; Pläne sind signiert; Planung liest nur, handeln tut erst `execute`. Ausführung rekonstruiert den Plan aus dem *aktuellen* Zustand (Zielbindung).
+29. **Ressourcen sind URIs** (`screen://`, `keyboard://`, `window://`, `app://`) vom Typ `other`: Policy-Globs funktionieren ohne Änderung der Engine; Tipptext ist nie Teil einer Ressource.
+30. **RED wird vom Tool beantragt, von der Engine entschieden** – und im Audit festgehalten, nicht als stiller Fehler verschluckt. Eingebaute Sperrlisten sind nur erweiterbar.
+31. **Beobachten GREEN, Handeln YELLOW, Tastatur/Schließen immer gefragt** (Baseline-Regeln in der Engine statt Sonderlogik).
+32. **Opt-in und degradierend:** `enabled = false` ist Standard; fehlende Bibliothek/Display → Subsystem „unavailable“ mit Grund, JARVIS startet normal; Installation der Sicherheitsregeln ist atomar (bei Fehler Rollback, keine Tools).
+33. **Engine minimal verschärft, nicht ersetzt:** zusätzliche Aktions-Verben im Level-Boden, RED-Grund in der Ablehnung.
+34. **Reale Verifikation auf X11/Xvfb** mit denselben Providern und Tools wie unter Windows (außer dem Win32-Fensterprovider), weil nur dort echte Eingaben geprüft werden konnten.
+35. **Ordnerstruktur schlank gehalten:** Platzhalter-Pakete für künftige Module (agents, memory, …) werden erst mit ihrer Phase angelegt, nicht leer vorab.
 
 ## Vorbereitung für spätere Phasen
 
@@ -337,7 +437,8 @@ Abhängigkeiten zeigen nach innen: Core kennt nur Interfaces (`LLMProvider`, `To
 |---|---|
 | 2 Voice ✅ | `voice/` – siehe oben. Offen: Streaming-STT/TTS, Unterbrechen (barge-in), lokaler Hotword-Detektor |
 | 3 Memory ✅ | `jarvis/memory/`. Offen: semantische/Vektor-Suche (neues Backend, `MemoryHit.score` ist vorbereitet), persistente Tasks (`TaskManager` hinter Interface, Ergebnisse als `task_result`), automatische Extraktion, Zusammenfassung/Verfall alter Einträge |
-| 4–6 Computer/Browser/Coding | neue `ProtectedTool`-Klassen mit `describe_action` (Pfad/Host/Command als Ressource); Policy-Regeln pro Tool |
+| 4 Computer ✅ | `jarvis/computer/`; Provider austauschbar (`register_backend`), Beobachten→Handeln→Prüfen vorbereitet |
+| 5–6 Browser/Coding | neue `ProtectedTool`-Klassen mit `describe_action` (Host/Pfad/Command als Ressource); Policy-Regeln pro Tool; Vision über `ImageObserver` |
 | 7–8 Multi-Agent, Goal Engine | `Task.required_agents`/`subtasks` sind belegt; Executor-Schleife über Subtasks fehlt noch |
 | 9 Self-Repair | Task-Übergang `FAILED → PENDING` (Retry) existiert |
 | 13 Security ✅ | `jarvis/permissions/` + `ToolRegistry.execute` als einzige Kontrollstelle. Offen: OS-Sandbox/Subprozess-Isolation, Hash-verkettetes Audit-Log, Voice/GUI-Bestätigung, Netzwerk-/Geld-Policies |
@@ -345,6 +446,6 @@ Abhängigkeiten zeigen nach innen: Core kennt nur Interfaces (`LLMProvider`, `To
 
 ## Zukünftige Phasen
 
-1 Core ✅ · 2 Voice ✅ · 3 Memory ✅ · 4 Computer Control · 5 Browser/Internet · 6 Coding Agent · 7 Multi-Agent · 8 Goal Engine ·
+1 Core ✅ · 2 Voice ✅ · 3 Memory ✅ · 4 Computer Control ✅ · 5 Browser/Internet · 6 Coding Agent · 7 Multi-Agent · 8 Goal Engine ·
 9 Self-Testing/Repair · 10 Business/Research/Finance · 11 GUI · 12 Smartphone · 13 Permissions/Security ✅ (vorgezogen) · 14 Maximum Autonomy · 15 Self-Improvement.
 Phase 13 wurde vor Phase 4 vorgezogen (Begründung: Computersteuerung ohne belastbares Rechtesystem ist riskant).

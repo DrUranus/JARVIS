@@ -27,6 +27,7 @@ HELP = """Befehle:
   /permissions   Sicherheitsmodus, erlaubte Verzeichnisse, Regeln, Sitzungsfreigaben
   /audit [n]     Letzte Sicherheitsereignisse
   /revoke        Sitzungsfreigaben widerrufen
+  /computer      Status der Computersteuerung (stop = Notaus, resume = fortsetzen)
   /voice         Sprachmodus starten (zurück mit „exit“)
   /help          Diese Hilfe
   /exit          Beenden"""
@@ -55,6 +56,8 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
         return "Kontext gelöscht."
     if cmd == "/run":
         return _run_tool(core, arg)
+    if cmd == "/computer":
+        return _computer(core, arg)
     if cmd == "/permissions":
         return _describe_permissions(core)
     if cmd == "/audit":
@@ -125,6 +128,29 @@ def _run_tool(core: JarvisCore, arg: str) -> str:
         kwargs[key] = value
     result = core.tools.execute(parts[0], **kwargs)  # permission engine decides; confirmation is asked via the CLI
     return f"OK: {result.output}" if result.success else f"Nicht ausgeführt: {result.error}"
+
+
+def _computer(core: JarvisCore, arg: str) -> str:
+    """Status and emergency stop of the optional computer-control subsystem (duck-typed: the CLI imports nothing from it)."""
+    sub = core.subsystems.get("computer")
+    if sub is None:
+        return "Computersteuerung: nicht konfiguriert."
+    if arg in ("stop", "halt"):
+        return "Computersteuerung angehalten (Notaus). /computer resume setzt sie fort." if sub.halt() \
+            else "Computersteuerung ist nicht aktiv."
+    if arg == "resume":
+        return "Computersteuerung fortgesetzt." if sub.resume() else "Computersteuerung ist nicht aktiv."
+    d = sub.describe()
+    names = {"enabled": "aktiv", "disabled": "deaktiviert", "unavailable": "nicht verfügbar", "halted": "ANGEHALTEN"}
+    lines = [f"Computersteuerung: {names.get(d['status'], d['status'])}" + (f" – {d['reason']}" if d.get("reason") else "")]
+    if d["status"] in ("enabled", "halted"):
+        lines.append(f"Backend: {d['backend']}   Fähigkeiten: {', '.join(d['capabilities'])}")
+        lines.append("Werkzeuge: " + ", ".join(d["tools"]) + "  (Aufruf: /run <werkzeug> key=value ...)")
+        lines.append("Anwendungen: " + (", ".join(d["apps"]) or "keine konfiguriert (computer.apps)"))
+        lines.append("Gespeicherte Screenshots: " + (", ".join(d["stored_screenshots"]) or "keine"))
+    elif d["status"] == "disabled":
+        lines.append("Aktivieren: computer.enabled = true bzw. JARVIS_COMPUTER_ENABLED=true (benötigt pip install -e \".[computer]\")")
+    return "\n".join(lines)
 
 
 def _describe_permissions(core: JarvisCore) -> str:

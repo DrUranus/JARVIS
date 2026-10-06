@@ -60,6 +60,7 @@ class MemorySettings:
     use_in_prompts: bool = False       # privacy: relevant memories are sent to the LLM only if true
 
 
+COMPUTER_BACKENDS = ("auto", "windows", "x11", "fake")
 SECURITY_MODES = ("standard", "lockdown")
 CONFIRMATION_PROVIDERS = ("cli", "deny")
 
@@ -81,6 +82,30 @@ class SecuritySettings:
 
 
 @dataclass(frozen=True)
+class ComputerSettings:
+    """Computer control (mouse, keyboard, screen, windows, applications). Opt-in; every action is permission-checked."""
+    enabled: bool = False              # off by default: moving the mouse / typing is a serious capability
+    backend: str = "auto"              # auto (windows on Windows, x11 elsewhere) | windows | x11 | fake
+    default_monitor: int = 0           # monitor index; 0 = primary
+    screenshot_max_items: int = 3      # screenshots kept in memory (never written to disk unless explicitly saved)
+    screenshot_max_pixels: int = 33_177_600  # refuse to capture more than this (8K)
+    max_text_length: int = 500         # characters per typing action
+    type_interval: float = 0.02        # seconds between typed characters
+    max_scroll: int = 20               # scroll clicks per action
+    max_hotkey_keys: int = 4
+    action_delay: float = 0.05         # settle time after each action (seconds)
+    max_actions_per_minute: int = 120  # runaway protection (0 = unlimited)
+    show_text_preview: bool = True     # show the first characters of text to be typed in the confirmation prompt
+    confirm_keyboard_each_time: bool = True      # keyboard actions are always asked, never covered by a session grant
+    confirm_window_close_each_time: bool = True  # closing a window is always asked
+    apps: dict[str, str] = field(default_factory=dict)  # application aliases -> executable path (TOML table)
+    use_default_apps: bool = True      # add Notepad/Calculator/Paint aliases on Windows
+    allow_unlisted_apps: bool = False  # True: absolute .exe paths may be launched too (still confirmed, still filtered)
+    blocked_processes: tuple[str, ...] = ("explorer.exe",)  # input/close refused for these (adds to the built-in list)
+    blocked_titles: tuple[str, ...] = ()                     # window-title fragments to refuse (adds to the built-in list)
+
+
+@dataclass(frozen=True)
 class Settings:
     mode: str = "development"
     log_level: str | None = None
@@ -90,6 +115,7 @@ class Settings:
     voice: VoiceSettings = field(default_factory=VoiceSettings)
     memory: MemorySettings = field(default_factory=MemorySettings)
     security: SecuritySettings = field(default_factory=SecuritySettings)
+    computer: ComputerSettings = field(default_factory=ComputerSettings)
 
     @property
     def is_production(self) -> bool:
@@ -133,6 +159,20 @@ class Settings:
             raise ConfigError("security.session_ttl_seconds must be positive")
         if any(not r.strip() for r in (*sec.allowed_roots, *sec.denied_paths)):
             raise ConfigError("security.allowed_roots/denied_paths must not contain empty entries")
+        c = self.computer
+        if c.backend not in COMPUTER_BACKENDS:
+            raise ConfigError(f"computer.backend must be one of {COMPUTER_BACKENDS}, got {c.backend!r}")
+        if c.default_monitor < 0 or c.screenshot_max_items < 1 or c.screenshot_max_pixels < 1:
+            raise ConfigError("computer.default_monitor must be >= 0; screenshot_max_items/screenshot_max_pixels >= 1")
+        if not 1 <= c.max_text_length <= 5000 or c.max_scroll < 1 or not 2 <= c.max_hotkey_keys <= 6:
+            raise ConfigError("computer.max_text_length must be 1..5000, max_scroll >= 1, max_hotkey_keys 2..6")
+        if c.type_interval < 0 or c.action_delay < 0 or c.max_actions_per_minute < 0:
+            raise ConfigError("computer.type_interval/action_delay/max_actions_per_minute must be >= 0")
+        for alias, path in c.apps.items():
+            if not alias.strip() or not path.strip() or not alias.replace("_", "").replace("-", "").isalnum():
+                raise ConfigError(f"computer.apps: invalid entry {alias!r} (alias: letters/digits/_/-, path non-empty)")
+        if any(not x.strip() for x in (*c.blocked_processes, *c.blocked_titles)):
+            raise ConfigError("computer.blocked_processes/blocked_titles must not contain empty entries")
         m = self.memory
         if not m.backend.strip():
             raise ConfigError("memory.backend must not be empty")
@@ -146,6 +186,10 @@ class Settings:
 
 
 def _coerce(value: Any, template: Any, name: str) -> Any:
+    if isinstance(template, dict):  # table-valued settings come from the TOML file only
+        if not isinstance(value, Mapping) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+            raise ConfigError(f"{name} must be a table of strings (set it in the TOML file)")
+        return dict(value)
     if isinstance(template, tuple):  # list-valued settings: TOML list, or an os.pathsep-separated env string
         if isinstance(value, str):
             return tuple(p.strip() for p in value.split(os.pathsep) if p.strip())

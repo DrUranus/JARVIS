@@ -23,8 +23,13 @@ def build_core(settings: Settings) -> JarvisCore:
     permissions = build_permission_engine(settings, redactor=guard)
     tools = register_builtin_tools(ToolRegistry(permissions), include_demo=not settings.is_production)
     memory = create_memory(settings.memory, guard)
-    return JarvisCore(provider=provider, tools=tools, memory=memory, memory_limit=settings.memory.max_relevant,
+    core = JarvisCore(provider=provider, tools=tools, memory=memory, memory_limit=settings.memory.max_relevant,
                       use_memory_in_prompts=settings.memory.use_in_prompts)
+    # Computer control is opt-in and optional: when disabled or unusable the subsystem only carries the reason
+    # and JARVIS starts normally. Its tools are ordinary ProtectedTools in the registry above.
+    from jarvis.computer.factory import build_computer
+    core.subsystems["computer"] = build_computer(settings, tools, permissions)
+    return core
 
 
 def build_voice_session(settings: Settings, core: JarvisCore, display=print, input_fn=input):
