@@ -386,7 +386,7 @@ def test_arguments_with_shell_metacharacters_arrive_literally(tmp_path, monkeypa
     res = SubprocessLauncher().launch(exe, [str(out), *nasty])
     assert isinstance(res.pid, int) and res.pid > 0 and res.executable == exe
     wait_for(out)
-    assert out.read_text().splitlines() == nasty  # every string is exactly ONE argument, nothing was interpreted
+    assert out.read_text(encoding="utf-8").splitlines() == nasty  # every string is exactly ONE argument, nothing was interpreted
     assert not [p.name for p in tmp_path.iterdir() if p.name.startswith("PWNED")]
 
 
@@ -400,7 +400,7 @@ def test_launched_programs_do_not_inherit_secret_environment_variables(tmp_path,
         monkeypatch.setenv(k, v)
     SubprocessLauncher().launch(exe, [str(out)])
     wait_for(out)
-    env = (tmp_path / "o.txt.env").read_text()
+    env = (tmp_path / "o.txt.env").read_text(encoding="utf-8")
     assert "topsecret" not in env and "API_KEY" not in env and "SOME_TOKEN" not in env and "DB_PASSWORD" not in env
     assert "HARMLESS_SETTING=visible-ok" in env and "PATH=" in env
 

@@ -340,11 +340,11 @@ def test_end_to_end_with_the_real_launcher_nothing_is_interpreted(tmp_path, monk
     nasty = [str(out_file), "; touch PWNED", "$(touch PWNED2)", "`touch PWNED3`", "&& touch PWNED4"]
     assert r.run("app", app="rec", args=nasty).success
     for _ in range(100):
-        if out_file.exists() and len(out_file.read_text().splitlines()) == 4:
+        if out_file.exists() and len(out_file.read_text(encoding="utf-8").splitlines()) == 4:
             break
         import time
         time.sleep(0.05)
-    assert out_file.read_text().splitlines() == nasty[1:]
+    assert out_file.read_text(encoding="utf-8").splitlines() == nasty[1:]
     assert not [p for p in tmp_path.iterdir() if p.name.startswith("PWNED")]
 
 

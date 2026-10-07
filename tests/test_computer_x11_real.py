@@ -164,5 +164,5 @@ def test_nothing_typed_or_sensitive_was_recorded(report):
     assert {"keyboard.type", "keyboard.hotkey", "mouse.click", "app.launch", "window.close", "screen_save.save"} <= set(report["audit_actions"])
     assert report["prompts_shown"] >= 12  # every consequential action was put to the user
     work = report["_work"]
-    everything = "\n".join(p.read_text(errors="replace") for p in work.rglob("*") if p.is_file() and p.suffix in (".jsonl", ".log"))
+    everything = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in work.rglob("*") if p.is_file() and p.suffix in (".jsonl", ".log"))
     assert "jarvis test 123" not in everything and "should-never-be-typed" not in everything
