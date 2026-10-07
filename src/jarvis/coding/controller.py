@@ -861,6 +861,8 @@ class CodingController:
         sess = self._need_session(sid)
         self._verify_workspace(sess)
         spec = CommandSpec(cmd.argv, sess.ws.root, self.settings.test_timeout, self.settings.max_output_bytes, "test")
+        if self._halted is not None:  # halted between the approval and the start: the process is never launched
+            raise CodingError(EC.FAILSAFE, f"the coding agent is halted ({self._halted}); resume it explicitly")
         raw: TestResult = self._call(self._provider.run_test, spec)
         # whatever provider ran it: '\r\n' -> '\n' so the line-based result detection below is platform independent (streams stay separate)
         out = self._detector.redact(raw.stdout.replace("\r\n", "\n"))

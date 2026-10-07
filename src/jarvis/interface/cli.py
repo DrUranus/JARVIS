@@ -31,6 +31,9 @@ HELP = """Befehle:
   /computer      Status der Computersteuerung (stop = Notaus, resume = fortsetzen)
   /browser       Browser-Agent: Status | start | stop | pages | halt (Notaus) | resume (sonst: /run browser action=...)
   /coding        Coding-Agent: Status | halt (Notaus) | resume | stop (Sitzung beenden) (sonst: /run coding action=...)
+  /agents        Agenten und ihr Status
+  /agent <id>    Details eines Agenten | halt <task_id> (abbrechen) | plan <Text> | enable|disable|reset <id>
+  /agenttasks    Aktive und letzte Agent-Tasks
   /voice         Sprachmodus starten (zurück mit „exit“)
   /help          Diese Hilfe
   /exit          Beenden"""
@@ -65,6 +68,8 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
         return _browser(core, arg)
     if cmd == "/coding":
         return _coding(core, arg)
+    if cmd in ("/agents", "/agent", "/agenttasks"):
+        return _agents(core, cmd, arg)
     if cmd == "/permissions":
         return _describe_permissions(core)
     if cmd == "/audit":
@@ -231,6 +236,55 @@ def _coding(core: JarvisCore, arg: str) -> str:
     elif d["status"] == "disabled":
         lines.append("Aktivieren: coding.enabled = true bzw. JARVIS_CODING_ENABLED=true")
     return "\n".join(lines)
+
+
+def _agents(core: JarvisCore, cmd: str, arg: str) -> str:
+    """Overview and controls of the multi-agent layer (duck-typed). Agents act only through the permission-checked tools; these commands
+    only show state, cancel tasks and switch agents on and off."""
+    sub = core.subsystems.get("agents")
+    if sub is None:
+        return "Multi-Agent: nicht konfiguriert."
+    if sub.orchestrator is None:
+        return f"Multi-Agent: deaktiviert – {sub.reason}\nAktivieren: agents.enabled = true bzw. JARVIS_AGENTS_ENABLED=true"
+    orch, reg = sub.orchestrator, sub.registry
+    from jarvis.agents.errors import AgentError
+    if cmd == "/agents":
+        lines = [f"Agenten (aktiv {orch.active_agents}/{orch.max_concurrent}, wartend {orch.queued}):"]
+        for a in reg.list():
+            lines.append(f"  {a.id:<10} {a.status.value:<10} {a.name}" + (f"  [{a.state.reason}]" if a.state.reason else ""))
+        return "\n".join(lines)
+    if cmd == "/agenttasks":
+        results = orch.list(limit=15)
+        if not results:
+            return "Keine Agent-Tasks."
+        out = []
+        for r in results:
+            d = orch.describe(r.task_id)
+            flags = (" (Abbruch angefordert)" if d["cancel_requested"] and not r.is_terminal else "") + (" (Arbeit läuft noch)" if d["still_running"] else "")
+            out.append(f"  {r.task_id}  {r.status.value:<9} {r.agent_id or '-':<9} {d['objective'][:50]}" + (f" – {r.error_code}" if r.error_code else "") + flags)
+        return "\n".join(out)
+    word, _, rest = arg.partition(" ")
+    rest = rest.strip()
+    try:
+        if word == "halt":
+            rep = orch.cancel(rest)
+            return f"{rep.task_id}: {rep.message} ({rep.status.value})"
+        if word == "plan":
+            sel = sub.select(rest)
+            return (f"Geeignet: {sel.agent_id} ({', '.join(sorted(sel.capabilities))}) – {sel.reason}" if sel.found
+                    else f"Kein Agent gewählt: {sel.reason}")
+        if word in ("enable", "disable", "reset"):
+            status = orch.reset_agent(rest) if word == "reset" else orch.set_enabled(rest, word == "enable")
+            return f"{rest}: {status.value}"
+        if not arg:
+            return "Verwendung: /agent <id> | halt <task_id> | plan <text> | enable|disable|reset <id>"
+        a = reg.get(arg)
+    except AgentError as exc:
+        return f"Nicht möglich: {exc}"
+    d = a.describe()
+    return "\n".join([f"{d['id']}: {d['name']} – {d['status']}" + (f" ({d['reason']})" if d["reason"] else ""), f"  {d['description']}",
+                      "  Fähigkeiten: " + ", ".join(d["capabilities"]), "  Werkzeuge: " + (", ".join(d["tools"]) or "keine"),
+                      f"  Abbruch unterstützt: {'ja' if d['supports_cancellation'] else 'nein'}"])
 
 
 def _describe_permissions(core: JarvisCore) -> str:

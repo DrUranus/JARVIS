@@ -112,3 +112,15 @@ test_commands = ["pytest", "python -m pytest", "python -m unittest"]   # known r
 llm_context_chars = 12000
 confirm_delete_each_time = true
 confirm_llm_each_time = true
+
+[agents]
+# Multi-agent orchestration is OFF by default. It adds no capability: every agent acts only through the permission-checked tools
+# (browser / coding / computer), so each of those subsystems must be enabled separately.
+enabled = false
+max_concurrent = 3          # agents working at the same time; more tasks wait as PENDING
+task_timeout_seconds = 300
+max_queue = 50
+max_history = 200
+cancel_grace_seconds = 5    # an agent that ignores cancel/timeout this long is marked FAILED
+tool_call_limit = 200       # tool calls per task
+max_output_chars = 20000

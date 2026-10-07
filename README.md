@@ -3,9 +3,9 @@
 Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer Agent, dem man ein Ziel nennt und der selbstständig
 **denkt → plant → recherchiert → programmiert → handelt → testet → repariert → lernt → neue Fähigkeiten entwickelt**.
 
-**Status: Phase 1 (Core MVP), Phase 2 (Voice), Phase 3 (Memory), Phase 13 (Permissions & Security, vorgezogen), Phase 4 (Computer Control), Phase 5 (Browser Agent v1) und Phase 6 (Coding Agent v1) abgeschlossen.** JARVIS führt Pläne noch nicht autonom aus – Architektur und Schnittstellen dafür stehen.
+**Status: Phase 1 (Core MVP), Phase 2 (Voice), Phase 3 (Memory), Phase 13 (Permissions & Security, vorgezogen), Phase 4 (Computer Control), Phase 5 (Browser Agent v1), Phase 6 (Coding Agent v1) und Phase 7 (Multi-Agent-Orchestrierung v1) abgeschlossen.** JARVIS führt Pläne noch nicht autonom aus – Architektur und Schnittstellen dafür stehen.
 
-## Was bisher funktioniert (Phase 1–6, 13)
+## Was bisher funktioniert (Phase 1–7, 13)
 
 - Konfiguration (Defaults < TOML < Umgebungsvariablen), Dev-/Produktionsmodus, Logging, Fehlerhierarchie
 - LLM-Abstraktion: `mock` (offline), `openai`, `anthropic` – austauschbar per Konfiguration
@@ -14,6 +14,7 @@ Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer A
 - Tool-System: Registry, dynamische Registrierung, fehlerisolierte Ausführung, Permission-Level
 - Planner: Ziel → Task mit Subtasks (LLM-JSON, mit Template-Fallback, damit nie „zu komplex“ zurückkommt)
 - CLI (`jarvis>`)
+- **Multi-Agent-Orchestrierung v1 (Phase 7):** `AgentOrchestrator` lässt Browser-, Coding-, Computer- und (Platzhalter-)Research-Agent auf strukturierten `AgentTask`s arbeiten – begrenzt parallel, mit Timeout, Abbruch, Abhängigkeiten und Ergebnisübergabe; fügt keine Fähigkeit hinzu, jede Aktion läuft weiter durch ToolRegistry → PermissionEngine
 - **Coding Agent v1 (Phase 6):** kontrollierte Softwareentwicklung in *einem* bestätigten Workspace – Projekt erkennen, lesen, suchen, ändern (hash-geschützt, mit Änderungszusammenfassung), Tests ausführen (ohne Shell, nur Allow-List), Git nur lesend; ein `coding`-Tool, eigener `CodingController`, jede Aktion durch ToolRegistry und PermissionEngine
 - **Browser Agent v1 (Phase 5):** ein Browser (Playwright, optional) hinter austauschbaren Providern, gesteuert über **ein** `browser`-Tool – einzelne, einzeln bestätigte Schritte (öffnen, lesen, Elemente finden, klicken, ausfüllen, absenden, kontrolliert herunter-/hochladen); eigener `BrowserController`, getrennt von Computer Control
 - **Computer Control (Phase 4):** Bildschirm, Maus, Tastatur, Fenster und Anwendungen als `ProtectedTool`s – jede Aktion läuft durch die Berechtigungs-Engine; opt-in, Windows-first (`pyautogui` + `mss` + Win32 über `ctypes`), austauschbare Provider
@@ -510,6 +511,88 @@ Jeder Auftrag hat eine Sitzung (`id`, Workspace, `created_at`, `status` = `activ
 - Ein Wettlauf mit einem Angreifer, der lokal Verzeichnisse durch Links austauscht, ist zwischen Prüfung und Schreiben nicht vollständig auszuschließen; Symlink-Angriffe über die Zeit sind durch Neuprüfung und `O_NOFOLLOW` (neue Dateien) stark erschwert.
 - Die Suche ist wörtlich (kein Regex), die Projekterkennung heuristisch; kein Ausführen von Linter/Build/Paketinstallation, kein Commit/Push, keine Selbstmodifikation (spätere Phasen).
 - `npm test` ist unter Windows nicht verfügbar (siehe oben).
+
+## Multi-Agent-Orchestrierung (Phase 7)
+
+Eine reine **Koordinationsschicht** über den vorhandenen Agenten – kein Goal Engine, keine Selbstmodifikation, keine neue Fähigkeit. Der Orchestrator enthält keine Browser-, Computer- oder Coding-Logik; er verteilt strukturierte Aufgaben, überwacht sie und speichert Ergebnisse.
+
+```
+JARVIS Core ─ delegate() ─▶ AgentPlanner (wer ist geeignet?) ─▶ AgentOrchestrator ─▶ Agent ─▶ ToolGateway ─▶ ToolRegistry ─▶ PermissionEngine ─▶ Controller ─▶ Provider
+                                                  │                        │
+                                         AgentRegistry              AgentResult ─▶ nächster Agent (parent_results) / Core-TaskManager (Spiegel)
+```
+
+### Bausteine (`src/jarvis/agents/`)
+| Modul | Inhalt |
+|---|---|
+| `models.py` | `AgentTask` (`task_id`, `agent_id`, `objective`, `input`, `required_capabilities`, `priority` 1–10, `parent_task_id`, `dependencies`, `timeout`, `metadata`, `memory_query`); Eingaben sind reine JSON-Daten, tief kopiert, begrenzt; `repr` ohne Inhalte |
+| `result.py` | `AgentOutcome` (was ein Agent zurückgibt) und `AgentResult` (`task_id`, `agent_id`, `status`, `summary`, `output`, `error`, `error_code`, `started_at`, `finished_at`); Exceptions sind keine Schnittstelle: sie werden kontrolliert in ein Ergebnis überführt |
+| `state.py` | Status-Automaten: Agent `AVAILABLE/BUSY/DISABLED/FAILED`, Task `PENDING → RUNNING → SUCCEEDED/FAILED/CANCELLED/BLOCKED`; ungültige Wechsel → `StateError` |
+| `agent.py` | `Agent`-Interface (`id`, `name`, `description`, `capabilities`, `tool_names`, `status`, `perform()`, `cancel()`) |
+| `registry.py` | `AgentRegistry` (register/unregister/get/list/has/find; Duplikate und ungültige Agenten werden abgelehnt; kein globaler Zustand) |
+| `planner.py` | `AgentPlanner`: regelbasierte Wahl des **geeigneten** Agenten und der Capabilities (kein LLM, keine Zielplanung) |
+| `context.py` | `AgentContext` (nur ausdrücklich Übergebenes) und `ToolGateway` (die einzige Tür nach außen) |
+| `orchestrator.py` | `AgentOrchestrator`: `submit`, `start`, `cancel`, `get`, `list`, `describe`, `wait`, `run`, `wait_idle`, `set_enabled`, `reset_agent`, `shutdown` |
+| `fake.py` | `FakeAgent` (success/failure/blocked/crash/cancelled/wait/hang) für Tests |
+| `adapters/` | dünne Adapter `BrowserAgent`, `CodingAgent`, `ComputerAgent` und der Platzhalter `ResearchAgent` |
+| `factory.py` | baut alles aus `[agents]`; `AgentsSubsystem.delegate()` ist der Einstiegspunkt für den Core |
+
+### Capabilities
+`browser.read`, `browser.interact`, `coding.read`, `coding.write`, `coding.test`, `coding.plan`, `computer.screen`, `computer.input`, `research.web`. Sie sagen nur, **welcher Agent grundsätzlich geeignet ist** und was *dieser Task* tun darf (Prinzip der minimalen Rechte: ein Task mit `coding.read` kann nicht schreiben, auch wenn der Coding Agent es könnte). Sie sind **keine Berechtigung**: jede Aktion fragt weiterhin die PermissionEngine.
+
+### Agenten
+| Agent | Werkzeuge | Capabilities | Schritte (`input.steps`) |
+|---|---|---|---|
+| `browser` | `browser` | `browser.read`, `browser.interact` | `{"action": "goto", "url": "…"}`, `{"action": "text"}`, … |
+| `coding` | `coding` | `coding.read/write/test/plan` | `{"action": "test"}`, `{"action": "write", …}`, … (`halt`/`resume` gibt es nicht) |
+| `computer` | `screen`, `screen_save`, `mouse`, `keyboard`, `window`, `app` | `computer.screen`, `computer.input` | `{"tool": "keyboard", "action": "type", "text": "…"}`, … |
+| `research` | `browser` | `research.web` | **Platzhalter**: liest eine Seite (`input.url`) und gibt einen Auszug weiter; keine Suche, keine Zusammenfassung |
+
+Ein Adapter führt die Schritte **nacheinander** je als *einen* Toolaufruf aus. Jeder Schritt muss (1) eine bekannte Aktion sein, (2) nur Capabilities benötigen, die der Task erlaubt, (3) nur dokumentierte Parameter nutzen. Der erste fehlgeschlagene Schritt beendet den Task: von der Engine verweigert → `BLOCKED` (`permission_denied`), Subsystem angehalten → `BLOCKED` (`halted`), sonst `FAILED`. Ein Agent, dessen Werkzeug nicht aktiviert ist (z. B. `browser.enabled = false`), wird `DISABLED` registriert.
+
+### Orchestrator
+`submit(task)` registriert (PENDING, nicht gestartet); Unmöglichkeiten (unbekannter/deaktivierter/fehlerhafter Agent, fehlende Capability, unbekannte Abhängigkeit, volle Queue) kommen als **`BLOCKED`-Ergebnis**, nicht als Exception. `start(task_id)` fordert die Ausführung an: der Task läuft, sobald seine Abhängigkeiten `SUCCEEDED` sind, sein Agent frei ist und ein Slot frei ist – bis dahin bleibt er `PENDING` (Reihenfolge: Priorität, dann Eingang). Ein Agent bearbeitet immer nur **einen** Task. `run(task)` = submit + start + (begrenzt) warten. Nichts pollt: gewartet wird über eine Condition, Timeouts laufen über einen Scheduler. Erledigte Tasks werden auf `max_history` begrenzt.
+**Abhängigkeiten:** nur direkte (`dependencies=(…)`), ohne DAG-Engine. Ist eine Abhängigkeit nicht `SUCCEEDED` (FAILED/CANCELLED/BLOCKED), wird der Task – und transitiv alles danach – `BLOCKED(dependency_failed)` und **nicht** ausgeführt. Die Ergebnisse der Abhängigkeiten (und des `parent_task_id`) kommen als **Kopie** in `AgentContext.parent_results` beim nächsten Agenten an – strukturierte Daten, keine globalen Variablen, keine Dateien, kein Agent-Import.
+
+### Nebenläufigkeit
+`agents.max_concurrent` (Standard 3, 1–16) wird erzwungen: höchstens so viele Worker arbeiten gleichzeitig, der Rest bleibt `PENDING` (kein Thread pro wartendem Task, `max_queue` begrenzt die Warteschlange). `active_agents` zählt auch Arbeit, deren Task schon im Timeout ist, bis sie wirklich endet. Tests prüfen `aktiv ≤ Limit` zu jedem Zeitpunkt mit echten Threads (Limit 1, 2, 3, 30-Task-Burst) und Events statt Sleeps.
+
+### Abbruch (Cancellation)
+`cancel(task_id)`: `PENDING` → sofort `CANCELLED`. `RUNNING` → der Abbruch wird nur **angefordert** (Event + `Agent.cancel`); der Task wird erst `CANCELLED`, wenn der Agent wirklich zurückkehrt – der Orchestrator behauptet nie ein Ende, solange die Arbeit läuft. Hat der Agent in der Zwischenzeit regulär gewonnen, bleibt es `SUCCEEDED`. Agenten ohne Abbruch-Unterstützung melden das ehrlich (`accepted=False`). Die Adapter prüfen nach jedem Schritt; der Coding Agent stoppt einen **laufenden Testlauf** über das vorhandene Coding-`halt` (danach bleibt Coding angehalten, bis der Benutzer `/coding resume` sagt). Browser- und Computer-Aktionen sind kurz und durch die Tool-Timeouts begrenzt; sie enden nach dem aktuellen Schritt.
+
+### Timeout
+Jeder Task hat einen Timeout (`task.timeout` oder `agents.task_timeout_seconds`). Bei Ablauf wird der Task `FAILED(timeout)`, der Agent wird zum Abbruch aufgefordert – bleibt aber `BUSY` und der Slot belegt, bis die Arbeit tatsächlich aufhört; ein Spätergebnis wird verworfen. Ignoriert ein Agent den Abbruch länger als `cancel_grace_seconds`, wird er `FAILED` (bekommt nichts Neues) und erholt sich (`AVAILABLE`), sobald seine Arbeit zurückkehrt.
+
+### Fehlerisolierung und Lebenszyklus
+Ein Agent-Crash wird abgefangen: Task `FAILED(agent_crashed)` (nur Exception-Typ, geschwärzt), **dieser** Agent `FAILED`, alle anderen Agenten, die Registry und der Core laufen weiter. `FAILED → AVAILABLE` per `/agent reset <id>`; `AVAILABLE ↔ DISABLED` per `/agent disable|enable <id>`; ein deaktivierter Agent bekommt nichts mehr (auch nicht aus der Warteschlange).
+
+### Sicherheitsgrenze
+- Agenten halten **keinen** Controller, Provider, Core, keine Memory-Datenbank und keine Engine. Sie erhalten einen `AgentContext` mit genau: `task_id`, `objective`, `input` (Kopie), `allowed_capabilities`, `relevant_memory`, `parent_results`, `metadata`, `tools`.
+- `ToolGateway` ist die einzige Tür: nur die vom Agenten deklarierten Werkzeuge, Umgehungsargumente (`confirmed`, `force`, `bypass`, `skip_permissions` …) werden abgelehnt, ein Budget je Task (`tool_call_limit`), Abbruchprüfung vor jedem Aufruf. Danach ist es ein gewöhnliches `ToolRegistry.execute` – die PermissionEngine entscheidet, fragt, auditiert. Die Schicht erzeugt, ändert oder erweitert **keine** Permissions.
+- AST-/Source-Tests für `src/jarvis/agents/`: keine Module `subprocess`, `os`, `shutil`, `socket`, `requests`, `pyautogui`, `playwright`, `ctypes` …; kein `eval/exec/open/__import__`; kein `shell=`; kein Import von `jarvis.browser/coding/computer/permissions/llm`; `.execute(` nur im Gateway; kein Zugriff auf Controller/Provider/Engine; kein Modul-Singleton; kein `global`; keine Dateizugriffe. Browser, Coding, Computer, Permissions und Memory importieren die Schicht nicht.
+- RED bleibt RED: Tests bestätigen für Agenten, dass `file:`-URLs, interne Adressen, `.env`, `git push/commit`, PowerShell-Fenster, Windows-Taste und `cmd` verweigert werden (BLOCKED, im Audit der Engine).
+- Ergebnisse werden vor dem Speichern **geschwärzt** (`SecretDetector`) und in der Größe begrenzt; `repr` von Task/Ergebnis/Kontext enthält keine Inhalte; Logs enthalten nur IDs und Status.
+- Memory nur auf ausdrückliche Anfrage (`memory_query`): höchstens 5 geschwärzte Einträge, nur lesend; Agentenergebnisse werden nie nebenbei im Memory gespeichert.
+
+### Core-Integration
+`bootstrap` baut das Subsystem `core.subsystems["agents"]` (nur wenn `agents.enabled`; der Core importiert die Schicht nicht). Jeder Agent-Task wird als **eigenes** Modell geführt und zusätzlich als Task im vorhandenen `TaskManager` gespiegelt (Beschreibung, Priorität, `required_agents`, Status PENDING/RUNNING/COMPLETED/FAILED/CANCELLED) – ohne beide Modelle zu vermischen. `AgentsSubsystem.delegate(objective, input, agent_id=None)` wählt (explizit oder per `AgentPlanner`) und führt **einen** Task aus; das Ergebnis ist immer ein `AgentResult`.
+
+### CLI
+`/agents` (Agenten + Status, aktiv/wartend), `/agent <id>` (Details), `/agenttasks` (aktive/letzte Tasks), `/agent halt <task_id>` (Abbruch), `/agent plan <Text>` (welcher Agent wäre geeignet), `/agent enable|disable|reset <id>`.
+
+### Konfiguration `[agents]` (Umgebung: `JARVIS_AGENTS_<FELD>`)
+`enabled=false`, `max_concurrent=3`, `task_timeout_seconds=300`, `max_queue=50`, `max_history=200`, `cancel_grace_seconds=5`, `tool_call_limit=200`, `max_output_chars=20000`. Ohne `enabled` startet JARVIS ganz normal; die Agenten setzen außerdem aktivierte Subsysteme (`browser`, `coding`, `computer`) voraus.
+
+### Tests
+`tests/test_agents_basics.py` (Modelle, Status, Registry, Planner, Kontext/Gateway, Config), `test_agents_orchestrator.py` (Lebenszyklus, Fehler, Abbruch, Timeout, Nebenläufigkeit, Abhängigkeiten, Kontext, TaskManager-Spiegel – deterministisch mit manuellem Scheduler/Executor und Events), `test_agents_integration.py` (Adapter gegen die echte PermissionEngine mit Fake-Providern), `test_agents_security.py` (Quell-/AST-Scans), `test_agents_core.py` (Bootstrap, CLI, `delegate`), `test_agents_real.py` (echte Threads + echtes pytest, echter Abbruch). Unter Windows: `.\.venv\Scripts\python.exe -m pytest tests/test_agents*.py -vv -rs`.
+
+### Bekannte Grenzen (v1)
+- Heuristischer Planner (Schlüsselwörter, Deutsch/Englisch); keine Zielplanung, keine Multi-Step-Planung, kein LLM – das gehört in die spätere Goal Engine. Der Core ruft `delegate()` noch nicht automatisch aus dem Dialog auf.
+- Agenten führen **vorgegebene, strukturierte Schritte** aus (`input.steps`); sie entscheiden nicht selbst, was als Nächstes zu tun ist.
+- Ein Python-Thread lässt sich nicht erzwungen beenden: Abbruch und Timeout sind kooperativ. Ein Agent, der nicht reagiert, blockiert seinen Slot, bis seine Arbeit endet (er wird `FAILED` markiert und bekommt nichts Neues).
+- Der `ToolGateway` schützt vor Fehlern und versehentlichem Missbrauch durch Agenten-Code und wird durch AST-Tests abgesichert; er ist keine Sandbox gegen absichtlich feindlichen Python-Code im selben Prozess.
+- `ResearchAgent` ist ein Platzhalter; Cancel stoppt den Coding-Testlauf über das globale Coding-`halt`, danach muss der Benutzer fortsetzen.
+- Mehrere Orchestratoren/Prozesse teilen keinen Zustand; Ergebnisse sind nur im Speicher (nicht persistent).
 
 ## Tests & Entwicklungsworkflow
 

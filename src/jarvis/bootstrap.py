@@ -36,6 +36,9 @@ def build_core(settings: Settings) -> JarvisCore:
     # the explicit, confirmed `plan` action) and never drives the browser or the PC.
     from jarvis.coding.factory import build_coding
     core.subsystems["coding"] = build_coding(settings, tools, permissions, llm=provider)
+    # Multi-agent orchestration sits ABOVE those subsystems: agents only use their tools through the registry (and so the permission engine).
+    from jarvis.agents.factory import build_agents
+    core.subsystems["agents"] = build_agents(settings, tools, memory, core.tasks, core.subsystems)
     return core
 
 

@@ -105,6 +105,19 @@ class ComputerSettings:
     blocked_titles: tuple[str, ...] = ()                     # window-title fragments to refuse (adds to the built-in list)
 
 
+@dataclass(frozen=True)
+class AgentsSettings:
+    """Multi-agent orchestration (v1). It only coordinates agents; every action of an agent still goes through ToolRegistry + PermissionEngine."""
+    enabled: bool = False
+    max_concurrent: int = 3            # agents working at the same time; further tasks stay PENDING
+    task_timeout_seconds: float = 300.0
+    max_queue: int = 50                # tasks waiting for a free agent/slot; more are BLOCKED(queue_full)
+    max_history: int = 200             # finished tasks kept for /agenttasks
+    cancel_grace_seconds: float = 5.0  # an agent that ignores cancel/timeout this long is marked FAILED
+    tool_call_limit: int = 200         # tool calls per task
+    max_output_chars: int = 20_000     # size of a stored task output
+
+
 CODING_PROVIDERS = ("local", "fake")
 CODING_TEST_COMMANDS = ("pytest", "python -m pytest", "python -m unittest", "npm test")  # the only runners that exist
 
@@ -168,6 +181,7 @@ class Settings:
     computer: ComputerSettings = field(default_factory=ComputerSettings)
     browser: BrowserSettings = field(default_factory=BrowserSettings)
     coding: CodingSettings = field(default_factory=CodingSettings)
+    agents: AgentsSettings = field(default_factory=AgentsSettings)
 
     @property
     def is_production(self) -> bool:
@@ -255,6 +269,12 @@ class Settings:
             raise ConfigError("coding.max_search_results 1..5000, max_list_entries 1..20000, test_timeout 0..3600 s")
         if not 500 <= cd.llm_context_chars <= 200_000:
             raise ConfigError("coding.llm_context_chars must be 500..200000")
+        ag = self.agents
+        if not 1 <= ag.max_concurrent <= 16 or not 0 < ag.task_timeout_seconds <= 3600 or not 1 <= ag.max_queue <= 1000:
+            raise ConfigError("agents.max_concurrent 1..16, task_timeout_seconds 0..3600 (positive), max_queue 1..1000")
+        if not 1 <= ag.max_history <= 10_000 or not 0 <= ag.cancel_grace_seconds <= 300 or not 1 <= ag.tool_call_limit <= 5000 \
+                or not 1_000 <= ag.max_output_chars <= 1_000_000:
+            raise ConfigError("agents.max_history 1..10000, cancel_grace_seconds 0..300, tool_call_limit 1..5000, max_output_chars 1000..1000000")
         m = self.memory
         if not m.backend.strip():
             raise ConfigError("memory.backend must not be empty")
