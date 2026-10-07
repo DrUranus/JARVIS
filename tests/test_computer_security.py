@@ -316,7 +316,8 @@ def test_an_alias_value_is_a_path_not_a_command_line(tmp_path):
                                               "pipe": "/usr/bin/true | /bin/sh"})
     for alias in ("sneaky", "worse", "pipe"):
         out = r.run("app", app=alias)
-        assert not out.success and "[launch_failed]" in out.error, alias  # not an existing file: never split or interpreted
+        # never split or interpreted: either not an existing file, or (blocked program by name) denied as RED
+        assert not out.success and ("[launch_failed]" in out.error or "never permitted" in out.error), alias
     assert r.fb.launched == []
 
 
@@ -479,7 +480,7 @@ def test_subprocess_and_ctypes_live_only_in_their_providers():
             assert "subprocess" not in names, f.name
         if f.name != "win32_windows.py":
             assert "ctypes" not in names, f.name
-    sub = ast.parse((COMP / "providers" / "subprocess_apps.py").read_text())
+    sub = ast.parse((COMP / "providers" / "subprocess_apps.py").read_text(encoding="utf-8"))
     popens = [n for n in ast.walk(sub) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "Popen"]
     assert len(popens) == 1  # the only process creation in the whole package
     first = popens[0].args[0]
@@ -509,7 +510,7 @@ def test_core_voice_memory_llm_planning_tasks_know_nothing_about_computer_contro
     for pkg in ("core", "voice", "memory", "llm", "planning", "tasks", "permissions", "tools", "interface"):
         for f, tree in modules(SRC / pkg):
             assert "jarvis.computer" not in ast.unparse(tree), f"{pkg}/{f.name}"
-    assert "computer" not in (SRC / "core" / "core.py").read_text().split("class JarvisCore")[1].lower().replace("subsystems", "").replace(
+    assert "computer" not in (SRC / "core" / "core.py").read_text(encoding="utf-8").split("class JarvisCore")[1].lower().replace("subsystems", "").replace(
         "# optional capabilities plugged in by the composition root (computer control, later browser/vision agents).", "")
 
 
@@ -522,7 +523,7 @@ def test_only_the_controller_drives_providers():
             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
                 assert n.func.attr not in acting, f"{f.name}: .{n.func.attr}() outside the controller"
     # and the controller calls them only through its private provider accessors
-    ctrl = ast.parse((COMP / "controller.py").read_text())
+    ctrl = ast.parse((COMP / "controller.py").read_text(encoding="utf-8"))
     for n in ast.walk(ctrl):
         if isinstance(n, ast.Attribute) and n.attr in ("screen", "mouse", "keyboard", "windows", "apps") and isinstance(n.value, ast.Attribute):
             assert n.value.attr in ("_backend", "settings"), ast.unparse(n)  # providers via _backend; settings.apps is config

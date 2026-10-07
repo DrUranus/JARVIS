@@ -40,6 +40,11 @@ def test_security_defaults_are_restrictive():
     assert s.effective_audit_path == str(Path(s.log_dir) / "audit.jsonl")
 
 
+def q(path):
+    """TOML basic-string literal for a path (Windows backslashes must be escaped)."""
+    return json.dumps(str(path))
+
+
 def test_security_config_from_file_and_env(tmp_path):
     f = tmp_path / "c.toml"
     f.write_text('[security]\nmode = "lockdown"\nallowed_roots = ["a", "b"]\ndenied_paths = ["a/private"]\n'
@@ -114,8 +119,8 @@ def test_main_refuses_to_start_with_a_broken_policy(tmp_path, capsys):
     bad = tmp_path / "policy.toml"
     bad.write_text("[[rule]\n")
     cfg = tmp_path / "c.toml"
-    cfg.write_text(f'workspace = "{tmp_path / "ws"}"\nlog_dir = "{tmp_path / "logs"}"\n[security]\npolicy_file = "{bad}"\n'
-                   f'[memory]\npath = "{tmp_path / "m.db"}"\n')
+    cfg.write_text(f'workspace = {q(tmp_path / "ws")}\nlog_dir = {q(tmp_path / "logs")}\n[security]\npolicy_file = {q(bad)}\n'
+                   f'[memory]\npath = {q(tmp_path / "m.db")}\n')
     assert main(["-c", str(cfg)]) == 2
     assert "Startfehler" in capsys.readouterr().err
 
@@ -124,16 +129,16 @@ def test_policy_file_is_applied_and_its_load_is_audited(tmp_path):
     policy = tmp_path / "policy.toml"
     ws = tmp_path / "ws"
     policy.write_text(f'[[rule]]\nid = "trust"\neffect = "allow"\ntool = "permission_demo"\naction = "write"\n'
-                      f'resource_type = "path"\nresources = ["{ws / "notes"}"]\n'
+                      f'resource_type = "path"\nresources = [{q(ws / "notes")}]\n'
                       f'[[rule]]\nid = "never"\neffect = "deny"\ntool = "permission_demo"\nresource_type = "path"\n'
-                      f'resources = ["{ws / "vault"}"]\n')
+                      f'resources = [{q(ws / "vault")}]\n')
     core = build_core(settings_for(tmp_path, JARVIS_SECURITY_POLICY_FILE=policy, JARVIS_SECURITY_CONFIRMATION="deny"))
     r = core.tools.execute("permission_demo", target="notes/a.txt")
     assert r.success and r.permission.matched_rule == "trust"  # explicit persistent permission: no question
     assert not core.tools.execute("permission_demo", target="other/a.txt").success  # headless: YELLOW denied
     d = core.tools.execute("permission_demo", target="vault/a.txt").permission
     assert d.matched_rule == "never"
-    events = [json.loads(ln) for ln in (tmp_path / "logs" / "audit.jsonl").read_text().splitlines()]
+    events = [json.loads(ln) for ln in (tmp_path / "logs" / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
     assert events[0]["type"] == "policy_loaded" and events[0]["extra"]["rules"] == "2"
 
 
@@ -142,7 +147,7 @@ def test_policy_and_audit_files_inside_the_workspace_cannot_be_modified_by_tools
     ws.mkdir()
     policy = ws / "policy.toml"
     policy.write_text('[[rule]]\nid = "trust-all-writes-here"\neffect = "allow"\ntool = "permission_demo"\naction = "write"\n'
-                      'resource_type = "path"\nresources = ["' + str(ws) + '"]\n')
+                      'resource_type = "path"\nresources = [' + q(ws) + ']\n')
     core = build_core(settings_for(tmp_path, JARVIS_SECURITY_POLICY_FILE=policy, JARVIS_LOG_DIR=ws / "logs"))
     assert core.tools.execute("permission_demo", target="a.txt").success  # the allow rule covers the workspace...
     for protected in ("policy.toml", "logs/audit.jsonl", "sub/../policy.toml"):

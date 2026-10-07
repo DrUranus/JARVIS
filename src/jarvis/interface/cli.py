@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shlex
 import sys
 from typing import Callable, Sequence
@@ -113,9 +114,27 @@ def repl(core: JarvisCore, input_fn: Callable[[str], str] | None = None,
         output_fn(out)
 
 
+_WIN_TOKEN = re.compile(r'(?:[^\s"\']|"[^"]*"|\'[^\']*\'|["\'])+')
+
+
+def _split_tool_args(arg: str, windows: bool | None = None) -> list[str]:
+    """Split a /run line. POSIX rules would eat the backslashes of Windows paths, so use non-POSIX mode there."""
+    if windows is None:
+        windows = sys.platform == "win32"
+    if not windows:
+        return shlex.split(arg)
+    parts = []
+    for m in _WIN_TOKEN.finditer(arg):
+        tok = m.group(0)
+        if tok.count('"') % 2 or tok.count("'") % 2:
+            raise ValueError("No closing quotation")
+        parts.append(re.sub(r'"([^"]*)"|\'([^\']*)\'', lambda q: q.group(1) if q.group(1) is not None else q.group(2), tok))
+    return parts
+
+
 def _run_tool(core: JarvisCore, arg: str) -> str:
     try:
-        parts = shlex.split(arg)
+        parts = _split_tool_args(arg)
     except ValueError as exc:
         return f"Ungültige Eingabe: {exc}"
     if not parts:

@@ -633,7 +633,7 @@ def test_jsonl_sink_writes_owner_only_json_lines_lazily(tmp_path):
     assert [e["type"] for e in sink.tail(2)] == ["confirmation_accepted", "permission_granted"]
     if os.name == "posix":
         assert (path.stat().st_mode & 0o077) == 0  # not readable by others
-    path.write_text(path.read_text() + "not json\n")
+    path.write_text(path.read_text(encoding="utf-8") + "not json\n", encoding="utf-8")
     assert sink.tail(1) == [{"type": "unreadable_line"}]
 
 
@@ -675,7 +675,7 @@ def test_audit_file_contains_no_secrets(tmp_path):
     engine.audit.sinks[:] = [JsonlAuditSink(path)]
     engine.authorize(PermissionRequest(tool="mail", action="send", level=Y, reason="login plain-known-secret-4711 and "
                                        "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123", context={"password": "pw12345678"}))
-    raw = path.read_text()
+    raw = path.read_text(encoding="utf-8")
     assert "plain-known-secret-4711" not in raw and "sk-ant-api03" not in raw and "pw12345678" not in raw
 
 

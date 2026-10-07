@@ -100,6 +100,7 @@ def test_relative_roots_resolve_against_project_dir(tmp_path, monkeypatch):
 
 def test_tilde_expands_to_home_and_is_judged_like_any_path(ws, tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "outside"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "outside"))  # Windows expands ~ from USERPROFILE
     g = PathGuard([ws], base_dir=ws)
     assert not g.check("~/x").ok
     assert PathGuard([tmp_path / "outside"]).check("~/x").ok

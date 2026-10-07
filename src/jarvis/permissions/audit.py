@@ -102,7 +102,7 @@ class JsonlAuditSink(AuditSink):
         line = json.dumps(event.to_dict(), ensure_ascii=False) + "\n"
         with self._lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o600)
             with os.fdopen(fd, "a", encoding="utf-8") as f:
                 f.write(line)
 

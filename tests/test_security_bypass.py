@@ -1,6 +1,7 @@
 """Adversarial tests: each one is an attempt to get a protected action past the permission layer."""
 import ast
 import logging
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -173,7 +174,10 @@ def test_deny_rules_ignore_case_but_allow_rules_do_not(tmp_path):
     engine, _, _ = make_engine(tmp_path, rules=rules)
     assert engine.authorize(path_req("VAULT/x")).matched_rule == "vault-off"  # over-matching is the safe direction
     assert engine.authorize(path_req("notes/x")).matched_rule == "notes-ok"
-    assert engine.authorize(path_req("NOTES/x")).needs_confirmation  # a different spelling is NOT trusted
+    if sys.platform == "win32":  # case-insensitive file system: NOTES/x really is the same directory
+        assert engine.authorize(path_req("NOTES/x")).matched_rule == "notes-ok"
+    else:
+        assert engine.authorize(path_req("NOTES/x")).needs_confirmation  # a different spelling is NOT trusted
 
 
 # ---- 6. no secrets in logs or error output -------------------------------------------------------------------------------------

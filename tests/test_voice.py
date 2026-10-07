@@ -278,13 +278,16 @@ def test_factory_unknown_names():
         build_speaker(VoiceSettings(tts_provider="nope"))
 
 
-def test_missing_microphone_library_is_voice_unavailable():
-    pytest.importorskip  # noqa: B018
-    try:
-        import sounddevice  # noqa: F401
-        pytest.skip("sounddevice installed here")
-    except (ImportError, OSError):
-        pass
+def test_missing_microphone_library_is_voice_unavailable(monkeypatch):
+    import builtins
+    real = builtins.__import__
+
+    def fake(name, *a, **k):
+        if name == "sounddevice":
+            raise ImportError("simulated: not installed")
+        return real(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", fake)
     with pytest.raises(VoiceUnavailableError):
         SoundDeviceSource()
     with pytest.raises(VoiceUnavailableError):

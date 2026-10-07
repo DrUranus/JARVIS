@@ -373,13 +373,15 @@ class ComputerController:
                                    f"'{safe_label(name, 40)}' is not an allowed application (computer.apps)",
                                    {"anwendung": safe_label(name, 80)}))
         exe = os.path.realpath(os.path.expandvars(os.path.expanduser(raw)))
-        if not os.path.isfile(exe):
-            raise ComputerError(ErrorCode.LAUNCH_FAILED, f"executable for '{name[:40]}' was not found")
-        if not self._is_launchable(exe):
-            raise ComputerError(ErrorCode.LAUNCH_FAILED, "the target is not an executable program")
         verdict = self._safety.executable_verdict(exe)
         if not verdict.blocked:  # the alias name itself must not smuggle a blocked program either
             verdict = self._safety.executable_verdict(raw)
+        # blocked programs are judged (RED) by name, independent of platform specifics such as the ".exe" suffix
+        if not verdict.blocked:
+            if not os.path.isfile(exe):
+                raise ComputerError(ErrorCode.LAUNCH_FAILED, f"executable for '{name[:40]}' was not found")
+            if not self._is_launchable(exe):
+                raise ComputerError(ErrorCode.LAUNCH_FAILED, "the target is not an executable program")
         ctx = {"anwendung": safe_label(name, 80), "programm": safe_label(exe, 200)}
         if argv:
             ctx["argumente"] = safe_label(" ".join(argv), 200)

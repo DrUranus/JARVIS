@@ -252,7 +252,7 @@ def test_enabled_startup_wires_tools_into_the_permission_engine(tmp_path):
     core.permissions.set_confirmation_provider(ScriptedConfirmation([NO]))
     out = core.tools.execute("mouse", action="click", x="1", y="1")
     assert not out.success and "declined" in out.error
-    log = (tmp_path / "logs" / "audit.jsonl").read_text()
+    log = (tmp_path / "logs" / "audit.jsonl").read_text(encoding="utf-8")
     assert "computer baseline" in log and '"tool": "mouse"' in log
 
 
@@ -281,7 +281,7 @@ def test_core_without_subsystems(tmp_path):
 
 # ---- CLI --------------------------------------------------------------------------------------------------------------------------------------
 def cli_core(tmp_path, **extra):
-    return build_core(load_settings(env=env_for(tmp_path, JARVIS_COMPUTER_ENABLED="true", JARVIS_COMPUTER_BACKEND="fake", **extra)))
+    return build_core(load_settings(env=env_for(tmp_path, JARVIS_COMPUTER_ENABLED="true", JARVIS_COMPUTER_BACKEND="fake", JARVIS_COMPUTER_USE_DEFAULT_APPS="false", **extra)))
 
 
 def run_repl(core, lines):

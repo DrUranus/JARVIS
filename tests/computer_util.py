@@ -58,6 +58,7 @@ def make_rig(tmp_path: Path, answers=(), *, baseline: bool = True, notepad: bool
     app_path = make_executable(tmp_path / "bin" / "fakenote.exe")
     apps = {"notepad": app_path, **settings_kw.pop("apps", {})}
     settings_kw.setdefault("action_delay", 0.0)
+    settings_kw.setdefault("use_default_apps", False)  # keep the rig independent of the host platform
     settings = ComputerSettings(enabled=True, apps=apps, **settings_kw)
     fb = FakeBackend()
     if notepad:

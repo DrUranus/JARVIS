@@ -384,7 +384,8 @@ def test_launch_failure_is_a_structured_error(rig):
 
 
 def test_default_apps_exist_on_windows_only(tmp_path, monkeypatch):
-    r = make_rig(tmp_path)
+    r = make_rig(tmp_path, use_default_apps=True)
+    monkeypatch.setattr(sys, "platform", "linux")
     assert set(r.controller.effective_apps()) == {"notepad"}
     monkeypatch.setattr(sys, "platform", "win32")
     assert {"notepad", "calculator", "paint"} <= set(r.controller.effective_apps())
