@@ -42,6 +42,11 @@ def build_core(settings: Settings) -> JarvisCore:
     # The goal engine sits above the agent layer and talks to it only through the orchestrator.
     from jarvis.goals.factory import build_goals
     core.subsystems["goals"] = build_goals(settings, core.subsystems["agents"])
+    # Research / Business / Finance are agents of that layer; these objects only describe them (status) and add small GREEN calculation tools for /run.
+    from jarvis.agents.groups import build_analysis_subsystems
+    from jarvis.tools.analysis import register_analysis_tools
+    core.subsystems.update(build_analysis_subsystems(settings, core.subsystems["agents"]))
+    register_analysis_tools(tools, core.subsystems, tuple(settings.browser.private_hosts_allowed))
     # Self-repair also sits above the agent layer: its only way to act is a Coding-Agent task through the orchestrator.
     from jarvis.self_repair.factory import build_self_repair
     core.subsystems["self_repair"] = build_self_repair(settings, core.subsystems["agents"], core.subsystems.get("coding"))

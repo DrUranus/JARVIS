@@ -48,7 +48,9 @@ def test_the_layer_never_imports_the_subsystems_it_coordinates_nor_the_permissio
     for f, tree in modules(AGENTS):
         for m in imports(tree):
             if m.startswith("jarvis.") and not m.startswith("jarvis.agents"):
-                assert any(m == a or m.startswith(a + ".") for a in allowed_jarvis), f"{f.relative_to(AGENTS)} imports {m}"
+                # only the composition code (factory.py) builds the Phase-10 agents; nothing else in the layer knows research/business/finance
+                extra = {"jarvis.research", "jarvis.business", "jarvis.finance"} if f.name == "factory.py" else set()
+                assert any(m == a or m.startswith(a + ".") for a in allowed_jarvis | extra), f"{f.relative_to(AGENTS)} imports {m}"
     mem_users = [f.name for f, t in modules(AGENTS) if any(m.startswith("jarvis.memory") for m in imports(t))]
     assert mem_users == ["factory.py"]      # only the composition code touches the memory TYPE; the orchestrator gets a read-only callable
 
@@ -138,7 +140,7 @@ def test_logging_never_carries_objectives_inputs_summaries_or_outputs():
 def test_the_rest_of_jarvis_does_not_depend_on_the_agent_layer():
     for f, tree in modules(SRC):
         rel = f.relative_to(SRC)
-        if rel.parts[0] in ("agents", "goals", "self_repair") or f.name == "bootstrap.py" or rel.as_posix() == "interface/cli.py":
+        if rel.parts[0] in ("agents", "goals", "self_repair", "research", "business", "finance") or f.name == "bootstrap.py" or rel.as_posix() == "interface/cli.py":
             continue
         assert not any(m == "jarvis.agents" or m.startswith("jarvis.agents.") for m in imports(tree)), rel
     cli = (SRC / "interface" / "cli.py").read_text(encoding="utf-8")
@@ -156,7 +158,7 @@ def test_the_layer_has_no_agent_that_can_change_the_system_itself():
     assert "self" not in caps.lower().replace("itself", "").split("known_capabilities")[1].split(")")[0]
     from jarvis.agents import policy
     assert policy.KNOWN_CAPABILITIES == {"browser.read", "browser.interact", "coding.read", "coding.write", "coding.test", "coding.plan", "computer.screen",
-                                         "computer.input", "research.web"}      # no shell/install/commit/push/network capability exists
+                                         "computer.input", "research.web", "business.analyze", "finance.analyze"}      # no shell/install/commit/push/network capability exists
     assert not any(w in c for c in policy.KNOWN_CAPABILITIES for w in ("shell", "git", "install", "ssh", "network", "credential", "admin", "self"))
 
 

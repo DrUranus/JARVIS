@@ -71,6 +71,18 @@ def _interrupt_of(core_subsystems: dict[str, Any], name: str) -> Callable[[], An
     return (lambda: sub.halt("agent task cancelled")) if sub is not None and getattr(sub, "available", False) and hasattr(sub, "halt") else None
 
 
+def _research_agent(settings: Settings) -> Agent:
+    """The Phase-10 research agent when [research] is enabled (same id, so everything that used the placeholder keeps working); else the placeholder."""
+    if not settings.research.enabled:
+        return ResearchAgent()
+    from jarvis.research.agent import ResearchAgent as WebResearchAgent
+    from jarvis.research.models import ResearchLimits
+    r = settings.research
+    # the research layer's own URL filter mirrors (never exceeds) what the browser layer allows: the user's exact browser.private_hosts_allowed
+    return WebResearchAgent(ResearchLimits(r.max_sources, r.max_actions, r.timeout_seconds, r.max_result_chars),
+                            private_hosts_allowed=tuple(settings.browser.private_hosts_allowed))
+
+
 def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | None, task_manager: TaskManager,
                  subsystems: dict[str, Any]) -> AgentsSubsystem:
     cfg = settings.agents
@@ -85,7 +97,17 @@ def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | 
                                  max_queue=cfg.max_queue, max_history=cfg.max_history, cancel_grace=cfg.cancel_grace_seconds,
                                  tool_call_limit=cfg.tool_call_limit, max_output_chars=cfg.max_output_chars, task_manager=task_manager,
                                  memory_lookup=lookup)
-        agents: list[Agent] = [ResearchAgent(), BrowserAgent(), CodingAgent(interrupt=_interrupt_of(subsystems, "coding")), ComputerAgent()]
+        agents: list[Agent] = [_research_agent(settings), BrowserAgent(), CodingAgent(interrupt=_interrupt_of(subsystems, "coding")), ComputerAgent()]
+        if settings.business.enabled:
+            from jarvis.business.agent import BusinessAgent
+            agents.append(BusinessAgent(max_steps=settings.business.max_steps, timeout=settings.business.timeout_seconds,
+                                        max_result_chars=settings.business.max_result_chars))
+        if settings.finance.enabled:
+            from jarvis.finance.agent import FinanceAgent
+            from jarvis.finance.models import RiskLimits
+            f = settings.finance
+            agents.append(FinanceAgent(max_steps=f.max_steps, timeout=f.timeout_seconds, max_result_chars=f.max_result_chars,
+                                       limits=RiskLimits(f.max_risk_per_trade_pct, f.max_position_pct, f.max_total_exposure_pct, f.daily_loss_limit_pct, f.max_leverage)))
         for agent in agents:
             registry.register(agent)
             missing = sorted(t for t in agent.tool_names if t not in tools)

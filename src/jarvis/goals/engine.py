@@ -364,9 +364,13 @@ class GoalEngine:
         if remaining is not None:
             timeout = max(0.1, min(timeout, remaining))
         task_id = f"{rec.goal.goal_id[:36]}-{sid[:12]}-a{step.attempts}"
+        # results of finished dependency steps travel through the orchestrator's own parent-result mechanism (AgentTask.dependencies), not through the engine
+        parents = tuple(dict.fromkeys(rec.steps[d].result.task_id for d in step.dependencies if d in rec.steps and rec.steps[d].result is not None
+                                      and rec.steps[d].status is StepStatus.SUCCEEDED and rec.steps[d].result.task_id and not rec.steps[d].is_evaluation
+                                      and not is_cleanup(step)))[:10]
         try:
             task = AgentTask(step.objective, agent_id=step.assigned_agent, input=agent_input, required_capabilities=step.required_capabilities,
-                             priority=rec.goal.priority, timeout=timeout, task_id=task_id, metadata={"goal_id": rec.goal.goal_id, "step_id": sid},
+                             priority=rec.goal.priority, timeout=timeout, task_id=task_id, dependencies=parents, metadata={"goal_id": rec.goal.goal_id, "step_id": sid},
                              memory_query=rec.user_ctx.get("memory_query") if isinstance(rec.user_ctx.get("memory_query"), str) else None)
             res = self._orch.submit(task)
             with self._lock:

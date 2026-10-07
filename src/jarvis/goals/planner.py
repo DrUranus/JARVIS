@@ -55,6 +55,12 @@ class GoalPlanner:
         if self._agents is None:
             raise PlanningError("no agent planner is available (the multi-agent layer is off)")
         user = dict(ctx.explicit_user_context)
+        if user.get("template") is not None:               # an explicitly chosen analysis template wins over every heuristic
+            specs = self._analysis(goal, user)
+            steps = self._build(goal, specs)
+            if len(steps) > max_steps:
+                raise PlanningError(f"the plan needs {len(steps)} steps; the limit is {max_steps}")
+            return steps
         objective = goal.objective
         matches = []
         url = find_url(objective, user)
@@ -125,6 +131,50 @@ class GoalPlanner:
         action = "screenshot" if re.search(r"screenshot", goal.objective, re.IGNORECASE) else "windows"
         return [{"objective": "Schaue auf den Bildschirm: Fenster und Screenshot (Computer)", "caps": {"computer.screen"},
                  "input": {"steps": [{"tool": "screen", "action": action}]}}, {"evaluate": True}]
+
+    # ---- analysis templates (Phase 10): research -> business -> finance chains; data comes only from the explicit context --------------------------------
+    _BUSINESS_OBJECTIVE = {"market_analysis": "Erstelle die Marktanalyse (Geschäftsmodell, Wettbewerber, Preise)",
+                           "competitor_analysis": "Erstelle die Wettbewerbsanalyse (Konkurrenzanalyse, Positionierung)",
+                           "business_analysis": "Analysiere die Geschäftsdaten (Schwachstellen, Marge)",
+                           "business_plan": "Erstelle den Businessplan (Geschäftsmodell, Break-even, Szenarien)"}
+    _FINANCE_OBJECTIVE = {"financial_analysis": "Erstelle die Finanzanalyse (Kennzahlen, Bewertungskennzahlen)",
+                          "company_analysis": "Erstelle die Unternehmensanalyse (Kennzahlen, Vergleich)",
+                          "paper_trade_analysis": "Analysiere die Paper-Trading Szenarien (Risikoanalyse, Portfolio)"}
+    _DEFAULT_FINANCE_KIND = {"financial_analysis": "financial_analysis", "company_analysis": "company_analysis", "paper_trade_analysis": "paper_trade_analysis"}
+    _NEEDS = {"business_analysis": ("business", "rows"), "business_plan": ("business", "plan"), "financial_analysis": ("finance", "company"),
+              "company_analysis": ("finance", "companies"), "paper_trade_analysis": ("finance", "ideas")}
+
+    def _analysis(self, goal: Goal, user: dict[str, Any]) -> list[dict[str, Any]]:
+        t = user.get("template")
+        if not isinstance(t, str) or t not in P.ANALYSIS_TEMPLATES:
+            raise PlanningError(f"unknown template; known: {', '.join(P.ANALYSIS_TEMPLATES)}")
+        blocks: dict[str, dict[str, Any]] = {}
+        for key in ("research", "business", "finance"):
+            v = user.get(key)
+            if v is not None and (not isinstance(v, dict) or len(v) > 30):
+                raise PlanningError(f"{key} must be an object with up to 30 entries")
+            blocks[key] = dict(v or {})
+        need = self._NEEDS.get(t)
+        if need and not blocks[need[0]].get(need[1]):
+            raise PlanningError(f"the template {t} needs {need[0]}.{need[1]} in the context (no data is invented)")
+        has_research = bool(blocks["research"].get("urls"))
+        if t in ("research_web", "market_analysis", "competitor_analysis") and not has_research:
+            raise PlanningError(f"the template {t} needs research.urls in the context (this version reads the pages it is given)")
+        specs: list[dict[str, Any]] = []
+        if has_research:
+            specs.append({"objective": "Recherchiere die Quellen und Informationen (Recherche, Quellen)", "caps": {"research.web"},
+                          "input": {"kind": "research_web", **blocks["research"]}})
+        last = len(specs) - 1
+        if t in self._BUSINESS_OBJECTIVE:
+            specs.append({"objective": self._BUSINESS_OBJECTIVE[t], "caps": {"business.analyze"}, "input": {"kind": t, **blocks["business"]}, "after": [last] if last >= 0 else []})
+            last = len(specs) - 1
+        fin = blocks["finance"]
+        if t in self._FINANCE_OBJECTIVE or (t in ("business_plan", "market_analysis") and fin.get("kind")):
+            kind = str(fin.get("kind") or self._DEFAULT_FINANCE_KIND.get(t, ""))
+            specs.append({"objective": self._FINANCE_OBJECTIVE.get(t, "Erstelle die Finanzanalyse (Szenarioanalyse, Kennzahlen)"), "caps": {"finance.analyze"},
+                          "input": {**{k: v for k, v in fin.items() if k != "kind"}, "kind": kind}, "after": [last] if last >= 0 else []})
+        specs.append({"evaluate": True, "after": [len(specs) - 1]})
+        return specs
 
     # ---- assembling --------------------------------------------------------------------------------------------------------------------
     def _build(self, goal: Goal, specs: list[dict[str, Any]]) -> tuple[GoalStep, ...]:

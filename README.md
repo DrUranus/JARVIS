@@ -3,9 +3,9 @@
 Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer Agent, dem man ein Ziel nennt und der selbstständig
 **denkt → plant → recherchiert → programmiert → handelt → testet → repariert → lernt → neue Fähigkeiten entwickelt**.
 
-**Status: Phase 1 (Core MVP), Phase 2 (Voice), Phase 3 (Memory), Phase 13 (Permissions & Security, vorgezogen), Phase 4 (Computer Control), Phase 5 (Browser Agent v1), Phase 6 (Coding Agent v1) und Phase 7 (Multi-Agent-Orchestrierung v1) abgeschlossen; Phase 8 (Goal Engine v1) ist implementiert und auf Linux getestet – die Windows-Validierung steht noch aus; Phase 9 (Self-Testing/Self-Repair v1) ist implementiert und auf Linux getestet.** JARVIS plant und überwacht Ziele nur über die vorhandenen Agenten; es verändert weder sich selbst noch installiert es Fähigkeiten.
+**Status: Phase 1 (Core MVP), Phase 2 (Voice), Phase 3 (Memory), Phase 13 (Permissions & Security, vorgezogen), Phase 4 (Computer Control), Phase 5 (Browser Agent v1), Phase 6 (Coding Agent v1) und Phase 7 (Multi-Agent-Orchestrierung v1), Phase 8 (Goal Engine v1) und Phase 9 (Self-Testing/Self-Repair v1) abgeschlossen (Linux + Windows validiert); Phase 10 (Business/Research/Finance v1) ist implementiert und auf Linux getestet – die Windows-Validierung steht noch aus.** JARVIS plant und überwacht Ziele nur über die vorhandenen Agenten; es verändert weder sich selbst noch installiert es Fähigkeiten.
 
-## Was bisher funktioniert (Phase 1–9, 13)
+## Was bisher funktioniert (Phase 1–10, 13)
 
 - Konfiguration (Defaults < TOML < Umgebungsvariablen), Dev-/Produktionsmodus, Logging, Fehlerhierarchie
 - LLM-Abstraktion: `mock` (offline), `openai`, `anthropic` – austauschbar per Konfiguration
@@ -17,6 +17,7 @@ Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer A
 - **Multi-Agent-Orchestrierung v1 (Phase 7):** `AgentOrchestrator` lässt Browser-, Coding-, Computer- und (Platzhalter-)Research-Agent auf strukturierten `AgentTask`s arbeiten – begrenzt parallel, mit Timeout, Abbruch, Abhängigkeiten und Ergebnisübergabe; fügt keine Fähigkeit hinzu, jede Aktion läuft weiter durch ToolRegistry → PermissionEngine
 - **Goal Engine v1 (Phase 8):** Ziel → kurze, geprüfte Schrittfolge → Ausführung ausschließlich über den `AgentOrchestrator` → Auswertung → `SUCCEEDED/FAILED/BLOCKED/CANCELLED/TIMEOUT`; mit harten Grenzen (Schritte, Versuche, Timeouts), ohne neue Fähigkeit und ohne Selbstveränderung
 - **Self-Testing / Self-Repair v1 (Phase 9):** Tests in einem ausdrücklich genannten Workspace ausführen, Fehler deterministisch diagnostizieren, eine **begrenzte** Reparatur über den bestehenden Coding-Agent durchführen lassen, gezielt und per Regression nachtesten – Erfolg nur, wenn beides grün ist und nur geplante Dateien geändert wurden; kein Self-Improvement, kein Git, keine Installation
+- **Business / Research / Finance v1 (Phase 10):** drei echte Agenten im bestehenden Agent-System: Research liest öffentliche Seiten über das Browser-Tool und liefert belegte, klassifizierte (FACT/INFERENCE/OPINION/UNCERTAIN) Ergebnisse mit Quellen und Widersprüchen; Business macht daraus Markt-/Wettbewerbsanalysen, Businessplan-Rechnungen und Entwürfe; Finance rechnet Kennzahlen und Paper-Trades – **ohne** Echtgeld, Orders, Überweisungen oder Nachrichtenversand
 - **Coding Agent v1 (Phase 6):** kontrollierte Softwareentwicklung in *einem* bestätigten Workspace – Projekt erkennen, lesen, suchen, ändern (hash-geschützt, mit Änderungszusammenfassung), Tests ausführen (ohne Shell, nur Allow-List), Git nur lesend; ein `coding`-Tool, eigener `CodingController`, jede Aktion durch ToolRegistry und PermissionEngine
 - **Browser Agent v1 (Phase 5):** ein Browser (Playwright, optional) hinter austauschbaren Providern, gesteuert über **ein** `browser`-Tool – einzelne, einzeln bestätigte Schritte (öffnen, lesen, Elemente finden, klicken, ausfüllen, absenden, kontrolliert herunter-/hochladen); eigener `BrowserController`, getrennt von Computer Control
 - **Computer Control (Phase 4):** Bildschirm, Maus, Tastatur, Fenster und Anwendungen als `ProtectedTool`s – jede Aktion läuft durch die Berechtigungs-Engine; opt-in, Windows-first (`pyautogui` + `mss` + Win32 über `ctypes`), austauschbare Provider
@@ -724,6 +725,75 @@ Ausgaben und Zusammenfassungen sind begrenzt (Test-Ausgabe ≤ 3000 Zeichen, Feh
 - Abbruch/Timeout sind kooperativ (siehe Phase 7); Läufe liegen nur im Speicher.
 - Nicht enthalten (spätere Phasen): Self-Improvement/Selbstmodifikation, autonome Hintergrund-Reparatur, Git commit/push, Paketinstallation, Credentials, Remote-Ausführung.
 
+## Business / Research / Finance v1 (Phase 10)
+
+JARVIS kann komplexe **Informations- und Analyseaufgaben** bearbeiten: recherchieren, Quellen vergleichen, Wettbewerber und Märkte analysieren, Geschäftsmodelle durchrechnen, Kennzahlen und Risiken berechnen, Trading-Ideen als **Paper-Trades** durchspielen. Es gibt **keine neue Architektur**: die drei Fähigkeiten sind gewöhnliche Agenten des Phase-7-Systems, geplant von der Goal Engine, ausgeführt vom `AgentOrchestrator`, mit Abhängigkeiten über `AgentTask.dependencies`.
+
+```
+Goal Engine ─▶ GoalPlanner/AgentPlanner ─▶ AgentOrchestrator ─▶ Research Agent ──▶ (ToolGateway ─▶ browser-Tool ─▶ PermissionEngine ─▶ BrowserController)
+                                                  │                  │ research_result (Parent-Result)
+                                                  ├────────────▶ Business Agent  (keine Tools)
+                                                  └────────────▶ Finance Agent   (keine Tools)
+```
+**Nur Research hat ein Tool (`browser`).** Business und Finance haben **gar keines**: sie rechnen auf Eingaben und Research-Ergebnissen, können nichts lesen, schreiben, senden oder bestellen.
+
+### Research Agent (`src/jarvis/research/`)
+Ablauf: `Anfrage → ResearchPlan → Quellenauswahl (URL-Policy) → Abruf (browser-Tool) → Extraktion → Cross-Check → Synthese → ResearchResult`.
+- **Plan:** `objective`, `questions`, `urls`, `max_sources` (≤ 20), `max_actions` (≤ 200), `timeout` (≤ 1800 s), optional `allowed_domains`/`excluded_domains`, `follow_links` (relevante Links derselben Seite). Eingaben können Limits nur **senken**.
+- **Quellen:** jede mit `url`, `title`, `source` (Host), `retrieved_at`, `relevance` und `status` (`ok` / `unavailable` / `blocked` / `skipped`). Was nicht lesbar war, steht als `unavailable` im Ergebnis – es wird nichts ergänzt. Seiten gelten nie als „aktuell“, außer mit dem gespeicherten Abrufzeitpunkt.
+- **Aussagen:** `FACT` (eine Quelle sagt es, mit URL), `INFERENCE` (von JARVIS aus belegten Zahlen berechnet, z. B. Preisspanne), `OPINION` (Werbe-/Meinungsaussage), `UNCERTAIN` (abgeschwächt oder in einem Widerspruch). Dieselbe Aussage in ≥ 2 Quellen (inkl. gleicher Zahlen) ist `corroborated`.
+- **Widersprüche:** Zahlen derselben Größe, die verschiedene Quellen über 10 % auseinander angeben, werden als `CONFLICT` mit **allen** Seiten dargestellt.
+- **URL-Filter (vor dem Browser, nie großzügiger als der Browser):** nur `http(s)`; abgelehnt werden `javascript:`, `data:`, `file:`, `ftp:` …, Zugangsdaten in der URL, **Backslashes** (mehrdeutig), interne/private/Loopback-/Link-Local-Adressen und -Namen (auch `2130706433`, `0x7f.1`, `[::ffff:127.0.0.1]`), Cloud-Metadaten-Hosts. Interne Hosts nur, wenn **du** sie in `browser.private_hosts_allowed` freigegeben hast. Geheime Query-Parameter (`token`, `key`, `password` …) und Tracking-Parameter werden entfernt; Duplikate (auch `www.`) werden nur einmal gelesen. DNS wird nicht aufgelöst (wie beim Browser, siehe Grenzen).
+- **Sicherheit bleibt beim Browser:** jede Navigation prüft weiter der `BrowserController` und fragt die `PermissionEngine` (Rückfrage je Seite). Verweigerung ⇒ Task `BLOCKED`, kein Retry. Research klickt, füllt und lädt nichts: erlaubte Browser-Aktionen im Code sind genau `status, start, goto, text, links, stop`. Weiterleitung auf eine abgelehnte Adresse ⇒ Inhalt wird verworfen. Secrets im Seitentext werden geschwärzt.
+
+### Business Agent (`src/jarvis/business/`)
+Aufgabenarten (`input.kind`): `market_analysis`, `competitor_analysis`, `business_plan`, `business_analysis` (eigene Zahlen: Schwachstellen), `marketing_draft`, `lead_list`.
+- **`BusinessResult`:** `objective`, `summary`, `findings`, `market_data`, `competitors`, `opportunities`, `risks`, `assumptions`, `recommendations`, `sources`, `confidence` (Stufe, Score, Gründe) – jede Zahl/Aussage trägt ihre **Basis**: `GIVEN` (vom Nutzer), `FACT` (Quelle), `INFERENCE` (berechnet), `ESTIMATE` (Annahme, sagt woraus), `UNKNOWN` (keine Daten). Fehlende Daten bleiben `UNKNOWN`; ein Preis aus widersprüchlichen Quellen wird **nicht** übernommen.
+- **Rechnungen:** Break-even, Szenarien, Amortisation, Preisstatistik, Periodenanalyse – nur aus gegebenen Zahlen; Kontributionsmarge ≤ 0 ⇒ `UNKNOWN` mit Begründung.
+- **Marketing/Leads:** Entwürfe aus **gegebenen** Fakten (Zielgruppe, Angebot, USPs), als `DRAFT` markiert; Lead-Listen nennen nur öffentliche Seiten aus der Recherche. **Gesendet wird nichts**: Aufgaben wie `send_email`, `outreach`, `send_offer`, `contract`, `payment`, `publish` enden `BLOCKED (external_action_not_supported)`. Jede Kontaktaufnahme wäre eine eigene YELLOW-Aktion über die PermissionEngine mit deiner ausdrücklichen Bestätigung.
+- Konkrete Branchen (Fahrzeugaufbereitung, -vermietung, Online-Projekte …) sind **nicht** einkodiert – es sind normale Ziele mit eigenen Daten.
+
+### Finance Agent (`src/jarvis/finance/`)
+Aufgabenarten: `financial_analysis` (KGV/P/E, P/S, EV/EBITDA, Wachstum, Margen, Verschuldung, Free Cash Flow), `company_analysis` (Vergleich mehrerer Unternehmen), `risk_analysis` (Drawdown, Volatilität, Rendite), `scenario_analysis`, `portfolio_analysis`, `paper_trade_analysis`.
+- **Kennzahlen sind `COMPUTED` oder `UNKNOWN`** (fehlende Daten, Nenner ≤ 0, zu wenige Datenpunkte) – nie geschätzt. Zahlen kommen aus deiner Eingabe oder als **belegte** Figuren aus Research-Ergebnissen (`from_research`, mit Quelle). Keine Marktdaten-API: Daten, die nicht gegeben sind, fehlen.
+- **Modelle:** `TradeIdea` (symbol, direction, entry, stop, target, position_size, risk_amount, risk_reward, confidence, thesis, invalidations, timestamp), `PaperTrade`, `RiskAssessment`, `Position`, `PortfolioSnapshot`, `RiskLimits`. Symbole und Zahlen werden streng validiert (keine Leerzeichen, URLs, Befehle; endlich, positiv).
+- **Paper-Trading:** eine Idee wird auf einem **gegebenen** Kursverlauf durchgespielt (`target` / `stop` / `open` / `not_entered`; Stop vor Ziel im selben Balken). Risikolimits (`max_risk_per_trade_pct`, `max_position_pct`, `max_total_exposure_pct`, `daily_loss_limit_pct`, **Hebel 1.0**, **keine Abhebungen**) werden geprüft; ist die Kontogröße unbekannt, gilt die Prüfung als **nicht bestanden**.
+- **Keine Echtgeld-Funktion:** Anfragen wie `place_order`, `buy`, `sell`, `transfer`, `withdraw`, `broker_login` enden `BLOCKED (live_trading_not_supported)`; `finance.paper_trading_only = false` und `max_leverage != 1` werden **beim Start abgelehnt**. Es gibt keinen Broker-Code, kein Order-Objekt, keine gespeicherten Freigaben. Eine spätere Echtgeld-Schicht müsste jede Aktion als YELLOW + ausdrückliche Bestätigung über die PermissionEngine führen.
+
+### Goal Engine
+Templates werden **ausdrücklich** gewählt (`context={"template": …}`), nie aus dem Chat erraten: `research_web`, `market_analysis`, `competitor_analysis`, `business_analysis`, `business_plan`, `financial_analysis`, `company_analysis`, `paper_trade_analysis`; Daten in `research`/`business`/`finance`-Blöcken des Kontexts (ohne Daten wird nichts erfunden: Ziel endet `BLOCKED`). Ketten: Research → Business (→ Finance), z. B. `business_plan` mit `finance={"kind": "scenario_analysis", …}`. Das Ergebnis des Vorgängers reicht der Orchestrator als Parent-Result durch (die Goal Engine setzt nur `AgentTask.dependencies`). Ein unbekannter `kind` (z. B. `place_order`) scheitert schon an der Plan-Validierung – es entsteht kein Task.
+
+### CLI und `/run`
+`/research`, `/business`, `/finance` (je auch `status`) zeigen: aktiv/deaktiviert, registrierter Agent, aktive Tasks, Limits, Fähigkeiten. Kleine, nebenwirkungsfreie **GREEN-Rechenwerkzeuge** laufen über ToolRegistry → PermissionEngine:
+```
+/run research action=check_url url=https://example.com/preise?utm_source=x
+/run business action=break_even fixed_costs=1200 price=50 variable_cost=15
+/run business action=price_stats values=50,80,52.5
+/run finance action=risk_reward direction=long entry=100 stop=95 target=115
+/run finance action=position_size account=10000 risk_pct=1 entry=100 stop=95
+/run finance action=pe price=100 eps=5
+/run finance action=drawdown prices=100,120,90,130
+```
+Es gibt dort keine Aktion zum Bestellen, Überweisen, Senden oder Einloggen. Analysen laufen über Goals/Core: `core.create_goal(…, context={"template": …})` / `/goal` (siehe Goal Engine).
+
+### Datenschutz und Memory
+Nichts wird dauerhaft gespeichert: weder Recherche-, Finanz-, Trading- noch Business-Ergebnisse. Memory nur auf deine ausdrückliche Anweisung über die bestehende Memory-Architektur („merk dir diese Wettbewerbsanalyse“). Ergebnisse sind begrenzt (`max_result_chars`) und geschwärzt; Zugangsdaten werden nirgends verwendet.
+
+### Konfiguration (Umgebung: `JARVIS_RESEARCH_*`, `JARVIS_BUSINESS_*`, `JARVIS_FINANCE_*`)
+`[research]` `enabled=false`, `max_sources=8` (≤ 20), `max_actions=40` (≤ 200), `timeout_seconds=300` (≤ 1800), `max_result_chars`; `[business]` `enabled=false`, `max_steps=20` (≤ 100), `timeout_seconds=120` (≤ 600); `[finance]` `enabled=false`, `max_steps=50` (≤ 1000), **`paper_trading_only=true`** (false wird abgelehnt), `timeout_seconds=120`, Risikolimits (`max_risk_per_trade_pct=1`, `max_position_pct=20`, `max_total_exposure_pct=100`, `daily_loss_limit_pct=3`, `max_leverage=1`). Alle drei brauchen `agents.enabled`; Research zusätzlich `browser.enabled`. Parallelität begrenzt der Orchestrator (`agents.max_concurrent`).
+
+### Tests
+`tests/test_research_units.py`, `test_research_agent.py` (gegen die echte PermissionEngine mit Fake-Browser), `test_business_units.py`, `test_finance_units.py`, `test_analysis_goals.py` (Goal Engine → Research → Business → Finance, Fehler-Isolation, Timeout, Abbruch, Verweigerung), `test_analysis_security.py` (AST-/Quellscans, Beweise: kein Browser-Bypass, kein Nachrichtenversand ohne Berechtigung, keine Echtgeld-Aktion, kein ToolGateway-Bypass), `test_analysis_integration.py` (Config, Bootstrap, CLI, `/run`, Memory), `test_analysis_real.py` (echter Browser via Playwright gegen drei lokale Wettbewerber-Seiten, echte Threads/Timer; optional `JARVIS_TEST_PUBLIC_WEB=1` liest `https://example.com/`). Unter Windows: `.\.venv\Scripts\python.exe -m pytest tests/test_research_units.py tests/test_research_agent.py tests/test_business_units.py tests/test_finance_units.py tests/test_analysis_goals.py tests/test_analysis_security.py tests/test_analysis_integration.py tests/test_analysis_real.py -vv -rs`.
+
+### Bekannte Grenzen (v1)
+- **Keine Websuche:** Research liest die ihm gegebenen URLs (und optional relevante Links derselben Seite). Das Browser-Tool maskiert Query-Werte in Links; eine Suchmaschinen-Anbindung wäre unzuverlässig und ist nicht enthalten.
+- Der Browser liefert keinen HTTP-Status: eine „404“-Seite mit Text wird als Seite gelesen; Inhalte sind nicht verifiziert, nur zitiert.
+- Extraktion und Klassifikation sind regelbasiert (Deutsch/Englisch, Preise in €/$/%); es gibt keine semantische Zusammenfassung und kein LLM. Marktgröße, Bewertungen u. Ä. erscheinen nur, wenn eine Quelle sie nennt – sonst `UNKNOWN`.
+- Der URL-Filter löst keine DNS-Namen auf (ein öffentlicher Name, der auf eine private Adresse zeigt, wird weder hier noch im Browser erkannt).
+- Finance kennt keine Live-Kurse/Finanzberichts-APIs; Daten müssen gegeben oder recherchiert sein. Ergebnisse sind Analyse, keine Anlageberatung.
+- Marketing-/Lead-Funktionen bereiten vor; es wird nichts versendet oder veröffentlicht.
+- Nicht enthalten (ausdrücklich): Echtgeld-Trading, Broker-Login, Überweisungen/Abhebungen, automatische Verträge/Kaltakquise, Self-Modification, Credential-Verwaltung, persistente Finanzdaten.
+
 ## Tests & Entwicklungsworkflow
 
 ```bash
@@ -749,6 +819,7 @@ src/jarvis/
 ├── computer/   backend (Provider-Interfaces) · controller · tools · safety · resources · validation · screenshots · vision · policy · factory · providers/{fake,mss_screen,pyautogui_input,win32_windows,xlib_windows,subprocess_apps}
 ├── agents/     Multi-Agent: Orchestrator · Planner · Registry · Adapter
 ├── goals/      Goal Engine: models · state · planner · validation · evaluator · engine · context · policy · factory · fake
+├── research/ · business/ · finance/   Phase 10: Recherche (Browser-Tool), Business-Analysen, Finanz-Analyse/Paper-Trading (Agenten, keine eigene Infrastruktur)
 ├── self_repair/ Self-Testing/-Repair: models · state · policy · context · tester · diagnostics · planner · evaluator · engine · factory · fake
 ├── memory/     base (Interface) · models · validation · ranking · sqlite_store · inmemory · null · guard · guarded · extraction · factory
 ├── voice/      base (Interfaces) · session · factory · console · mock · devices · openai_provider · system_tts
@@ -810,13 +881,14 @@ Abhängigkeiten zeigen nach innen: Core kennt nur Interfaces (`LLMProvider`, `To
 | 3 Memory ✅ | `jarvis/memory/`. Offen: semantische/Vektor-Suche (neues Backend, `MemoryHit.score` ist vorbereitet), persistente Tasks (`TaskManager` hinter Interface, Ergebnisse als `task_result`), automatische Extraktion, Zusammenfassung/Verfall alter Einträge |
 | 4 Computer ✅ | `jarvis/computer/`; Provider austauschbar (`register_backend`), Beobachten→Handeln→Prüfen vorbereitet |
 | 5–6 Browser/Coding | neue `ProtectedTool`-Klassen mit `describe_action` (Host/Pfad/Command als Ressource); Policy-Regeln pro Tool; Vision über `ImageObserver` |
-| 7 Multi-Agent ✅ · 8 Goal Engine (implementiert) | `jarvis/agents/`, `jarvis/goals/`; Goal Engine nutzt nur die `AgentOrchestrator`-Schnittstelle |
-| 9 Self-Repair ✅ (Linux) | `jarvis/self_repair/`; nutzt nur Coding-Agent-Tasks über den Orchestrator; Proposer-Schnittstelle für spätere intelligentere Reparaturvorschläge |
+| 7 Multi-Agent ✅ · 8 Goal Engine ✅ | `jarvis/agents/`, `jarvis/goals/`; Goal Engine nutzt nur die `AgentOrchestrator`-Schnittstelle |
+| 9 Self-Repair ✅ | `jarvis/self_repair/`; nutzt nur Coding-Agent-Tasks über den Orchestrator; Proposer-Schnittstelle für spätere intelligentere Reparaturvorschläge |
 | 13 Security ✅ | `jarvis/permissions/` + `ToolRegistry.execute` als einzige Kontrollstelle. Offen: OS-Sandbox/Subprozess-Isolation, Hash-verkettetes Audit-Log, Voice/GUI-Bestätigung, Netzwerk-/Geld-Policies |
+| 10 Business/Research/Finance ✅ (Linux) | `jarvis/research|business|finance/`; Echtgeld-Schicht (Broker) fehlt bewusst: müsste YELLOW + ausdrückliche Bestätigung nutzen |
 | 15 Self-Improvement | Provider-/Tool-Registry erlauben Austausch und Rollback von Komponenten |
 
 ## Zukünftige Phasen
 
-1 Core ✅ · 2 Voice ✅ · 3 Memory ✅ · 4 Computer Control ✅ · 5 Browser/Internet ✅ · 6 Coding Agent ✅ · 7 Multi-Agent ✅ · 8 Goal Engine (Windows-Validierung offen) ·
-9 Self-Testing/Repair (Windows-Validierung offen) · 10 Business/Research/Finance · 11 GUI · 12 Smartphone · 13 Permissions/Security ✅ (vorgezogen) · 14 Maximum Autonomy · 15 Self-Improvement.
+1 Core ✅ · 2 Voice ✅ · 3 Memory ✅ · 4 Computer Control ✅ · 5 Browser/Internet ✅ · 6 Coding Agent ✅ · 7 Multi-Agent ✅ · 8 Goal Engine ✅ ·
+9 Self-Testing/Repair ✅ · 10 Business/Research/Finance (Windows-Validierung offen) · 11 GUI · 12 Smartphone · 13 Permissions/Security ✅ (vorgezogen) · 14 Maximum Autonomy · 15 Self-Improvement.
 Phase 13 wurde vor Phase 4 vorgezogen (Begründung: Computersteuerung ohne belastbares Rechtesystem ist riskant).

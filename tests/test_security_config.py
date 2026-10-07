@@ -369,7 +369,7 @@ def test_only_tools_bootstrap_and_cli_use_the_permission_package():
     users = sorted(f.relative_to(SRC).as_posix() for f in SRC.rglob("*.py")
                    if any(m.startswith("jarvis.permissions") for m in imports(f))
                    and f.parent.name not in ("permissions", "computer", "browser", "coding", "providers"))
-    assert users == ["bootstrap.py", "interface/cli.py", "tools/base.py", "tools/builtin/__init__.py", "tools/registry.py"]
+    assert users == ["bootstrap.py", "interface/cli.py", "tools/analysis.py", "tools/base.py", "tools/builtin/__init__.py", "tools/registry.py"]
 
 
 def test_memory_and_permissions_share_only_the_neutral_redaction_module():

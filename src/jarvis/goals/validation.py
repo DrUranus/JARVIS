@@ -91,8 +91,11 @@ def validate_plan(goal: Goal, steps: Sequence[GoalStep], *, max_steps: int, max_
         if steps_in is not None:
             if not isinstance(steps_in, list) or not steps_in or not all(isinstance(x, dict) for x in steps_in):
                 raise InvalidPlanError(f"step {s.step_id!r}: input.steps must be a list of tool steps")
+        elif s.input.get("kind") is not None:
+            if s.input["kind"] not in P.ANALYSIS_KINDS:
+                raise InvalidPlanError(f"step {s.step_id!r}: unknown analysis kind {str(s.input['kind'])[:30]!r}")
         elif not P.valid_url(url):
-            raise InvalidPlanError(f"step {s.step_id!r}: the input needs 'steps' or a valid http(s) 'url'")
+            raise InvalidPlanError(f"step {s.step_id!r}: the input needs 'steps', an analysis 'kind' or a valid http(s) 'url'")
         clean = s.input.get("cleanup")
         if clean is not None and (not isinstance(clean, str) or clean not in {x.step_id for x in steps} or clean == s.step_id):
             raise InvalidPlanError(f"step {s.step_id!r}: cleanup must name another step of the plan")

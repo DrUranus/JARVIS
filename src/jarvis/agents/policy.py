@@ -12,9 +12,10 @@ BROWSER_READ, BROWSER_INTERACT = "browser.read", "browser.interact"
 CODING_READ, CODING_WRITE, CODING_TEST, CODING_PLAN = "coding.read", "coding.write", "coding.test", "coding.plan"
 COMPUTER_SCREEN, COMPUTER_INPUT = "computer.screen", "computer.input"
 RESEARCH_WEB = "research.web"
+BUSINESS_ANALYZE, FINANCE_ANALYZE = "business.analyze", "finance.analyze"
 
 KNOWN_CAPABILITIES = frozenset({BROWSER_READ, BROWSER_INTERACT, CODING_READ, CODING_WRITE, CODING_TEST, CODING_PLAN, COMPUTER_SCREEN,
-                                COMPUTER_INPUT, RESEARCH_WEB})
+                                COMPUTER_INPUT, RESEARCH_WEB, BUSINESS_ANALYZE, FINANCE_ANALYZE})
 
 MAX_OBJECTIVE = 2000
 MAX_INPUT_BYTES = 100_000

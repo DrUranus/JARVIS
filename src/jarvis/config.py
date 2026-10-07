@@ -141,6 +141,40 @@ class SelfRepairSettings:
     max_history: int = 50
 
 
+@dataclass(frozen=True)
+class ResearchSettings:
+    """Research agent (v1): reads public web pages through the permission-checked browser tool. Opt-in; needs [agents] and [browser]."""
+    enabled: bool = False
+    max_sources: int = 8               # pages read per task (hard limit 20)
+    max_actions: int = 40              # browser tool calls per task (hard limit 200)
+    timeout_seconds: float = 300.0     # the whole task (hard limit 1800)
+    max_result_chars: int = 20_000     # size of the structured result
+
+
+@dataclass(frozen=True)
+class BusinessSettings:
+    """Business agent (v1): turns research results and the user's own numbers into structured analyses. No tools: it computes and drafts, it never sends."""
+    enabled: bool = False
+    max_steps: int = 20                # computation steps / list items per task (hard limit 100)
+    timeout_seconds: float = 120.0     # hard limit 600
+    max_result_chars: int = 20_000
+
+
+@dataclass(frozen=True)
+class FinanceSettings:
+    """Finance agent (v1): analysis and PAPER trading only. No broker, no orders, no transfers - `paper_trading_only` must stay true."""
+    enabled: bool = False
+    max_steps: int = 50                # data points / positions / trades per task (hard limit 1000)
+    paper_trading_only: bool = True    # false is rejected: live trading does not exist in v1
+    timeout_seconds: float = 120.0     # hard limit 600
+    max_result_chars: int = 20_000
+    max_risk_per_trade_pct: float = 1.0      # risk limits applied to paper trades (prepared for later real-money limits)
+    max_position_pct: float = 20.0
+    max_total_exposure_pct: float = 100.0
+    daily_loss_limit_pct: float = 3.0
+    max_leverage: float = 1.0          # 1.0 = no leverage (hard limit 1.0 in v1)
+
+
 CODING_PROVIDERS = ("local", "fake")
 CODING_TEST_COMMANDS = ("pytest", "python -m pytest", "python -m unittest", "npm test")  # the only runners that exist
 
@@ -207,6 +241,9 @@ class Settings:
     agents: AgentsSettings = field(default_factory=AgentsSettings)
     goals: GoalsSettings = field(default_factory=GoalsSettings)
     self_repair: SelfRepairSettings = field(default_factory=SelfRepairSettings)
+    research: ResearchSettings = field(default_factory=ResearchSettings)
+    business: BusinessSettings = field(default_factory=BusinessSettings)
+    finance: FinanceSettings = field(default_factory=FinanceSettings)
 
     @property
     def is_production(self) -> bool:
@@ -310,6 +347,18 @@ class Settings:
         if not 1 <= sr.max_attempts <= 5 or not 0 < sr.repair_timeout_seconds <= 3600 or not 0 < sr.step_timeout_seconds <= 3600 \
                 or not 1 <= sr.max_active_repairs <= 4 or not 1 <= sr.max_history <= 500:
             raise ConfigError("self_repair.max_attempts 1..5, repair_timeout_seconds/step_timeout_seconds 0..3600 (positive), max_active_repairs 1..4, max_history 1..500")
+        rs, bs, fs = self.research, self.business, self.finance
+        if not 1 <= rs.max_sources <= 20 or not 1 <= rs.max_actions <= 200 or not 0 < rs.timeout_seconds <= 1800 or not 1000 <= rs.max_result_chars <= 100_000:
+            raise ConfigError("research.max_sources 1..20, max_actions 1..200, timeout_seconds 0..1800 (positive), max_result_chars 1000..100000")
+        if not 1 <= bs.max_steps <= 100 or not 0 < bs.timeout_seconds <= 600 or not 1000 <= bs.max_result_chars <= 100_000:
+            raise ConfigError("business.max_steps 1..100, timeout_seconds 0..600 (positive), max_result_chars 1000..100000")
+        if not 1 <= fs.max_steps <= 1000 or not 0 < fs.timeout_seconds <= 600 or not 1000 <= fs.max_result_chars <= 100_000:
+            raise ConfigError("finance.max_steps 1..1000, timeout_seconds 0..600 (positive), max_result_chars 1000..100000")
+        if not fs.paper_trading_only:
+            raise ConfigError("finance.paper_trading_only must stay true: live trading, orders and transfers do not exist in this version")
+        if not (0 < fs.max_risk_per_trade_pct <= 5 and 0 < fs.max_position_pct <= 100 and 0 < fs.max_total_exposure_pct <= 100
+                and 0 < fs.daily_loss_limit_pct <= 20 and fs.max_leverage == 1.0):
+            raise ConfigError("finance risk limits: max_risk_per_trade_pct 0..5, max_position_pct 0..100, max_total_exposure_pct 0..100, daily_loss_limit_pct 0..20, max_leverage 1.0")
         m = self.memory
         if not m.backend.strip():
             raise ConfigError("memory.backend must not be empty")

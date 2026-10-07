@@ -146,3 +146,34 @@ repair_timeout_seconds = 900    # whole run, hard limit 3600
 step_timeout_seconds = 300      # one agent task (e.g. one test run), hard limit 3600
 max_active_repairs = 1
 max_history = 50
+
+[research]
+# Research agent: reads public web pages THROUGH the permission-checked browser tool (every navigation is still judged by the browser rules and asked
+# via the permission engine). Needs [agents] and [browser]. OFF by default. It reads the URLs it is given; it does not search the web.
+enabled = false
+max_sources = 8                 # pages read per task (hard limit 20)
+max_actions = 40                # browser tool calls per task (hard limit 200)
+timeout_seconds = 300           # the whole task (hard limit 1800)
+max_result_chars = 20000
+
+[business]
+# Business agent: structured analyses and DRAFTS from research results and your own numbers (market/competitor analysis, business plan, marketing drafts,
+# lead preparation). It has NO tools and sends nothing. OFF by default.
+enabled = false
+max_steps = 20                  # list items / rows per task (hard limit 100)
+timeout_seconds = 120           # hard limit 600
+max_result_chars = 20000
+
+[finance]
+# Finance agent: ANALYSIS and PAPER trading only - no broker, no orders, no transfers, no withdrawals, no leverage. OFF by default.
+# paper_trading_only must stay true: false is rejected at startup.
+enabled = false
+max_steps = 50                  # data points / positions / ideas per task (hard limit 1000)
+paper_trading_only = true
+timeout_seconds = 120           # hard limit 600
+max_result_chars = 20000
+max_risk_per_trade_pct = 1.0    # risk limits for paper trades (prepared for later real-money limits)
+max_position_pct = 20.0
+max_total_exposure_pct = 100.0
+daily_loss_limit_pct = 3.0
+max_leverage = 1.0              # no leverage (must be 1.0)

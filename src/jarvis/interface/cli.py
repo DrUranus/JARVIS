@@ -35,6 +35,9 @@ HELP = """Befehle:
   /agent <id>    Details eines Agenten | halt <task_id> (abbrechen) | plan <Text> | enable|disable|reset <id>
   /agenttasks    Aktive und letzte Agent-Tasks
   /goals         Ziele und ihr Status
+  /research      Research-Agent: Status (liest öffentliche Seiten über den Browser; Aufruf: /run research action=check_url url=…)
+  /business      Business-Agent: Status (Analysen/Entwürfe, sendet nichts; /run business action=break_even …)
+  /finance       Finance-Agent: Status (nur Analyse und Paper-Trading, keine Orders; /run finance action=risk_reward …)
   /repair <Ziel> workspace="…" [tests=… runner=… candidates='[…]'] | status [id] | attempts <id> | cancel <id>   Test/Reparatur im Workspace
   /goal <Ziel>   Ziel ausführen (optional: url=… workspace=… runner=… read_paths=a,b) | status|steps|cancel <id>
   /voice         Sprachmodus starten (zurück mit „exit“)
@@ -77,6 +80,8 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
         return _goals(core, cmd, arg)
     if cmd == "/repair":
         return _repair(core, arg)
+    if cmd in ("/research", "/business", "/finance"):
+        return _analysis_status(core, cmd[1:], arg)
     if cmd == "/permissions":
         return _describe_permissions(core)
     if cmd == "/audit":
@@ -359,6 +364,35 @@ def _goals(core: JarvisCore, cmd: str, arg: str) -> str:
         return "\n".join(lines)
     except JarvisError as exc:
         return f"Nicht möglich: {exc}"
+
+
+_ANALYSIS_HELP = {
+    "research": ("Research-Agent", "Goal-Vorlage: template=research_web (+ research={urls:[…]}); liest öffentliche Seiten nur über das Browser-Tool (Berechtigungen gelten).",
+                 "/run research action=check_url url=https://…"),
+    "business": ("Business-Agent", "Goal-Vorlagen: market_analysis, competitor_analysis, business_analysis, business_plan; Analysen und Entwürfe – sendet nichts.",
+                 "/run business action=break_even fixed_costs=2000 price=50 variable_cost=20"),
+    "finance": ("Finance-Agent", "Goal-Vorlagen: financial_analysis, company_analysis, paper_trade_analysis; NUR Analyse und Paper-Trading – keine Orders, Überweisungen, Abhebungen.",
+                "/run finance action=risk_reward direction=long entry=100 stop=95 target=115"),
+}
+
+
+def _analysis_status(core: JarvisCore, name: str, arg: str) -> str:
+    """Status of one analysis capability (duck-typed). Nothing here runs an analysis or bypasses a permission check: work is done by goals/agents and
+    the /run calculation tools, both through the permission engine."""
+    sub = core.subsystems.get(name)
+    title, how, example = _ANALYSIS_HELP[name]
+    if sub is None:
+        return f"{title}: nicht konfiguriert."
+    if arg and arg != "status":
+        return f"Verwendung: /{name} [status]\n{how}\nBeispiel: {example}"
+    d = sub.describe()
+    if d["status"] != "enabled":
+        return f"{title}: deaktiviert – {d['reason']}\nAktivieren: {name}.enabled = true (JARVIS_{name.upper()}_ENABLED=true) und agents.enabled = true"
+    lines = [f"{title}: aktiv" + ("" if d["registered"] else " – ABER Agent nicht registriert"),
+             f"  Agent: {d['agent']} ({d.get('agent_status') or '-'})" + (f" – {d.get('agent_reason')}" if d.get("agent_reason") else ""),
+             f"  Aktive/wartende Tasks: {d['active_tasks']}", "  Fähigkeiten: " + ", ".join(d["capabilities"]),
+             "  Limits: " + ", ".join(f"{k}={v}" for k, v in d["limits"].items()), "  " + how, "  Beispiel: " + example]
+    return "\n".join(lines)
 
 
 _REPAIR_OPT = re.compile(r"(?:^|\s)(workspace|tests|runner|candidates|repair)=(\"[^\"]*\"|'[^']*'|\S+)")

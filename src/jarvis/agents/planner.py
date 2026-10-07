@@ -17,6 +17,8 @@ _RULES: dict[str, tuple[tuple[str, int], ...]] = {
                (r"\.(py|js|ts|java|c|cpp|go|rs|toml|json|md|txt)\b", 3), (r"\b(führe|run|starte)\b.*\btests?\b", 3), (r"\b(ändere|change|edit|schreibe|write|lösche|delete)\b.*\b(datei|file|code|funktion|function)\b", 3)),
     "computer": ((r"\b(klick\w*|click|tipp\w*|type|maus|mouse|tastatur|keyboard|screenshot|bildschirm\w*|screen|fenster|window|notepad|editor öffnen|taskleiste|desktop|cursor|programm starten|starte (das )?programm|drücke|press)\b", 3),
                  (r"\b(notepad|calc|rechner|paint|explorer)\b", 3)),
+    "business": ((r"\b(marktanalyse|wettbewerbsanalyse|geschäftsmodell|businessplan|business plan|break-?even|konkurrenzanalyse|geschäftsdaten|marketingkonzept|zielgruppenanalyse|market analysis|competitor analysis|business model)\b", 4),),
+    "finance": ((r"\b(finanzanalyse|aktienanalyse|unternehmensanalyse|kennzahlen\w*|bewertungskennzahlen|paper-?trad\w*|portfolio\w*|risikoanalyse|szenarioanalyse|financial analysis|stock analysis|company analysis|valuation)\b", 4),),
     "research": ((r"\b(recherchier\w*|research|finde heraus|find out|informiere dich|informationen (über|zu)|information about|quellen|sources|vergleiche|compare|zusammenfassung von|literatur)\b", 4),),
 }
 THRESHOLD = 3
@@ -55,6 +57,10 @@ def _capabilities(agent_id: str, text: str) -> frozenset[str]:
         if has(r"\b(klick\w*|click|tipp\w*|type|maus|mouse|tastatur|keyboard|drücke|press|starte|start|öffne|open|fenster|window)\b"):
             caps.add(P.COMPUTER_INPUT)
         return frozenset(caps)
+    if agent_id == "business":
+        return frozenset({P.BUSINESS_ANALYZE})
+    if agent_id == "finance":
+        return frozenset({P.FINANCE_ANALYZE})
     return frozenset({P.RESEARCH_WEB})
 
 

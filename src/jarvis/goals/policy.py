@@ -35,7 +35,13 @@ FATAL_CODES = frozenset({"permission_denied", "halted", "capability_not_allowed"
                          "unknown_dependency"})
 
 # Keys of the user's explicit context the planner understands. Anything else is refused: no hidden channel into the plan.
-CONTEXT_KEYS = frozenset({"url", "workspace", "runner", "edits", "memory_query", "test_args", "read_paths"})
+CONTEXT_KEYS = frozenset({"url", "workspace", "runner", "edits", "memory_query", "test_args", "read_paths", "template", "research", "business", "finance"})
+
+# Phase 10: explicitly chosen analysis templates (context key `template`); never guessed from chat. Each step carries `input.kind` for its agent.
+ANALYSIS_TEMPLATES = ("research_web", "market_analysis", "competitor_analysis", "business_analysis", "business_plan", "financial_analysis", "company_analysis",
+                      "paper_trade_analysis")
+ANALYSIS_KINDS = frozenset({"research_web", "market_analysis", "competitor_analysis", "business_plan", "business_analysis", "marketing_draft", "lead_list",
+                            "financial_analysis", "company_analysis", "risk_analysis", "scenario_analysis", "portfolio_analysis", "paper_trade_analysis"})
 
 
 def is_retryable(status: TaskStatus, code: str | None) -> bool:
