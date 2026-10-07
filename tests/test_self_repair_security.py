@@ -195,3 +195,26 @@ def test_the_engine_only_ever_sends_the_coding_vocabulary_to_the_agent():
         assert set(t.input) == {"steps"} and policy.find_reserved(t.input) is None
         for s in t.input["steps"]:
             assert s["action"] in {"start", "info", "test", "write", "changes", "stop"} and "confirmed" not in s
+
+
+def test_candidates_are_judged_before_the_first_task_and_before_any_early_return():
+    """Order guard (source level, platform independent): in RepairEngine._execute the candidate preflight comes BEFORE the first agent task,
+    BEFORE the status change to TESTING and BEFORE every 'tests_pass' / 'nothing to repair' exit - a green baseline can never skip it."""
+    tree = ast.parse((PKG / "engine.py").read_text(encoding="utf-8"))
+    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_execute")
+    first = {}
+    for n in ast.walk(fn):
+        line = getattr(n, "lineno", None)
+        if line is None:
+            continue
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
+            if n.func.attr == "preflight":
+                first.setdefault("preflight", line)
+            elif n.func.attr == "_task":
+                first.setdefault("task", line)
+            elif n.func.attr == "_set":
+                first.setdefault("set", line)
+        if isinstance(n, ast.Constant) and n.value in ("tests_pass", "tests_fail"):
+            first.setdefault("early_exit", line)
+    assert {"preflight", "task", "set", "early_exit"} <= set(first), first
+    assert first["preflight"] < first["set"] and first["preflight"] < first["task"] and first["preflight"] < first["early_exit"], first
