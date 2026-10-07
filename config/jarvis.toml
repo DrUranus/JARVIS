@@ -95,3 +95,20 @@ blocked_hosts = []
 private_hosts_allowed = []  # exact internal hosts that may be visited, e.g. ["127.0.0.1"]
 confirm_fill_each_time = true
 confirm_file_transfer_each_time = true
+
+[coding]
+# The coding agent is OFF by default. It works inside ONE confirmed workspace; reading and searching are free, every write, delete
+# and test run is asked. No shell, no arbitrary commands, no commit/push; .env/keys/.git internals are never read or written.
+enabled = false
+provider = "local"          # local | fake (tests)
+workspace_roots = []        # [] = only the JARVIS workspace directory; must also lie inside security.allowed_roots
+max_actions_per_session = 300   # hard stop against runaway loops (reads count too)
+max_actions_per_minute = 120
+max_output_bytes = 200000   # per output stream of a test run
+max_file_size = 1000000
+max_search_results = 100
+test_timeout = 120
+test_commands = ["pytest", "python -m pytest", "python -m unittest"]   # known runners only: also "npm test" (not available as .cmd on Windows)
+llm_context_chars = 12000
+confirm_delete_each_time = true
+confirm_llm_each_time = true

@@ -32,6 +32,10 @@ def build_core(settings: Settings) -> JarvisCore:
     # The browser agent is a separate, equally opt-in subsystem with its own controller; it never drives mouse/keyboard.
     from jarvis.browser.factory import build_browser
     core.subsystems["browser"] = build_browser(settings, tools, permissions)
+    # The coding agent is a third, equally opt-in subsystem with its own controller. It reuses the Core's LLM abstraction (only for
+    # the explicit, confirmed `plan` action) and never drives the browser or the PC.
+    from jarvis.coding.factory import build_coding
+    core.subsystems["coding"] = build_coding(settings, tools, permissions, llm=provider)
     return core
 
 

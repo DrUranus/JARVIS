@@ -3,9 +3,9 @@
 Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer Agent, dem man ein Ziel nennt und der selbstständig
 **denkt → plant → recherchiert → programmiert → handelt → testet → repariert → lernt → neue Fähigkeiten entwickelt**.
 
-**Status: Phase 1 (Core MVP), Phase 2 (Voice), Phase 3 (Memory), Phase 13 (Permissions & Security, vorgezogen), Phase 4 (Computer Control) und Phase 5 (Browser Agent v1) abgeschlossen.** JARVIS führt Pläne noch nicht autonom aus – Architektur und Schnittstellen dafür stehen.
+**Status: Phase 1 (Core MVP), Phase 2 (Voice), Phase 3 (Memory), Phase 13 (Permissions & Security, vorgezogen), Phase 4 (Computer Control), Phase 5 (Browser Agent v1) und Phase 6 (Coding Agent v1) abgeschlossen.** JARVIS führt Pläne noch nicht autonom aus – Architektur und Schnittstellen dafür stehen.
 
-## Was bisher funktioniert (Phase 1–5, 13)
+## Was bisher funktioniert (Phase 1–6, 13)
 
 - Konfiguration (Defaults < TOML < Umgebungsvariablen), Dev-/Produktionsmodus, Logging, Fehlerhierarchie
 - LLM-Abstraktion: `mock` (offline), `openai`, `anthropic` – austauschbar per Konfiguration
@@ -14,6 +14,7 @@ Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer A
 - Tool-System: Registry, dynamische Registrierung, fehlerisolierte Ausführung, Permission-Level
 - Planner: Ziel → Task mit Subtasks (LLM-JSON, mit Template-Fallback, damit nie „zu komplex“ zurückkommt)
 - CLI (`jarvis>`)
+- **Coding Agent v1 (Phase 6):** kontrollierte Softwareentwicklung in *einem* bestätigten Workspace – Projekt erkennen, lesen, suchen, ändern (hash-geschützt, mit Änderungszusammenfassung), Tests ausführen (ohne Shell, nur Allow-List), Git nur lesend; ein `coding`-Tool, eigener `CodingController`, jede Aktion durch ToolRegistry und PermissionEngine
 - **Browser Agent v1 (Phase 5):** ein Browser (Playwright, optional) hinter austauschbaren Providern, gesteuert über **ein** `browser`-Tool – einzelne, einzeln bestätigte Schritte (öffnen, lesen, Elemente finden, klicken, ausfüllen, absenden, kontrolliert herunter-/hochladen); eigener `BrowserController`, getrennt von Computer Control
 - **Computer Control (Phase 4):** Bildschirm, Maus, Tastatur, Fenster und Anwendungen als `ProtectedTool`s – jede Aktion läuft durch die Berechtigungs-Engine; opt-in, Windows-first (`pyautogui` + `mss` + Win32 über `ctypes`), austauschbare Provider
 - **Permissions & Security (Phase 13):** Jede Tool-Ausführung läuft durch eine Berechtigungs-Engine (GREEN/YELLOW/RED, Regeln, Bestätigung, Pfad-Sicherheit, Audit-Log, Secret-Schutz) und schlägt im Zweifel fehl (fail closed)
@@ -430,6 +431,85 @@ Policy-Beispiel: `resource_type = "other"`, `resources = ["browser://element/*@*
 - Elemente werden über Dokumentreihenfolge + Fingerabdruck adressiert; erscheinen vor einem Element neue Elemente, gilt es bewusst als „stale“ und muss neu gelesen werden. Shadow-DOM/iframes werden in v1 nicht durchsucht.
 - Download-Größe wird erst nach dem Empfang in das private Temp-Verzeichnis geprüft.
 - Mehrere Sitzungen gleichzeitig gibt es nicht (eine Sitzung, mehrere Seiten). Kein Screenshot, kein Vision, kein autonomer Agentenloop (spätere Phasen).
+
+## Coding Agent v1 (Phase 6)
+
+Der Coding Agent führt einen **kontrollierten** Entwicklungszyklus aus – analysieren, lesen, ändern, testen, Fehler lesen, korrigieren, erneut testen, berichten – aber immer als einzelne, einzeln geprüfte Schritte. Es gibt keine Agentenschleife: der Planner/Core ruft das Tool Schritt für Schritt auf, jeder Schritt läuft durch ToolRegistry → PermissionEngine → `CodingController` → `CodingProvider`. Computer Control und Browser bleiben getrennte Module (keine gegenseitigen Importe, keine Kopplung).
+
+```
+Core → Planner/Tasks → coding-Tool → ToolRegistry → PermissionEngine → CodingController → CodingProvider (local | fake) → Dateisystem / Test-Runner
+                                                                                         └→ LLM-Abstraktion des Cores (nur bei der bestätigten Aktion `plan`)
+```
+
+### Einrichtung
+```powershell
+$env:JARVIS_CODING_ENABLED = "true"                      # Standard: aus; keine zusätzliche Abhängigkeit (nur Standardbibliothek)
+.\.venv\Scripts\jarvis.exe
+jarvis> /run coding action=start workspace=C:\Users\ich\jarvis-workspace\mein-projekt    # YELLOW: Bestätigung
+jarvis> /run coding action=info                         # Sprache, Framework, Test-Framework, wichtige Dateien
+jarvis> /run coding action=search pattern=PermissionEngine glob=*.py
+jarvis> /run coding action=read path=src/calc.py        # liefert content + sha256
+jarvis> /run coding action=write path=src/calc.py mode=replace old_text="a - b" new_text="a + b"
+jarvis> /run coding action=test                         # python -m pytest, bestätigt, ohne Shell
+jarvis> /coding                                         # Status; /coding halt | resume | stop
+```
+Workspaces dürfen nur in `coding.workspace_roots` liegen (Standard: das JARVIS-Workspace-Verzeichnis) **und** müssen zusätzlich in `security.allowed_roots` liegen – zwei Mauern: Controller und PathGuard der Engine.
+
+### Aktionen des `coding`-Tools
+| Gruppe | `action` | Level |
+|---|---|---|
+| Sitzung | `status`, `stop` | GREEN |
+| | `start workspace=…` | YELLOW (RED außerhalb der erlaubten Wurzeln) |
+| Lesen | `info`, `list`, `read`, `search`, `changes`, `git sub=status\|diff\|log` | GREEN (RED für Secret-Dateien, `.git`-Interna) |
+| Ändern | `write mode=create\|overwrite\|replace`, `delete` | YELLOW; `delete` immer gefragt; `write.jarvis` / `write.deps` / `delete.jarvis` immer einzeln gefragt |
+| Prüfen | `test [runner=…] [args=…]` | YELLOW (Freigabe gilt nur für genau diesen Code-Stand) |
+| Planen | `plan goal=… paths=a.py,b.py` | YELLOW, immer gefragt (sendet Auszüge an den LLM-Provider) |
+| nicht als Aktion vorhanden | `halt`, `resume` | nur der Benutzer (`/coding halt`, `/coding resume`) |
+| RED | `git commit\|push\|reset\|clean\|checkout …`, jedes andere Git-Kommando | immer abgelehnt und im Audit protokolliert |
+
+### Ressourcen
+Datei- und Verzeichnisaktionen nutzen den **PATH-Resource-Typ der Engine** (echter, aufgelöster Pfad): der vorhandene `PathGuard` (erlaubte Wurzeln, verbotene/geschützte Pfade, Symlinks, Groß-/Kleinschreibung) und normale Pfadregeln gelten direkt. Bestätigungsprompts und Kontext zeigen zusätzlich die lesbaren Namen `coding://workspace/<id>`, `coding://file/<workspace>/<pfad>`; `coding://session/<id>`, `coding://test/<session>/<runner>#<code-stand>` und `coding://llm/<session>` sind die Engine-Ressourcen der Sitzungs-, Test- und LLM-Aktionen. Ein Grant gilt für genau eine Datei bzw. einen Code-Stand – nie für „coding write“ allgemein.
+
+### Änderungsmodell
+`read` liefert `content` und `sha256`. `write` hat drei Modi: `create` (Datei darf nicht existieren), `replace` (`old_text` muss genau einmal vorkommen; CRLF-Dateien bleiben CRLF) und `overwrite` (verlangt `expected_sha256` aus dem `read`). Vor jeder Bestätigung zeigt JARVIS eine Zusammenfassung (Datei, Art, `+N / -M Zeilen`, neue Funktionen/Klassen, die ersten geänderten Zeilen – geschwärzt). Danach gilt: **Was bestätigt wurde, wird geschrieben – oder nichts.** Die Aktion wird nach der Bestätigung aus dem aktuellen Zustand neu aufgebaut und muss exakt dieselbe Änderung ergeben (Hash alt → neu), und der Provider ersetzt die Datei atomar *nur*, wenn ihr Inhalt noch den erwarteten Hash hat; sonst `ABORT: file_changed`, nichts wird überschrieben. Löschen ist genauso hash-geschützt (nur einzelne Dateien, keine Verzeichnisse). Geschrieben wird nie durch einen Symlink; Binär-/Programmdateitypen (`.exe .dll .so .pyc …`) werden nicht geschrieben. `FileChange` hält pro Datei nur Pfad, Art, Hashes und Zeilenzahlen – nie Inhalte.
+
+### Workspace-Grenzen
+Jeder Pfad wird als *relativ* geprüft, auf jeder Plattform gleich: `..`, absolute Pfade (POSIX, `C:\`, `\\server\share`, `\\?\`), `~`, `:` (Laufwerke, NTFS-Streams), Gerätenamen (`CON`, `NUL`, `COM1` …), Steuer-/Unsichtbare-Zeichen sowie Punkt/Leerzeichen am Ende werden abgelehnt. Danach wird der **echte Pfad** (Symlinks aufgelöst) komponentenweise gegen den Workspace geprüft (`/ws/proj-evil` liegt nicht in `/ws/proj`; unter Windows ohne Beachtung der Groß-/Kleinschreibung). Namensprüfungen (`.env`, `.git`) nutzen `casefold` und prüfen auch den aufgelösten Pfad, ein harmloser Link auf `.env` bleibt also geschützt. Vor jeder Aktion wird zusätzlich geprüft, dass der Workspace noch dasselbe Verzeichnis ist (nicht gelöscht, nicht durch einen Link ersetzt: `workspace_changed`, Sitzung `failed`).
+
+### Test-Runner (kein Shell, keine beliebigen Befehle)
+Erlaubt sind nur die Runner `pytest`, `python -m pytest`, `python -m unittest` (Standard) und `npm test` (nur wo `npm` eine echte Programmdatei ist – unter Windows ist es ein `.cmd`-Skript und wird *nicht* gestartet, damit nie ein Befehlsinterpreter beteiligt ist). `coding.test_commands` wählt nur unter diesen bekannten Runnern; ein anderer Eintrag wird abgelehnt. `python` bedeutet immer **diesen** Interpreter (`sys.executable`), nie eine PATH-Suche. Argumente sind eine Liste und kommen aus einer kleinen Allow-List (`-q -v -x -k <Ausdruck> -m <Ausdruck> --tb=… --maxfail=N` und workspace-relative Test-Pfade/Node-IDs; Plugins, Konfigurationsdateien, `--rootdir`, Ausgabedateien usw. sind gesperrt). Der Provider startet mit `shell=False`, Argumentliste, absolutem Programm (nie eine Shell, kein Skript-Host, keine `.bat/.cmd/.ps1`), bereinigter Umgebung (ohne `*KEY*/*TOKEN*/*SECRET*/*PASSWORD*`, `PYTHONPATH`, `PYTEST_ADDOPTS`, `GIT_CONFIG_*` …), ohne stdin, mit Zeitlimit (`coding.test_timeout`) und Ausgabelimit (`coding.max_output_bytes` pro Strom; bei Überschreitung wird der Prozess beendet). `TestResult` enthält Befehl, Exit-Code, `passed`, `timed_out`, `stdout`, `stderr` (getrennt), Dauer, Zusammenfassung und die fehlgeschlagenen Tests; Secrets in der Ausgabe werden geschwärzt. `/coding halt` beendet einen laufenden Testlauf sofort.
+**Wichtig:** Tests führen Projektcode aus – auch von dir oder JARVIS geschriebenen. Deshalb wird jeder Lauf bestätigt, und die Sitzungsfreigabe gilt nur für den *aktuellen Code-Stand* (ändert sich eine Datei, wird neu gefragt). Es gibt keinen Sandbox-Schutz gegen bösartigen Testcode; arbeite nur in Projekten, denen du traust.
+
+### Projektanalyse und Suche
+`info` erkennt Python (`pyproject.toml`, `requirements.txt`, `setup.py`, `pytest.ini` …), JavaScript/Node.js (`package.json`), TypeScript (`tsconfig.json`/Abhängigkeit) und liefert `ProjectInfo(root, language, framework, test_framework, important_files, is_jarvis_workspace)`. `search` ist eine Textsuche (wörtlich, optional ohne Beachtung der Groß-/Kleinschreibung, `glob=*.py`) nur im Workspace: sie folgt keinen Links, überspringt `.git`, `node_modules`, `.venv`, `__pycache__` u. ä., Secret-Dateien, Binärdateien und zu große Dateien (mit Zähler `skipped`), begrenzt Treffer (`coding.max_search_results`), Dateianzahl und Zeilenlänge und schwärzt Treffer.
+
+### Secrets
+`.env`, `.env.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.kdbx`, `id_rsa*`, `id_ed25519*`, `credentials*`, `secrets.*`, `.npmrc`, `.netrc`, `.ssh/`, `.aws/` … werden **nie** gelesen, durchsucht, geschrieben, gelöscht oder an den LLM gesendet (RED, `secret_detected`); `.env.example` o. ä. sind normale Dateien. In anderen Dateien erkannte Secrets (API-Keys, Tokens, `password=…`, private Schlüssel) werden in `read`, `search`, Git- und Testausgabe geschwärzt. Neuer Text, der ein Secret enthält, wird nie geschrieben (`secret_detected`); eine Datei, die Secrets enthält, wird nur per `mode=replace` geändert, sodass sie nie umgeschrieben werden. Weder Audit noch Logs noch Fehlermeldungen enthalten Dateiinhalte oder Ausgaben.
+
+### Git (nur lesend)
+`git status|diff|log` laufen ohne Pager, ohne Hooks, ohne `fsmonitor`/externe Diff-/Textconv-Programme, mit bereinigter Git-Umgebung und mit Ausschluss der Secret-Dateien aus dem Diff. `commit`, `push`, `reset --hard`, `clean`, `checkout -- .` und jedes andere Git-Kommando werden **nicht** ausgeführt, sondern als RED abgelehnt und protokolliert (strenger als das später vorgesehene „YELLOW mit Bestätigung“).
+
+### JARVIS-Repository (Vorbereitung auf Selbstverbesserung)
+Das Repository von JARVIS wird erkannt (`is_jarvis_workspace`). Lesen, Analysieren, Suchen und Tests sind wie überall möglich; **jede** Änderung und jedes Löschen dort läuft als `write.jarvis`/`delete.jarvis` mit Pflichtbestätigung ohne Sitzungsfreigabe (Baseline-Regel), ebenso Änderungen an Abhängigkeitsdateien in jedem Projekt (`write.deps`). Es gibt keine automatische Änderung, keinen Commit und keinen Push des eigenen Systems. Spätere Phasen (Sandbox, Benchmark, Versionierung, Rollback) können darauf aufbauen.
+
+### LLM
+Der Coding Agent hat keinen eigenen LLM-Client; die Aktion `plan` verwendet den `LLMProvider` des Cores (`LLMRequest`/`Message`), nur auf ausdrückliche, **immer bestätigte** Anfrage. Gesendet werden Ziel, Projektüberblick, die genannten (max. 5) Dateien und optional das letzte Testergebnis – lokal erkannt, geschwärzt, auf `coding.llm_context_chars` begrenzt; der Prompt nennt Anbieter („EXTERN“ außer `mock`), Dateien und Umfang. Die Antwort ist Modelltext (nicht vertrauenswürdig); es wird nichts davon automatisch angewendet. Standard bleibt: keine Projektdateien an den LLM.
+
+### Sitzung, Budget, Notaus
+Jeder Auftrag hat eine Sitzung (`id`, Workspace, `created_at`, `status` = `active|halted|completed|failed`, geänderte Dateien, Testläufe, Aktionszähler). `max_actions_per_session` (300; Lesen zählt mit) und `max_actions_per_minute` begrenzen Schleifen: bei Überschreitung `action_budget_exceeded`, die Sitzung ist `failed`, nur `stop` bleibt. `/coding halt` stoppt sofort (auch einen laufenden Test), `/coding resume` setzt fort, `/coding stop` beendet die Sitzung (Dateien bleiben unverändert). `halt`/`resume` sind absichtlich keine Tool-Aktionen: der Agent kann sich nicht selbst entsperren.
+
+### Konfiguration `[coding]` (Umgebung: `JARVIS_CODING_<FELD>`)
+`enabled=false`, `provider="local"` (`fake` für Tests), `workspace_roots=[]`, `max_actions_per_session=300`, `max_actions_per_minute=120`, `max_output_bytes=200000`, `max_file_size=1000000`, `max_search_results=100`, `max_list_entries=500`, `test_timeout=120`, `test_commands=["pytest","python -m pytest","python -m unittest"]`, `llm_context_chars=12000`, `confirm_delete_each_time=true`, `confirm_llm_each_time=true`. Es gibt keinen Schalter für RED, Secret-Schutz, Shell, Git-Schreiben oder die Berechtigungsprüfung; unbekannte Schlüssel werden abgelehnt.
+
+### Tests
+`tests/test_coding_basics.py` (Modelle, Pfadregeln, Policy/Runner, Projekterkennung, Diff, Provider-Vertrag, Config, Factory, CLI), `test_coding_controller.py` (Tool + echte Engine + Fake-Provider: Level, Sitzung, Lesen/Schreiben/Löschen, stale Dateien, Test-Läufe, Git, Budget, Halt, LLM-Plan), `test_coding_security.py` (AST-Scans und Bypass-Inspektion: Pfade, Symlinks, Secrets, Shell-Injection, Runner, Git, Leaks, geforgte Pläne), `test_coding_real.py` (echtes Projekt mit echtem pytest/unittest/git: erkennen → lesen → suchen → pytest schlägt fehl → Fehler erkennen → reparieren → erneut testen → melden; Timeout, Output-Flut, Umgebung, Symlinks, Windows-Pfadschreibweisen). Unter Windows: `.\.venv\Scripts\python.exe -m pytest tests/test_coding_real.py -vv`.
+
+### Bekannte Grenzen (v1)
+- Testcode läuft ohne Sandbox mit deinen Rechten (und Netzwerkzugriff); nur vertrauenswürdige Projekte, jeder Lauf wird bestätigt.
+- Unter Windows beendet ein Timeout/Halt den Testprozess, nicht zwingend dessen Kindprozesse (kein Job-Object).
+- Ein Wettlauf mit einem Angreifer, der lokal Verzeichnisse durch Links austauscht, ist zwischen Prüfung und Schreiben nicht vollständig auszuschließen; Symlink-Angriffe über die Zeit sind durch Neuprüfung und `O_NOFOLLOW` (neue Dateien) stark erschwert.
+- Die Suche ist wörtlich (kein Regex), die Projekterkennung heuristisch; kein Ausführen von Linter/Build/Paketinstallation, kein Commit/Push, keine Selbstmodifikation (spätere Phasen).
+- `npm test` ist unter Windows nicht verfügbar (siehe oben).
 
 ## Tests & Entwicklungsworkflow
 

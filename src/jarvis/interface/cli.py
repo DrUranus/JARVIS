@@ -30,6 +30,7 @@ HELP = """Befehle:
   /revoke        Sitzungsfreigaben widerrufen
   /computer      Status der Computersteuerung (stop = Notaus, resume = fortsetzen)
   /browser       Browser-Agent: Status | start | stop | pages | halt (Notaus) | resume (sonst: /run browser action=...)
+  /coding        Coding-Agent: Status | halt (Notaus) | resume | stop (Sitzung beenden) (sonst: /run coding action=...)
   /voice         Sprachmodus starten (zurück mit „exit“)
   /help          Diese Hilfe
   /exit          Beenden"""
@@ -62,6 +63,8 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
         return _computer(core, arg)
     if cmd == "/browser":
         return _browser(core, arg)
+    if cmd == "/coding":
+        return _coding(core, arg)
     if cmd == "/permissions":
         return _describe_permissions(core)
     if cmd == "/audit":
@@ -195,6 +198,38 @@ def _browser(core: JarvisCore, arg: str) -> str:
         lines.append("Aufruf: /run browser action=start | goto url=https://… | text | links | find query=… | click element=e3 ...")
     elif d["status"] == "disabled":
         lines.append("Aktivieren: browser.enabled = true bzw. JARVIS_BROWSER_ENABLED=true (benötigt pip install -e \".[browser]\")")
+    return "\n".join(lines)
+
+
+def _coding(core: JarvisCore, arg: str) -> str:
+    """Status and the user's controls (halt / resume / stop) of the optional coding agent. Real work is done by ordinary tool calls
+    (/run coding ...) and therefore goes through the permission engine; `halt`/`resume`/`stop` exist ONLY here, for the user."""
+    sub = core.subsystems.get("coding")
+    if sub is None:
+        return "Coding Agent: nicht konfiguriert."
+    if arg == "halt":
+        return "Coding Agent angehalten (Notaus). /coding resume setzt ihn fort." if sub.halt() else "Coding Agent ist nicht aktiv."
+    if arg == "resume":
+        return "Coding Agent fortgesetzt." if sub.resume() else "Coding Agent ist nicht aktiv."
+    if arg == "stop":
+        if not sub.available:
+            return "Coding Agent ist nicht aktiv."
+        return "Coding-Sitzung beendet (Dateien bleiben unverändert)." if sub.stop() else "Keine laufende Coding-Sitzung."
+    d = sub.describe()
+    names = {"enabled": "aktiv", "disabled": "deaktiviert", "unavailable": "nicht verfügbar", "halted": "ANGEHALTEN"}
+    lines = [f"Coding Agent: {names.get(d['status'], d['status'])}" + (f" – {d['reason']}" if d.get("reason") else "")]
+    if d["status"] in ("enabled", "halted"):
+        s = d.get("session")
+        if s is None:
+            lines.append("Keine Sitzung. Start: /run coding action=start workspace=<Verzeichnis>   (erlaubte Wurzeln: " + ", ".join(d["roots"]) + ")")
+        else:
+            lines += [f"Workspace: {s['root']}" + ("   [JARVIS-Repository: strenge Regeln]" if s["is_jarvis_workspace"] else ""),
+                      f"Session: {s['id']}", f"Status: {s['status']}" + (f" ({s['failure']})" if s.get("failure") else ""),
+                      f"Actions: {s['actions']}/{d['limits']['max_actions_per_session'] or '∞'}", f"Changed files: {len(s['changed_files'])}",
+                      f"Tests: {s['tests_run']}"]
+        lines.append("Aufruf: /run coding action=info|list|read|search|write|delete|test|git ...")
+    elif d["status"] == "disabled":
+        lines.append("Aktivieren: coding.enabled = true bzw. JARVIS_CODING_ENABLED=true")
     return "\n".join(lines)
 
 

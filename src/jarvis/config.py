@@ -105,6 +105,29 @@ class ComputerSettings:
     blocked_titles: tuple[str, ...] = ()                     # window-title fragments to refuse (adds to the built-in list)
 
 
+CODING_PROVIDERS = ("local", "fake")
+CODING_TEST_COMMANDS = ("pytest", "python -m pytest", "python -m unittest", "npm test")  # the only runners that exist
+
+
+@dataclass(frozen=True)
+class CodingSettings:
+    """Coding agent (v1). Opt-in; every action is permission-checked; no shell, no network, no commit/push."""
+    enabled: bool = False
+    provider: str = "local"            # local | fake (tests)
+    workspace_roots: tuple[str, ...] = ()  # directories a workspace may be opened in; () = the JARVIS workspace directory
+    max_actions_per_session: int = 300  # hard stop against runaway loops (reads count too)
+    max_actions_per_minute: int = 120
+    max_output_bytes: int = 200_000    # per stream of a test run; more output ends the run
+    max_file_size: int = 1_000_000     # larger files are neither read, searched nor written
+    max_search_results: int = 100
+    max_list_entries: int = 500
+    test_timeout: float = 120.0        # seconds per test run
+    test_commands: tuple[str, ...] = ("pytest", "python -m pytest", "python -m unittest")  # subset of the known runners
+    llm_context_chars: int = 12_000    # most characters of project material the `plan` action may send to the LLM
+    confirm_delete_each_time: bool = True   # deleting is always asked, never covered by a session grant
+    confirm_llm_each_time: bool = True      # sending material to the LLM provider is always asked
+
+
 BROWSER_PROVIDERS = ("playwright", "fake")
 BROWSER_KINDS = ("chromium", "chrome", "msedge")
 
@@ -144,6 +167,7 @@ class Settings:
     security: SecuritySettings = field(default_factory=SecuritySettings)
     computer: ComputerSettings = field(default_factory=ComputerSettings)
     browser: BrowserSettings = field(default_factory=BrowserSettings)
+    coding: CodingSettings = field(default_factory=CodingSettings)
 
     @property
     def is_production(self) -> bool:
@@ -216,6 +240,21 @@ class Settings:
             raise ConfigError("browser.trusted_hosts: use exact hosts or '*.example.com'; a bare wildcard is not allowed")
         if any("*" in h for h in b.private_hosts_allowed):
             raise ConfigError("browser.private_hosts_allowed takes exact hosts only (no wildcards)")
+        cd = self.coding
+        if cd.provider not in CODING_PROVIDERS:
+            raise ConfigError(f"coding.provider must be one of {CODING_PROVIDERS}, got {cd.provider!r}")
+        if any(c not in CODING_TEST_COMMANDS for c in cd.test_commands):
+            raise ConfigError(f"coding.test_commands may only list known runners {CODING_TEST_COMMANDS}; arbitrary commands do not exist")
+        if any(not r.strip() for r in cd.workspace_roots):
+            raise ConfigError("coding.workspace_roots must not contain empty entries")
+        if cd.max_actions_per_session < 0 or cd.max_actions_per_minute < 0:
+            raise ConfigError("coding.max_actions_per_session/max_actions_per_minute must be >= 0")
+        if not 1_000 <= cd.max_output_bytes <= 50_000_000 or not 100 <= cd.max_file_size <= 50_000_000:
+            raise ConfigError("coding.max_output_bytes 1000..50000000, max_file_size 100..50000000")
+        if not 1 <= cd.max_search_results <= 5000 or not 1 <= cd.max_list_entries <= 20000 or not 0 < cd.test_timeout <= 3600:
+            raise ConfigError("coding.max_search_results 1..5000, max_list_entries 1..20000, test_timeout 0..3600 s")
+        if not 500 <= cd.llm_context_chars <= 200_000:
+            raise ConfigError("coding.llm_context_chars must be 500..200000")
         m = self.memory
         if not m.backend.strip():
             raise ConfigError("memory.backend must not be empty")
