@@ -381,6 +381,10 @@ class RepairEngine:
     def _execute(self, rec: _Rec) -> None:
         ctx = rec.ctx
         self._checkpoint(rec)
+        try:
+            self._planner.preflight(ctx)        # unacceptable candidates (traversal, secrets, tests ...) stop the run before ANY test or write
+        except PlanBlocked as exc:
+            raise _End(RepairStatus.BLOCKED, self._red(str(exc)), "candidate_refused") from None
         self._set(rec, RepairStatus.TESTING, "baseline")
         res = self._task(rec, "baseline", "Starte das Projekt und führe die Tests aus (Code, Tests, Projekt)",
                          T.start_steps(ctx.workspace) + [T.test_step(ctx.runner)], {AP.CODING_READ, AP.CODING_TEST})

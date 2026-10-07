@@ -27,12 +27,11 @@ class RepairPlanner:
     def __init__(self, proposer: Proposer | None = None) -> None:
         self._proposer = proposer or SuppliedProposer()
 
-    def plan(self, result: TestResult, diagnosis: Diagnosis, ctx: RepairContext, attempt_no: int) -> RepairPlan:
-        if not diagnosis.repairable:
-            raise PlanBlocked(f"{diagnosis.category.value} is not repaired automatically: {diagnosis.summary}")
-        cand = self._proposer.propose(result, diagnosis, ctx, attempt_no)
-        if cand is None:
-            raise PlanBlocked("no repair proposal: this version writes no fix by itself; pass candidate edits (context 'candidates')")
+    @staticmethod
+    def check_candidate(cand: Mapping[str, Any]) -> list[str]:
+        """Everything about ONE candidate that can be judged without running anything: forbidden keys, edit shape and every target path
+        (separator-agnostic: backslash and slash are treated alike; '..' anywhere, absolute, UNC and drive paths are refused).
+        Returns the declared target files."""
         bad = P.find_reserved(cand)
         if bad:
             raise PlanBlocked(f"the proposal contains the forbidden key {bad!r}")
@@ -49,10 +48,32 @@ class RepairPlanner:
         targets = cand.get("target_files") or list(dict.fromkeys(paths))
         if not isinstance(targets, (list, tuple)) or not all(isinstance(t, str) for t in targets):
             raise PlanBlocked("target_files must be a list of paths")
+        for t in targets:
+            why = P.refuse_target(t)
+            if why:
+                raise PlanBlocked(f"target file refused ({why})")
         declared = {P.norm_path(t) for t in targets}
         stray = sorted(p for p in paths if P.norm_path(p) not in declared)
         if stray:
             raise PlanBlocked(f"the edits touch files outside the declared target_files: {stray[:3]}")
+        return list(targets)
+
+    def preflight(self, ctx: RepairContext) -> None:
+        """Judge ALL supplied candidates before the first test or repair step: an unacceptable candidate blocks the run up front."""
+        for i, cand in enumerate(ctx.candidates, 1):
+            try:
+                self.check_candidate(cand)
+            except PlanBlocked as exc:
+                raise PlanBlocked(f"candidate {i}: {exc}") from None
+
+    def plan(self, result: TestResult, diagnosis: Diagnosis, ctx: RepairContext, attempt_no: int) -> RepairPlan:
+        if not diagnosis.repairable:
+            raise PlanBlocked(f"{diagnosis.category.value} is not repaired automatically: {diagnosis.summary}")
+        cand = self._proposer.propose(result, diagnosis, ctx, attempt_no)
+        if cand is None:
+            raise PlanBlocked("no repair proposal: this version writes no fix by itself; pass candidate edits (context 'candidates')")
+        targets = self.check_candidate(cand)
+        edits = cand["edits"]
         tests = tuple(diagnosis.failed_tests) or ctx.tests
         try:
             return RepairPlan(f"Behebe den Fehler in {', '.join(targets)[:200]} (Code, Datei)", tuple(targets), tuple(tests)[:P.MAX_TESTS],

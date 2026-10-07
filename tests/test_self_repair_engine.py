@@ -440,3 +440,13 @@ def test_state_machine_is_followed_end_to_end(engines):
     engine._set = spy
     repair(engine, cands=candidates(EDIT))
     assert seen == [S.TESTING, S.DIAGNOSING, S.PLANNING, S.REPAIRING, S.RETESTING, S.REGRESSION]
+
+
+@pytest.mark.parametrize("path", ["../evil.py", "..\\evil.py", "a/../evil.py", "a\\..\\evil.py", "a/..\\evil.py", "C:\\x.py", "\\\\srv\\share\\x.py", "//srv/x.py"])
+@pytest.mark.parametrize("baseline", ["green", "red"])
+def test_a_bad_candidate_blocks_the_run_before_any_test_or_repair(engines, path, baseline):
+    """Also when the tests already pass: the candidates are judged first, so a traversal can never 'succeed' by never being looked at."""
+    agent = FakeCodingAgent([GOOD if baseline == "green" else failing()])
+    engine, *_ = engines(agent)
+    res = repair(engine, cands=candidates({**EDIT, "path": path}))
+    assert res.status is S.BLOCKED and res.reason_code == "candidate_refused" and not agent.tasks and not agent.written and res.attempts == ()

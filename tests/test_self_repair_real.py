@@ -180,3 +180,13 @@ def test_real_9_windows_paths_and_python_version(tmp_path, made):
     assert res.status is S.SUCCEEDED, res.run.final_summary
     res2 = go(engine, rig, cands=candidates({**FIX, "path": "..\\evil.py"}))
     assert res2.status is S.BLOCKED
+
+
+@pytest.mark.parametrize("path", ["..\\evil.py", "a\\..\\evil.py", "../evil.py", "a/..\\evil.py", "C:\\x.py", "\\\\srv\\share\\x.py"])
+def test_real_10_traversal_is_blocked_before_any_test_even_when_the_tests_are_green(tmp_path, made, path):
+    rig = coding_rig(tmp_path, [ONCE] * 8, real=True, files={"pyproject.toml": PYPROJECT, "calc.py": "def add(a, b):\n    return a + b\n",
+                                                             "tests/test_calc.py": "from calc import add\n\n\ndef test_add():\n    assert add(2, 3) == 5\n"}, test_timeout=120)
+    engine, orch, reg = real_engine(rig, made)
+    res = go(engine, rig, cands=candidates({**FIX, "path": path}))
+    assert res.status is S.BLOCKED and res.reason_code == "candidate_refused"
+    assert not rig.prompts.requests and not (tmp_path / "evil.py").exists()                      # nothing was asked, started or written

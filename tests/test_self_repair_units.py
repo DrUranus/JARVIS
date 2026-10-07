@@ -318,3 +318,41 @@ def test_parse_test_result_redacts():
 def test_test_step_builders():
     assert T.test_step(None) == {"action": "test"} and T.test_step("pytest", ["a.py::t", "b.py"]) == {"action": "test", "runner": "pytest", "args": "a.py::t b.py"}
     assert T.start_steps("/w")[0] == {"action": "start", "workspace": "/w"}
+
+
+# ---- path separators: Windows spellings are exactly as unacceptable as POSIX ones -----------------------------------------------------------------
+BAD_PATHS = ["../evil.py", "..\\evil.py", "a/../evil.py", "a\\..\\evil.py", "a/..\\evil.py", "a\\../evil.py", "a/b\\..\\..\\..\\evil.py", "./..\\evil.py",
+             "C:\\x.py", "C:/x.py", "c:x.py", "\\evil.py", "\\\\srv\\share\\x.py", "//srv/share/x.py", "\\\\?\\C:\\x.py", "\\\\.\\C:\\x.py", "/etc/x.py",
+             "src\\..\\..\\x.py", "..", "..\\"]
+GOOD_PATHS = ["src/jarvis/foo.py", "src\\jarvis\\foo.py", "src/jarvis\\foo.py", ".\\calc.py", "pkg\\sub\\mod.py"]
+
+
+@pytest.mark.parametrize("path", BAD_PATHS)
+def test_every_traversal_absolute_unc_and_mixed_spelling_is_refused(path):
+    assert P.refuse_target(path) is not None
+    ctx = RepairContext("/w", (), None, ({"edits": [{**EDIT, "path": path}]},), True)
+    with pytest.raises(PlanBlocked):
+        RepairPlanner().preflight(ctx)
+    with pytest.raises(PlanBlocked):                                  # ... also when it is smuggled in through target_files
+        RepairPlanner().check_candidate({"edits": [EDIT], "target_files": ["calc.py", path]})
+
+
+@pytest.mark.parametrize("path", GOOD_PATHS)
+def test_ordinary_paths_in_either_spelling_stay_acceptable(path):
+    assert P.refuse_target(path) is None
+    RepairPlanner().preflight(RepairContext("/w", (), None, ({"edits": [{**EDIT, "path": path}]},), True))
+    assert P.norm_path(path) == P.norm_path(path.replace("\\", "/"))
+
+
+@pytest.mark.parametrize("path", [".env", "x.pem", "x.key", "credentials.json", "id_rsa", "tests\\test_a.py", ".git\\config", "pyproject.toml", "setup.py",
+                                  "src\\jarvis\\permissions\\engine.py", "src/jarvis/permissions/engine.py"])
+def test_protection_rules_hold_for_both_separators(path):
+    assert P.refuse_target(path) is not None and P.refuse_target(path.replace("/", "\\")) is not None
+
+
+def test_preflight_judges_every_candidate_not_only_the_first():
+    good = {"edits": [EDIT]}
+    ctx = RepairContext("/w", (), None, (good, {"edits": [{**EDIT, "path": "..\\evil.py"}]}), True)
+    with pytest.raises(PlanBlocked, match="candidate 2"):
+        RepairPlanner().preflight(ctx)
+    RepairPlanner().preflight(RepairContext("/w", (), None, (good, good), True))
