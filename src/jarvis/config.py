@@ -130,6 +130,17 @@ class GoalsSettings:
     max_history: int = 100                 # finished goals kept for /goals
 
 
+@dataclass(frozen=True)
+class SelfRepairSettings:
+    """Self-testing / self-repair (v1). Opt-in; needs the multi-agent layer and the coding agent; works only in an explicitly named workspace."""
+    enabled: bool = False
+    max_attempts: int = 3              # repair attempts per run (hard limit 5)
+    repair_timeout_seconds: float = 900.0
+    step_timeout_seconds: float = 300.0
+    max_active_repairs: int = 1
+    max_history: int = 50
+
+
 CODING_PROVIDERS = ("local", "fake")
 CODING_TEST_COMMANDS = ("pytest", "python -m pytest", "python -m unittest", "npm test")  # the only runners that exist
 
@@ -195,6 +206,7 @@ class Settings:
     coding: CodingSettings = field(default_factory=CodingSettings)
     agents: AgentsSettings = field(default_factory=AgentsSettings)
     goals: GoalsSettings = field(default_factory=GoalsSettings)
+    self_repair: SelfRepairSettings = field(default_factory=SelfRepairSettings)
 
     @property
     def is_production(self) -> bool:
@@ -294,6 +306,10 @@ class Settings:
         if not 0 < gl.goal_timeout_seconds <= 86_400 or not 0 < gl.step_timeout_seconds <= 3600 or not 1 <= gl.max_active_goals <= 8 \
                 or not 1 <= gl.max_history <= 1000:
             raise ConfigError("goals.goal_timeout_seconds 0..86400, step_timeout_seconds 0..3600 (positive), max_active_goals 1..8, max_history 1..1000")
+        sr = self.self_repair
+        if not 1 <= sr.max_attempts <= 5 or not 0 < sr.repair_timeout_seconds <= 3600 or not 0 < sr.step_timeout_seconds <= 3600 \
+                or not 1 <= sr.max_active_repairs <= 4 or not 1 <= sr.max_history <= 500:
+            raise ConfigError("self_repair.max_attempts 1..5, repair_timeout_seconds/step_timeout_seconds 0..3600 (positive), max_active_repairs 1..4, max_history 1..500")
         m = self.memory
         if not m.backend.strip():
             raise ConfigError("memory.backend must not be empty")

@@ -135,3 +135,14 @@ goal_timeout_seconds = 1800
 step_timeout_seconds = 300
 max_active_goals = 3
 max_history = 100
+
+[self_repair]
+# Self-testing / self-repair is OFF by default. It needs [agents] and [coding] enabled and works ONLY in a workspace you name explicitly
+# (/repair ... workspace="..."). It touches no file itself: a repair is done by the Coding Agent through the permission engine (every write and
+# every test run asks you as usual). It never changes JARVIS itself, tests, dependency files, secrets or git state, and it never commits or pushes.
+enabled = false
+max_attempts = 3                # repair attempts per run (hard limit 5)
+repair_timeout_seconds = 900    # whole run, hard limit 3600
+step_timeout_seconds = 300      # one agent task (e.g. one test run), hard limit 3600
+max_active_repairs = 1
+max_history = 50

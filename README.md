@@ -3,9 +3,9 @@
 Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer Agent, dem man ein Ziel nennt und der selbstständig
 **denkt → plant → recherchiert → programmiert → handelt → testet → repariert → lernt → neue Fähigkeiten entwickelt**.
 
-**Status: Phase 1 (Core MVP), Phase 2 (Voice), Phase 3 (Memory), Phase 13 (Permissions & Security, vorgezogen), Phase 4 (Computer Control), Phase 5 (Browser Agent v1), Phase 6 (Coding Agent v1) und Phase 7 (Multi-Agent-Orchestrierung v1) abgeschlossen; Phase 8 (Goal Engine v1) ist implementiert und auf Linux getestet – die Windows-Validierung steht noch aus.** JARVIS plant und überwacht Ziele nur über die vorhandenen Agenten; es verändert weder sich selbst noch installiert es Fähigkeiten.
+**Status: Phase 1 (Core MVP), Phase 2 (Voice), Phase 3 (Memory), Phase 13 (Permissions & Security, vorgezogen), Phase 4 (Computer Control), Phase 5 (Browser Agent v1), Phase 6 (Coding Agent v1) und Phase 7 (Multi-Agent-Orchestrierung v1) abgeschlossen; Phase 8 (Goal Engine v1) ist implementiert und auf Linux getestet – die Windows-Validierung steht noch aus; Phase 9 (Self-Testing/Self-Repair v1) ist implementiert und auf Linux getestet.** JARVIS plant und überwacht Ziele nur über die vorhandenen Agenten; es verändert weder sich selbst noch installiert es Fähigkeiten.
 
-## Was bisher funktioniert (Phase 1–8, 13)
+## Was bisher funktioniert (Phase 1–9, 13)
 
 - Konfiguration (Defaults < TOML < Umgebungsvariablen), Dev-/Produktionsmodus, Logging, Fehlerhierarchie
 - LLM-Abstraktion: `mock` (offline), `openai`, `anthropic` – austauschbar per Konfiguration
@@ -16,6 +16,7 @@ Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer A
 - CLI (`jarvis>`)
 - **Multi-Agent-Orchestrierung v1 (Phase 7):** `AgentOrchestrator` lässt Browser-, Coding-, Computer- und (Platzhalter-)Research-Agent auf strukturierten `AgentTask`s arbeiten – begrenzt parallel, mit Timeout, Abbruch, Abhängigkeiten und Ergebnisübergabe; fügt keine Fähigkeit hinzu, jede Aktion läuft weiter durch ToolRegistry → PermissionEngine
 - **Goal Engine v1 (Phase 8):** Ziel → kurze, geprüfte Schrittfolge → Ausführung ausschließlich über den `AgentOrchestrator` → Auswertung → `SUCCEEDED/FAILED/BLOCKED/CANCELLED/TIMEOUT`; mit harten Grenzen (Schritte, Versuche, Timeouts), ohne neue Fähigkeit und ohne Selbstveränderung
+- **Self-Testing / Self-Repair v1 (Phase 9):** Tests in einem ausdrücklich genannten Workspace ausführen, Fehler deterministisch diagnostizieren, eine **begrenzte** Reparatur über den bestehenden Coding-Agent durchführen lassen, gezielt und per Regression nachtesten – Erfolg nur, wenn beides grün ist und nur geplante Dateien geändert wurden; kein Self-Improvement, kein Git, keine Installation
 - **Coding Agent v1 (Phase 6):** kontrollierte Softwareentwicklung in *einem* bestätigten Workspace – Projekt erkennen, lesen, suchen, ändern (hash-geschützt, mit Änderungszusammenfassung), Tests ausführen (ohne Shell, nur Allow-List), Git nur lesend; ein `coding`-Tool, eigener `CodingController`, jede Aktion durch ToolRegistry und PermissionEngine
 - **Browser Agent v1 (Phase 5):** ein Browser (Playwright, optional) hinter austauschbaren Providern, gesteuert über **ein** `browser`-Tool – einzelne, einzeln bestätigte Schritte (öffnen, lesen, Elemente finden, klicken, ausfüllen, absenden, kontrolliert herunter-/hochladen); eigener `BrowserController`, getrennt von Computer Control
 - **Computer Control (Phase 4):** Bildschirm, Maus, Tastatur, Fenster und Anwendungen als `ProtectedTool`s – jede Aktion läuft durch die Berechtigungs-Engine; opt-in, Windows-first (`pyautogui` + `mss` + Win32 über `ctypes`), austauschbare Provider
@@ -661,6 +662,68 @@ Die CLI umgeht keine Prüfung: jede Bestätigung fragt weiterhin die PermissionE
 - Ziele und Ergebnisse liegen nur im Speicher (nicht persistent); es gibt keine automatische Zielerkennung im Chat.
 - Nicht enthalten (spätere Phasen, ausdrücklich nicht begonnen): Self-Repair, Selbstmodifikation, automatische Installation von Fähigkeiten, Zugangsdaten-Verwaltung, autonome Zahlungen/Verträge/externe Kommunikation.
 
+## Self-Testing / Self-Repair v1 (Phase 9)
+
+JARVIS kann seine Arbeit **testen**, einen Fehler **erkennen**, eine **begrenzte Reparatur** über die bestehenden sicheren Coding-/Agent-Strukturen durchführen lassen und anschließend **belegen**, ob sie funktioniert. Das ist ausdrücklich **kein** Self-Improvement: nichts am JARVIS-Kern, an Permissions, Konfiguration oder Abhängigkeiten wird verändert; es wird nur in dem Workspace gearbeitet, den du im Befehl nennst.
+
+```
+Core ─▶ RepairEngine ─▶ DiagnosisEngine · RepairPlanner ─▶ AgentPlanner ─▶ AgentOrchestrator ─▶ Coding Agent ─▶ ToolGateway ─▶ ToolRegistry ─▶ PermissionEngine ─▶ CodingController ─▶ Dateisystem / Test-Runner
+```
+Die Schicht (`src/jarvis/self_repair/`) öffnet **keine** Datei, startet **keinen** Prozess und trifft **keine** Berechtigungsentscheidung – jeder Schritt (`start`, `test`, `write`, `changes`, `stop`) ist ein Task für den Coding-Agent, und die PermissionEngine fragt wie gewohnt. Kein zweiter Orchestrator, kein eigener Scheduler.
+
+### Ablauf
+```
+Baseline-Test (ganze Suite) ─▶ Diagnose ─▶ Repair-Plan ─▶ Reparatur (Coding-Agent, YELLOW) ─▶ gezielter Re-Test ─▶ Regression ─▶ Bewertung ─▶ SUCCEEDED / FAILED / BLOCKED
+```
+- **Test-only** (`/repair Teste das aktuelle Projekt …`): nur Test, Ergebnis `SUCCEEDED` (grün) oder `FAILED` (Tests rot) – nichts wird verändert.
+- **Reparatur** (Ziel enthält „behebe/repariere/fix …" oder `candidates` übergeben): sind die Tests schon grün, wird nichts geändert (`SUCCEEDED`, „nothing to repair"); der Ausgangsfehler wird nie als eigener Reparaturerfolg ausgegeben.
+- **Goldene Regel:** Erfolg nur, wenn *gezielter Test PASS* **und** *Regression PASS* **und** *keine Policy verletzt* **und** *keine unerlaubte Datei geändert*. Schlägt der gezielte Test fehl, läuft keine Regression; schlägt die Regression fehl, ist der Lauf `FAILED` (mit Hinweis, wie viele der Fehler schon vor der Reparatur bestanden).
+- **Diff-Kontrolle:** nach jeder Reparatur wird die `changes`-Liste der Sitzung gegen die Zieldateien des Plans geprüft; eine fremde Datei → `BLOCKED`, nichts wird akzeptiert (es gibt **kein** automatisches Zurückrollen – der Hinweis nennt die Dateien).
+- **Limits gegen Endlosschleifen:** `max_attempts` (Standard 3, hart 5); dieselbe Reparatur zweimal vorgeschlagen → `FAILED`; Reparatur ändert nichts → `FAILED`; Timeout für den ganzen Lauf (`repair_timeout_seconds`, hart ≤ 3600).
+- **Retries:** nur ein zusätzlicher Versuch bei vorübergehenden Fehlern von Lese-/Test-Tasks (sichtbar als Hinweis); Schreib-Tasks und verweigerte Berechtigungen werden nie wiederholt.
+
+### Diagnose (deterministisch, ohne LLM)
+`SYNTAX_ERROR`, `IMPORT_ERROR`, `ASSERTION_FAILURE`, `MISSING_FILE`, `TEST_FAILURE`, `TIMEOUT`, `ENVIRONMENT_ERROR`, `UNKNOWN`. Eine Kategorie wird nur genannt, wenn die (begrenzte, geschwärzte) Ausgabe sie belegt. `TIMEOUT`, `ENVIRONMENT_ERROR` und `UNKNOWN` werden **nicht** automatisch repariert → `BLOCKED`.
+
+### Repair-Plan und Reparatur-Vorschläge
+Der Plan enthält `objective`, `target_files`, `target_tests`, `allowed_capabilities` (nur `coding.read/write/test`) und `reason`. **v1 schreibt keinen Fix selbst:** die Änderungen kommen aus ausdrücklich übergebenen `candidates` (ein Kandidat pro Versuch, jeweils `{"edits": [{path, mode, old_text, new_text | content}], "target_files": [...]}`); ohne Kandidat endet der Lauf ehrlich `BLOCKED` („no repair proposal"). Eine spätere Phase kann einen intelligenteren `Proposer` einstecken, ohne an den Sicherheitsgrenzen etwas zu ändern.
+Nie als Ziel erlaubt (→ `BLOCKED`, bevor irgendetwas geschrieben wird): `.env*`, `*.pem`, `*.key`, `credentials*`, `secrets*`, `id_rsa*` u. ä.; Pfade außerhalb des Workspace (`..`, absolut, Laufwerke, UNC); `.git`, `.github`, `permissions/`, `security/`, Umgebungen; Abhängigkeits-/Konfigurationsdateien (`pyproject.toml`, `setup.py`, `requirements*.txt`, `package.json` …); **Tests** (kein „Test schwächen, bis er grün ist"); alles außer vorhandenen `.py`-Dateien. Das JARVIS-Repository selbst ist kein Reparaturziel. Zusätzlich gelten weiter PathGuard, Workspace-Grenzen und Symlink-Prüfung des Coding-Controllers.
+
+### Berechtigungen
+Jede Reparatur ist mindestens YELLOW und wird von der PermissionEngine beantwortet – nie von der Self-Repair-Schicht. Es gibt keine Parameter wie `confirmed/approval/force/bypass/skip_permissions/unsafe/grant` (Kontext, Kandidaten und Schritte mit solchen Schlüsseln werden abgelehnt). Wird eine Aktion verweigert: `BLOCKED`, kein Retry, keine Umgehung. Kein Git (weder commit noch push), keine Paketinstallation, keine Shell.
+
+### Abbruch und Timeout
+`cancel(run_id)`: `PENDING` → sofort `CANCELLED`; laufend → bestehender Agent-/Coding-Abbruch (der laufende Testprozess wird über das Coding-`halt` gestoppt), danach `CANCELLED`. Reagiert ein Agent nicht, steht das als Hinweis im Ergebnis – es wird nie behauptet, er sei gestoppt. Nach Abbruch/Timeout bleibt die Coding-Sitzung offen (Hinweis im Ergebnis); sonst schließt der Lauf die Sitzung, die er selbst gestartet hat. Eine bereits laufende Benutzer-Sitzung wird nicht übernommen oder beendet.
+
+### Datenschutz
+Ausgaben und Zusammenfassungen sind begrenzt (Test-Ausgabe ≤ 3000 Zeichen, Fehlerliste ≤ 50) und geschwärzt; `repr()` und Logs enthalten nur IDs und Status. Es wird **nichts** automatisch im Langzeit-Memory gespeichert.
+
+### Core-Integration und CLI
+`bootstrap` baut `core.subsystems["self_repair"]` (opt-in; braucht `agents.enabled` und `coding.enabled`; der Core importiert die Schicht nicht). Core: `create_repair()`, `run_repair()`, `cancel_repair()`, `get_repair()`, `list_repairs()`. Normaler Chat startet nie einen Lauf. Die Goal Engine kann den Core-Aufruf später nutzen; es gibt keine zweite Goal Engine.
+```
+/repair                                  Übersicht der Läufe
+/repair status [id]                      ID, Status, Phase, Versuche, Zusammenfassung
+/repair attempts <id>                    Versuche mit Diagnose, gezieltem Test, Regression, Dateien
+/repair cancel <id>
+/repair Teste das aktuelle Projekt workspace="C:\Users\ich\projekt" [tests=tests/test_x.py] [runner=pytest]
+/repair Behebe den Fehler in calc.py workspace="C:\Users\ich\projekt" candidates='[{"edits":[{"path":"calc.py","mode":"replace","old_text":"a - b","new_text":"a + b"}]}]'
+```
+`Strg+C` während eines Laufs bricht ihn ab.
+
+### Konfiguration `[self_repair]` (Umgebung: `JARVIS_SELF_REPAIR_<FELD>`)
+`enabled=false`, `max_attempts=3` (hart 5), `repair_timeout_seconds=900` (hart 3600), `step_timeout_seconds=300`, `max_active_repairs=1`, `max_history=50`.
+
+### Tests
+`tests/test_self_repair_units.py` (Modelle, Status, Policy, Kontext, Diagnose, Planer, Evaluator, Tester), `test_self_repair_engine.py` (alle Pfade mit dem skriptbaren `FakeCodingAgent`: Erfolg, transienter/permanenter Fehler, Berechtigung verweigert, Timeout, Abbruch, Absturz, unerwartete Dateiänderung), `test_self_repair_integration.py` (gegen die echte PermissionEngine, Config, Bootstrap, Core, CLI), `test_self_repair_security.py` (AST-/Quellscans, Invarianten), `test_self_repair_real.py` (echte Threads, echtes pytest, echte Dateien, echter Abbruch/Timeout, CRLF, Windows-Pfade). Unter Windows: `.\.venv\Scripts\python.exe -m pytest tests/test_self_repair_units.py tests/test_self_repair_engine.py tests/test_self_repair_integration.py tests/test_self_repair_security.py tests/test_self_repair_real.py -vv -rs`.
+
+### Bekannte Grenzen (v1)
+- Schreibt **keinen** Fix selbst: Reparaturen nur aus übergebenen Kandidaten; keine LLM-Anbindung, keine Code-Generierung.
+- Nur Python-Quelldateien, nur vorhandene Dateien, nur `pytest`/`unittest`; keine Tests, Konfiguration, Abhängigkeiten, Secrets, Git.
+- Kein automatisches Zurückrollen nach einer verworfenen Änderung; das Ergebnis nennt die geänderten Dateien.
+- Läuft nur im ausdrücklich genannten Workspace und nur, wenn dort keine andere Coding-Sitzung läuft; das JARVIS-Repository ist ausgenommen.
+- Abbruch/Timeout sind kooperativ (siehe Phase 7); Läufe liegen nur im Speicher.
+- Nicht enthalten (spätere Phasen): Self-Improvement/Selbstmodifikation, autonome Hintergrund-Reparatur, Git commit/push, Paketinstallation, Credentials, Remote-Ausführung.
+
 ## Tests & Entwicklungsworkflow
 
 ```bash
@@ -686,6 +749,7 @@ src/jarvis/
 ├── computer/   backend (Provider-Interfaces) · controller · tools · safety · resources · validation · screenshots · vision · policy · factory · providers/{fake,mss_screen,pyautogui_input,win32_windows,xlib_windows,subprocess_apps}
 ├── agents/     Multi-Agent: Orchestrator · Planner · Registry · Adapter
 ├── goals/      Goal Engine: models · state · planner · validation · evaluator · engine · context · policy · factory · fake
+├── self_repair/ Self-Testing/-Repair: models · state · policy · context · tester · diagnostics · planner · evaluator · engine · factory · fake
 ├── memory/     base (Interface) · models · validation · ranking · sqlite_store · inmemory · null · guard · guarded · extraction · factory
 ├── voice/      base (Interfaces) · session · factory · console · mock · devices · openai_provider · system_tts
 └── interface/  cli
@@ -747,12 +811,12 @@ Abhängigkeiten zeigen nach innen: Core kennt nur Interfaces (`LLMProvider`, `To
 | 4 Computer ✅ | `jarvis/computer/`; Provider austauschbar (`register_backend`), Beobachten→Handeln→Prüfen vorbereitet |
 | 5–6 Browser/Coding | neue `ProtectedTool`-Klassen mit `describe_action` (Host/Pfad/Command als Ressource); Policy-Regeln pro Tool; Vision über `ImageObserver` |
 | 7 Multi-Agent ✅ · 8 Goal Engine (implementiert) | `jarvis/agents/`, `jarvis/goals/`; Goal Engine nutzt nur die `AgentOrchestrator`-Schnittstelle |
-| 9 Self-Repair | Task-Übergang `FAILED → PENDING` (Retry) existiert |
+| 9 Self-Repair ✅ (Linux) | `jarvis/self_repair/`; nutzt nur Coding-Agent-Tasks über den Orchestrator; Proposer-Schnittstelle für spätere intelligentere Reparaturvorschläge |
 | 13 Security ✅ | `jarvis/permissions/` + `ToolRegistry.execute` als einzige Kontrollstelle. Offen: OS-Sandbox/Subprozess-Isolation, Hash-verkettetes Audit-Log, Voice/GUI-Bestätigung, Netzwerk-/Geld-Policies |
 | 15 Self-Improvement | Provider-/Tool-Registry erlauben Austausch und Rollback von Komponenten |
 
 ## Zukünftige Phasen
 
 1 Core ✅ · 2 Voice ✅ · 3 Memory ✅ · 4 Computer Control ✅ · 5 Browser/Internet ✅ · 6 Coding Agent ✅ · 7 Multi-Agent ✅ · 8 Goal Engine (Windows-Validierung offen) ·
-9 Self-Testing/Repair · 10 Business/Research/Finance · 11 GUI · 12 Smartphone · 13 Permissions/Security ✅ (vorgezogen) · 14 Maximum Autonomy · 15 Self-Improvement.
+9 Self-Testing/Repair (Windows-Validierung offen) · 10 Business/Research/Finance · 11 GUI · 12 Smartphone · 13 Permissions/Security ✅ (vorgezogen) · 14 Maximum Autonomy · 15 Self-Improvement.
 Phase 13 wurde vor Phase 4 vorgezogen (Begründung: Computersteuerung ohne belastbares Rechtesystem ist riskant).

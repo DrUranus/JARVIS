@@ -161,6 +161,29 @@ class JarvisCore:
     def list_goals(self, **filters: Any) -> list[Any]:
         return self._goal_engine().list(**filters)
 
+    # ---- self-repair (optional layer built by the composition root; the Core never imports it) --------------------------------------------
+    def _repair_engine(self) -> Any:
+        engine = getattr(self.subsystems.get("self_repair"), "engine", None)
+        if engine is None:
+            raise JarvisError("self-repair is off (self_repair.enabled, agents.enabled and coding.enabled must be true)")
+        return engine
+
+    def create_repair(self, objective: str, **options: Any) -> Any:
+        """Register a repair run (PENDING). Only explicit calls create runs: ordinary chat is never turned into a repair."""
+        return self._repair_engine().create(objective, **options)
+
+    def run_repair(self, run_id: str) -> Any:
+        return self._repair_engine().run(run_id)
+
+    def cancel_repair(self, run_id: str) -> Any:
+        return self._repair_engine().cancel(run_id)
+
+    def get_repair(self, run_id: str) -> Any:
+        return self._repair_engine().get(run_id)
+
+    def list_repairs(self, **filters: Any) -> list[Any]:
+        return self._repair_engine().list(**filters)
+
     def _memory_notes(self, text: str) -> list[str]:
         """Relevant memories as a temporary prompt note. Off unless explicitly enabled (privacy: the
         note is sent to the LLM provider). A memory failure never breaks the conversation."""

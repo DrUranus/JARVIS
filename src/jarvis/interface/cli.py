@@ -35,6 +35,7 @@ HELP = """Befehle:
   /agent <id>    Details eines Agenten | halt <task_id> (abbrechen) | plan <Text> | enable|disable|reset <id>
   /agenttasks    Aktive und letzte Agent-Tasks
   /goals         Ziele und ihr Status
+  /repair <Ziel> workspace="…" [tests=… runner=… candidates='[…]'] | status [id] | attempts <id> | cancel <id>   Test/Reparatur im Workspace
   /goal <Ziel>   Ziel ausführen (optional: url=… workspace=… runner=… read_paths=a,b) | status|steps|cancel <id>
   /voice         Sprachmodus starten (zurück mit „exit“)
   /help          Diese Hilfe
@@ -74,6 +75,8 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
         return _agents(core, cmd, arg)
     if cmd in ("/goals", "/goal"):
         return _goals(core, cmd, arg)
+    if cmd == "/repair":
+        return _repair(core, arg)
     if cmd == "/permissions":
         return _describe_permissions(core)
     if cmd == "/audit":
@@ -354,6 +357,89 @@ def _goals(core: JarvisCore, cmd: str, arg: str) -> str:
                   for st in result.steps]
         lines += [f"  Hinweis: {w}" for w in result.warnings]
         return "\n".join(lines)
+    except JarvisError as exc:
+        return f"Nicht möglich: {exc}"
+
+
+_REPAIR_OPT = re.compile(r"(?:^|\s)(workspace|tests|runner|candidates|repair)=(\"[^\"]*\"|'[^']*'|\S+)")
+
+
+def _repair(core: JarvisCore, arg: str) -> str:
+    """Self-test / self-repair front-end (duck-typed through the Core). Runs only in the workspace named in the command; the repair itself is a
+    Coding-Agent task, so every write and test run is still confirmed by the permission engine."""
+    import json
+    sub = core.subsystems.get("self_repair")
+    if sub is None:
+        return "Self-Repair: nicht konfiguriert."
+    if getattr(sub, "engine", None) is None:
+        return f"Self-Repair: deaktiviert – {sub.reason}\nAktivieren: self_repair.enabled, agents.enabled und coding.enabled = true (JARVIS_SELF_REPAIR_ENABLED=true)"
+    engine = sub.engine
+    word, _, rest = arg.partition(" ")
+    rest = rest.strip()
+
+    def line(run: Any) -> str:
+        return f"  {run.run_id}  {run.status.value:<10} {run.current_phase:<14} Versuche {run.attempt_count}/{run.max_attempts}  {(run.final_summary or run.failure_summary)[:70]}"
+
+    try:
+        if not arg or (word == "status" and not rest):
+            runs = core.list_repairs(limit=15)
+            head = f"Reparaturläufe (aktiv {engine.describe()['active']}/{engine.describe()['max_active']}):"
+            return "\n".join([head] + [line(r) for r in runs]) if runs else "Keine Reparaturläufe.\nVerwendung: /repair <Ziel> workspace=\"…\" [tests=… runner=… candidates='[…]'] | status [id] | attempts <id> | cancel <id>"
+        if word == "status":
+            res = engine.result(rest)
+            lines = [line(res.run).strip(), f"  Ziel: {res.run.objective[:200]}"]
+            if res.run.failure_summary:
+                lines.append(f"  Fehler: {res.run.failure_summary}")
+            if res.changed_files:
+                lines.append("  Geänderte Dateien: " + ", ".join(res.changed_files))
+            lines += [f"  Hinweis: {w}" for w in res.warnings]
+            return "\n".join(lines)
+        if word == "attempts":
+            atts = engine.attempts(rest)
+            if not atts:
+                return "Noch keine Reparaturversuche."
+            out = []
+            for a in atts:
+                d = a.diagnosis.category.value if a.diagnosis else "-"
+                t = "-" if a.targeted_test_result is None else ("PASS" if a.targeted_test_result.passed else "FAIL")
+                g = "-" if a.regression_result is None else ("PASS" if a.regression_result.passed else "FAIL")
+                out.append(f"  #{a.number} {a.status.value:<9} Diagnose {d:<17} gezielt {t:<4} Regression {g:<4} Dateien: {', '.join(a.changed_files) or '-'}"
+                           + (f"  ({a.failure_reason[:60]})" if a.failure_reason else ""))
+            return "\n".join(out)
+        if word == "cancel" and rest:
+            rep = core.cancel_repair(rest)
+            return f"{rep.run_id}: {rep.message} ({rep.status.value})"
+        context: dict[str, Any] = {}
+        workspace = ""
+        for m in _REPAIR_OPT.finditer(arg):
+            key, val = m.group(1), m.group(2).strip("\"'")
+            if key == "workspace":
+                workspace = val
+            elif key == "tests":
+                context["tests"] = [p for p in val.split(",") if p]
+            elif key == "candidates":
+                context["candidates"] = json.loads(val)
+            elif key == "repair":
+                context["repair"] = val.lower() in ("1", "true", "ja", "yes")
+            else:
+                context[key] = val
+        objective = _REPAIR_OPT.sub("", arg).strip()
+        if not workspace:
+            return "Ein Workspace ist erforderlich: /repair <Ziel> workspace=\"<Verzeichnis>\" (nur dort wird getestet/repariert)."
+        run = core.create_repair(objective, workspace=workspace, context=context or None)
+        print(f"Lauf {run.run_id} gestartet … (Strg+C bricht ab)", flush=True)
+        try:
+            result = core.run_repair(run.run_id)
+        except KeyboardInterrupt:
+            rep = core.cancel_repair(run.run_id)
+            result = engine.wait(run.run_id, timeout=10)
+            print(f"Abbruch angefordert: {rep.message}", flush=True)
+        lines = [f"Lauf {result.run.run_id}: {result.status.value}" + (f" – {result.run.final_summary}" if result.run.final_summary else "")]
+        lines += [f"  Versuch {a.number}: {a.status.value}" + (f" ({a.failure_reason[:60]})" if a.failure_reason else "") for a in result.attempts]
+        lines += [f"  Hinweis: {w}" for w in result.warnings]
+        return "\n".join(lines)
+    except json.JSONDecodeError:
+        return "Nicht möglich: candidates muss gültiges JSON sein."
     except JarvisError as exc:
         return f"Nicht möglich: {exc}"
 

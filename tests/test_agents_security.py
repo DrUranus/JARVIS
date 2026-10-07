@@ -138,7 +138,7 @@ def test_logging_never_carries_objectives_inputs_summaries_or_outputs():
 def test_the_rest_of_jarvis_does_not_depend_on_the_agent_layer():
     for f, tree in modules(SRC):
         rel = f.relative_to(SRC)
-        if rel.parts[0] in ("agents", "goals") or f.name == "bootstrap.py" or rel.as_posix() == "interface/cli.py":
+        if rel.parts[0] in ("agents", "goals", "self_repair") or f.name == "bootstrap.py" or rel.as_posix() == "interface/cli.py":
             continue
         assert not any(m == "jarvis.agents" or m.startswith("jarvis.agents.") for m in imports(tree)), rel
     cli = (SRC / "interface" / "cli.py").read_text(encoding="utf-8")
