@@ -81,24 +81,30 @@ class MouseTool(_ComputerTool):
     parameters = (ToolParameter("action", "move | click | double_click | right_click | scroll"),
                   ToolParameter("x", "x on the monitor", type="integer"), ToolParameter("y", "y on the monitor", type="integer"),
                   ToolParameter("monitor", "monitor index (default: configured default)", required=False),
-                  ToolParameter("amount", "scroll clicks (scroll only; positive = up)", required=False))
+                  ToolParameter("amount", "scroll clicks (scroll only; positive = up)", required=False),
+                  ToolParameter("window", "window handle: x/y are then relative to that window, which is brought to the front and "
+                                          "re-verified before the input (instead of 'monitor')", type="integer", required=False))
 
     def _plan(self, **kw: Any) -> Plan:
-        return self._c.plan_mouse(kw.get("action"), kw.get("x"), kw.get("y"), monitor=kw.get("monitor"), amount=kw.get("amount"))
+        return self._c.plan_mouse(kw.get("action"), kw.get("x"), kw.get("y"), monitor=kw.get("monitor"), amount=kw.get("amount"),
+                                  window=kw.get("window"))
 
 
 class KeyboardTool(_ComputerTool):
     name = "keyboard"
     description = ("Control the keyboard: action=press (key) | hotkey (keys='ctrl+s') | type (text). Input goes to the active "
-                   "window only; terminals, shells and security tools are refused. Typed text is never logged.")
+                   "window, or to the window given by handle; terminals, shells and security tools are refused. Typed text is never logged.")
     permission = PermissionLevel.YELLOW
     parameters = (ToolParameter("action", "press | hotkey | type"),
                   ToolParameter("key", "key name (press)", required=False),
                   ToolParameter("keys", "combination like 'ctrl+s' (hotkey)", required=False),
-                  ToolParameter("text", "text to type (type)", required=False))
+                  ToolParameter("text", "text to type (type)", required=False),
+                  ToolParameter("window", "window handle: input goes to exactly that window, which is brought to the front and "
+                                          "re-verified before every input (default: the active window)", type="integer", required=False))
 
     def _plan(self, **kw: Any) -> Plan:
-        return self._c.plan_keyboard(kw.get("action"), key=kw.get("key"), keys=kw.get("keys"), text=kw.get("text"))
+        return self._c.plan_keyboard(kw.get("action"), key=kw.get("key"), keys=kw.get("keys"), text=kw.get("text"),
+                                     window=kw.get("window"))
 
 
 class WindowTool(_ComputerTool):

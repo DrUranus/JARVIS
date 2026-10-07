@@ -31,6 +31,9 @@ class FakeBackend:
         self.launched: list[tuple[str, tuple[str, ...]]] = []
         self.on_launch: Callable[[str, tuple[str, ...]], None] | None = None
         self.refuse_close: set[int] = set()
+        self.focus_denied: set[int] = set()    # focus() raises, like Windows' foreground lock refusing the request
+        self.focus_ignored: set[int] = set()   # focus() returns quietly but nothing changes (a provider that cannot tell)
+        self.on_type: Callable[[str], None] | None = None  # called after every type_text chunk
         self._faults: dict[str, BaseException] = {}
         self._pid = itertools.count(1000)
         self._handles = itertools.count(100)
@@ -128,6 +131,8 @@ class _Keyboard(KeyboardProvider):
         self.fb.typed.append(text)
         for i in range(len(text)):
             self.fb._paint((base + i) % self.fb._canvas_w, 0, (0, 0, 255))
+        if self.fb.on_type:
+            self.fb.on_type(text)
 
 
 class _Windows(WindowProvider):
@@ -163,6 +168,10 @@ class _Windows(WindowProvider):
     def focus(self, handle: int) -> None:
         self.fb._hit("windows.focus", handle)
         self._need(handle)
+        if handle in self.fb.focus_denied:
+            raise ComputerError(ErrorCode.BACKEND_ERROR, "Windows did not bring the window to the foreground (foreground lock)")
+        if handle in self.fb.focus_ignored:
+            return
         self.fb.active_handle = handle
         self.fb.windows[handle] = replace(self.fb.windows[handle], minimized=False)
         self.fb.z_order.remove(handle)

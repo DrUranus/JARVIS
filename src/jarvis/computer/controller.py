@@ -263,22 +263,46 @@ class ComputerController:
         return plan(res.screen_info_resource("screenshots"), lambda: {"forgotten": self.screenshots.clear()},
                     "Gespeicherte Screenshots verwerfen")
 
-    def plan_mouse(self, action: Any, x: Any = None, y: Any = None, *, monitor: Any = None, amount: Any = None) -> Plan:
+    def plan_mouse(self, action: Any, x: Any = None, y: Any = None, *, monitor: Any = None, amount: Any = None,
+                   window: Any = None) -> Plan:
         if action not in MOUSE_ACTIONS:
             raise ComputerError(ErrorCode.INVALID_INPUT, f"unknown mouse action; use one of {list(MOUSE_ACTIONS)}")
         monitors = self._monitors()
-        mon = self._monitor(monitor, monitors)
-        px, py = val.validate_point(x, y, mon)
-        steps = val.validate_scroll(amount, self.settings.max_scroll) if action == "scroll" else 0
-        ax, ay = mon.left + px, mon.top + py
-        target = self._window_at(ax, ay)
+        steps_wanted = val.validate_scroll(amount, self.settings.max_scroll) if action == "scroll" else 0
+        planned_window: WindowInfo | None = None
+        if window is not None:  # targeted mode: x/y are relative to this window; it is brought to the front and re-verified
+            if monitor is not None:
+                raise ComputerError(ErrorCode.INVALID_INPUT, "use either 'window' (x/y relative to the window) or 'monitor'")
+            planned_window = self._known_window(window)
+            if planned_window.minimized:
+                raise ComputerError(ErrorCode.INVALID_INPUT, "the target window is minimized; restore it first (window action=restore)")
+            wx, wy = val.validate_point(x, y, Monitor(-1, 0, 0, planned_window.width, planned_window.height))
+            ax, ay = planned_window.left + wx, planned_window.top + wy
+            mon = next((m for m in monitors if m.left <= ax < m.left + m.width and m.top <= ay < m.top + m.height), None)
+            if mon is None:
+                raise ComputerError(ErrorCode.INVALID_COORDINATES, "that point of the window is not on any monitor")
+            px, py = ax - mon.left, ay - mon.top
+            target = planned_window
+        else:
+            mon = self._monitor(monitor, monitors)
+            px, py = val.validate_point(x, y, mon)
+            ax, ay = mon.left + px, mon.top + py
+            target = self._window_at(ax, ay)
+        steps = steps_wanted
         verdict = self._safety.window_input_verdict(target)
         ctx = {"monitor": f"{mon.index} ({mon.width}x{mon.height})", "ziel": _target_label(target)}
+        if planned_window is not None:
+            ctx["fenster"] = f"{planned_window.handle} (wird vorher in den Vordergrund geholt und erneut geprüft)"
         if action == "scroll":
             ctx["schritte"] = str(steps)
         pointer = self._provider("mouse")
 
         def run() -> dict[str, Any]:
+            if planned_window is not None:
+                self._bring_to_front(planned_window, geometry=True)
+                covering = self._window_at(ax, ay)  # positive proof that the approved window is what is under the pointer
+                if covering is None or covering.handle != planned_window.handle:
+                    raise ComputerError(ErrorCode.TARGET_CHANGED, "the target window is not what is under that point; nothing was done")
             self._recheck_target(ax, ay)
             if action == "move":
                 self._call(pointer.move, ax, ay)
@@ -292,7 +316,7 @@ class ComputerController:
         return self._seal(Plan(res.TOOL_MOUSE, action, res.mouse_resource(mon.index, px, py), verdict.level,
                                verdict.reason or f"Maus: {action}", ctx, run))
 
-    def plan_keyboard(self, action: Any, *, key: Any = None, keys: Any = None, text: Any = None) -> Plan:
+    def plan_keyboard(self, action: Any, *, key: Any = None, keys: Any = None, text: Any = None, window: Any = None) -> Plan:
         if action not in KEYBOARD_ACTIONS:
             raise ComputerError(ErrorCode.INVALID_INPUT, f"unknown keyboard action; use one of {list(KEYBOARD_ACTIONS)}")
         keyboard = self._provider("keyboard")
@@ -307,8 +331,9 @@ class ComputerController:
         else:
             t = val.validate_text(text, self.settings.max_text_length)
             verdict = Verdict(YELLOW)
+        targeted = window is not None  # input for a specific window: brought to the front and re-verified before every input
         try:
-            active: WindowInfo | None = self._require_active_window()
+            active: WindowInfo | None = self._known_window(window) if targeted else self._require_active_window()
         except ComputerError as exc:
             if not (verdict.blocked and exc.code is ErrorCode.WINDOW_NOT_FOUND):
                 raise
@@ -316,6 +341,8 @@ class ComputerController:
         target = (active.process or "unknown") if active else "none"
         window_verdict = self._safety.window_input_verdict(active)
         ctx = {"ziel": _target_label(active)}
+        if targeted and active is not None:
+            ctx["fenster"] = f"{active.handle} (wird vorher in den Vordergrund geholt und erneut geprüft)"
         if action == "press":
             resource = res.key_resource(k, target)
             ctx["taste"] = k
@@ -332,7 +359,7 @@ class ComputerController:
             if self.settings.show_text_preview:
                 ctx["vorschau"] = text_preview(t)  # shown at the confirmation prompt only; never logged or audited
             reason = "Text eingeben"
-            run_call = lambda: self._call(keyboard.type_text, t, self.settings.type_interval)  # noqa: E731
+            run_call = lambda: self._type_verified(keyboard, t, active)  # noqa: E731
             result = {"action": "type", "characters": len(t)}
         level = RED if RED in (verdict.level, window_verdict.level) else YELLOW
         why = window_verdict.reason or verdict.reason or reason
@@ -340,7 +367,10 @@ class ComputerController:
         def run() -> dict[str, Any]:
             if active is None:  # only reachable for RED plans, which execute() refuses before this point
                 raise ComputerError(ErrorCode.BLOCKED_TARGET, "no target window")
-            self._recheck_active(active)
+            if targeted:
+                self._bring_to_front(active)
+            else:
+                self._recheck_active(active)
             run_call()
             return result
 
@@ -433,13 +463,58 @@ class ComputerController:
             raise ComputerError(ErrorCode.BLOCKED_TARGET, reason)
 
     def _recheck_active(self, planned: WindowInfo) -> None:
-        """Right before typing: the active window must still be the one that was approved, and not a blocked one."""
+        """Right before every input: the active window must still be the one that was approved (same handle AND same
+        process: a recycled handle is a different window), and not a blocked one."""
         now = self._require_active_window()
         reason = self._safety.window_blocked_reason(now)
         if reason:
             raise ComputerError(ErrorCode.BLOCKED_TARGET, reason)
-        if now.handle != planned.handle:
+        if now.handle != planned.handle or not self._same_program(now, planned):
             raise ComputerError(ErrorCode.TARGET_CHANGED, "the active window changed after approval; nothing was typed")
+
+    @staticmethod
+    def _same_program(a: WindowInfo, b: WindowInfo) -> bool:
+        return a.pid == b.pid and a.process.casefold() == b.process.casefold()
+
+    def _find_window(self, handle: int) -> WindowInfo | None:
+        return next((w for w in self._call(self._provider("windows").list_windows) if w.handle == handle), None)
+
+    def _known_window(self, handle: Any) -> WindowInfo:
+        """Planning: the explicitly named target window must exist right now."""
+        h = val.as_int(handle, "window")
+        w = self._find_window(h)
+        if w is None:
+            raise ComputerError(ErrorCode.WINDOW_NOT_FOUND, f"window {h} does not exist or is not visible")
+        return w
+
+    def _bring_to_front(self, planned: WindowInfo, *, geometry: bool = False) -> WindowInfo:
+        """Targeted input, step by step: (1) the approved window must still exist, be the same program, be unblocked
+        (and, for pointer input, not have moved); (2) it is focused through the window provider; (3) the foreground
+        window is read back and must BE that window. Any mismatch aborts before a single event is sent."""
+        now = self._find_window(planned.handle)
+        if now is None:
+            raise ComputerError(ErrorCode.WINDOW_NOT_FOUND, "the target window no longer exists; nothing was sent")
+        if not self._same_program(now, planned):
+            raise ComputerError(ErrorCode.TARGET_CHANGED, "the target window now belongs to another program; nothing was sent")
+        reason = self._safety.window_blocked_reason(now)
+        if reason:
+            raise ComputerError(ErrorCode.BLOCKED_TARGET, reason)
+        if geometry and (now.left, now.top, now.width, now.height) != (planned.left, planned.top, planned.width, planned.height):
+            raise ComputerError(ErrorCode.TARGET_CHANGED, "the target window moved or was resized after approval; nothing was done")
+        if now.minimized or not now.active:
+            self._call(self._provider("windows").focus, planned.handle)
+            self._sleep(0.02)  # let the window manager settle before the read-back
+        self._recheck_active(planned)
+        return now
+
+    TYPE_CHUNK = 16
+
+    def _type_verified(self, keyboard: Any, text: str, planned: WindowInfo) -> None:
+        """Typing in short chunks; the active window is re-verified before EVERY chunk, so a window switch in the middle
+        of a long text stops the input instead of continuing in another program."""
+        for i in range(0, len(text), self.TYPE_CHUNK):
+            self._recheck_active(planned)
+            self._call(keyboard.type_text, text[i:i + self.TYPE_CHUNK], self.settings.type_interval)
 
     # -- run functions for the read-only screen actions ----------------------------------------------------------------
     def _run_monitors(self) -> list[dict[str, Any]]:

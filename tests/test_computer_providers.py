@@ -226,6 +226,7 @@ class FakeWin32Api:
         self.fg = 0
         self.shown, self.closed = [], []
         self.allow_foreground, self.close_ok, self.boom = True, True, False
+        self.attached = []
 
     def add(self, h, title="T", cls="Cls", pid=10, visible=True, cloaked=False, iconic=False, zoomed=False, rect=(1, 2, 30, 40), proc="app.exe"):
         self.w[h] = dict(title=title, cls=cls, pid=pid, visible=visible, cloaked=cloaked, iconic=iconic, zoomed=zoomed, rect=rect)
@@ -264,9 +265,31 @@ class FakeWin32Api:
             self.w[h]["iconic"] = False
 
     def set_foreground(self, h):
-        if self.allow_foreground:
+        if self.allow_foreground and (not self.lock or self._attached_now):
             self.fg = h
         return self.allow_foreground
+
+    # foreground-lock simulation: a plain SetForegroundWindow fails when `lock` is on; joining the foreground thread's
+    # input queue (AttachThreadInput) lets it through - exactly like the real OS rule
+    lock = False
+    attached: list = []
+    attach_ok = True
+
+    def current_thread_id(self):
+        return 1
+
+    def window_thread(self, h):
+        return 2 if h == self.fg else 3
+
+    def attach_thread_input(self, me, other, attach):
+        self.attached.append((me, other, attach))
+        self._attached_now = attach and self.attach_ok
+        return self.attach_ok
+
+    _attached_now = False
+
+    def bring_to_top(self, h):
+        return True
 
     def post_close(self, h):
         self.closed.append(h)
@@ -495,3 +518,43 @@ def test_an_aborted_hotkey_releases_its_modifiers(pg):
     pg.calls.clear()
     PyAutoGuiKeyboard().hotkey(("CTRL", "S"))  # a successful combination triggers no extra releases
     assert [c[0] for c in pg.calls] == ["hotkey"]
+
+
+# ---- foreground lock (Windows) --------------------------------------------------------------------------------------------------------
+def test_win32_focus_gets_through_the_foreground_lock_by_joining_the_input_queue(api):
+    api.lock = True
+    w = Win32Windows(api, sleep=lambda s: None)
+    w.focus(5)
+    assert api.fg == 5
+    assert api.attached == [(1, 2, True), (1, 2, False)]  # attached to the old foreground thread, and detached again
+
+
+def test_win32_focus_fails_loudly_when_the_lock_cannot_be_overcome(api):
+    api.lock, api.attach_ok = True, False
+    w = Win32Windows(api, sleep=lambda s: None)
+    with pytest.raises(ComputerError) as exc:
+        w.focus(5)
+    assert exc.value.code is ErrorCode.BACKEND_ERROR and "foreground lock" in str(exc.value) and api.fg == 1
+    assert all(a[2] is True for a in api.attached)  # nothing was attached that needed detaching
+
+
+def test_win32_focus_never_leaves_threads_attached_even_if_the_call_raises(api):
+    api.lock = True
+
+    def boom(h):
+        raise OSError("boom")
+
+    api.bring_to_top = boom
+    with pytest.raises(ComputerError):
+        Win32Windows(api, sleep=lambda s: None).focus(5)
+    assert api.attached == [(1, 2, True), (1, 2, False)]
+
+
+def test_win32_provider_injects_no_input_events_to_win_the_focus(api):
+    """The focus workaround only uses focus/queue calls: no keyboard/mouse event API exists on the facade."""
+    import inspect
+    from jarvis.computer.providers import win32_windows as mod
+    src = inspect.getsource(mod)
+    for forbidden in ("keybd_event", "SendInput", "mouse_event", "SetWindowsHookEx", "WriteProcessMemory",
+                      "CreateRemoteThread", "TerminateProcess"):
+        assert forbidden not in src

@@ -274,7 +274,7 @@ def test_active_window_change_during_confirmation_blocks_typing(tmp_path):
 def test_audit_records_keyboard_type_but_not_the_text(rig):
     secret = "my-very-private-sentence-4711"
     out = rig.run("keyboard", action="type", text=secret)
-    assert out.success and rig.fb.typed == [secret]
+    assert out.success and "".join(rig.fb.typed) == secret
     evs = [e for e in rig.sink.events if e.tool == "keyboard"]
     assert {e.action for e in evs} == {"type"} and {e.resource for e in evs} == {"keyboard://text@notepad.exe"}
     assert "execution_result" in {e.type.value for e in evs}
@@ -304,7 +304,7 @@ def test_secrets_in_the_preview_and_window_titles_are_redacted_at_the_prompt(tmp
     r = make_rig(tmp_path, [ONCE], notepad=False)
     r.fb.add_window("notes api_key=abcd1234efgh5678 - Notepad", "notepad.exe", active=True)
     out = r.run("keyboard", action="type", text="password=hunter22abc")
-    assert out.success and r.fb.typed == ["password=hunter22abc"]  # the action itself is the user's business ...
+    assert out.success and "".join(r.fb.typed) == "password=hunter22abc"  # the action itself is the user's business ...
     blob = r.prompt_blob() + r.audit_blob()
     assert "hunter22abc" not in blob and "abcd1234efgh5678" not in blob and "[REDACTED]" in blob  # ... but never displayed/logged
 

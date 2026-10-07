@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from typing import Any
 
 from jarvis.computer.backend import WindowProvider
@@ -40,8 +41,9 @@ class Win32Api:
             (u.GetWindowThreadProcessId, [H, ctypes.POINTER(wintypes.DWORD)], wintypes.DWORD),
             (u.GetWindowRect, [H, ctypes.POINTER(wintypes.RECT)], B), (u.GetForegroundWindow, [], H),
             (u.SetForegroundWindow, [H], B), (u.ShowWindow, [H, I], B), (u.PostMessageW, [H, wintypes.UINT, wintypes.WPARAM, L], B),
+            (u.BringWindowToTop, [H], B), (u.AttachThreadInput, [wintypes.DWORD, wintypes.DWORD, B], B),
             (u.WindowFromPoint, [wintypes.POINT], H), (u.GetAncestor, [H, wintypes.UINT], H),
-            (k.OpenProcess, [wintypes.DWORD, B, wintypes.DWORD], wintypes.HANDLE), (k.CloseHandle, [wintypes.HANDLE], B),
+            (k.GetCurrentThreadId, [], wintypes.DWORD), (k.OpenProcess, [wintypes.DWORD, B, wintypes.DWORD], wintypes.HANDLE), (k.CloseHandle, [wintypes.HANDLE], B),
             (k.QueryFullProcessImageNameW, [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)], B),
         ):
             fn.argtypes, fn.restype = args, res
@@ -130,13 +132,29 @@ class Win32Api:
     def set_foreground(self, h: int) -> bool:
         return bool(self.user32.SetForegroundWindow(h))
 
+    def current_thread_id(self) -> int:
+        return int(self.kernel32.GetCurrentThreadId())
+
+    def window_thread(self, h: int) -> int:
+        return int(self.user32.GetWindowThreadProcessId(h, None))
+
+    def attach_thread_input(self, this_thread: int, other_thread: int, attach: bool) -> bool:
+        return bool(self.user32.AttachThreadInput(this_thread, other_thread, bool(attach)))
+
+    def bring_to_top(self, h: int) -> bool:
+        return bool(self.user32.BringWindowToTop(h))
+
     def post_close(self, h: int) -> bool:
         return bool(self.user32.PostMessageW(h, WM_CLOSE, 0, 0))
 
 
 class Win32Windows(WindowProvider):
-    def __init__(self, api: Any = None) -> None:
+    FOCUS_ATTEMPTS = 3
+    FOCUS_RETRY_DELAY = 0.05
+
+    def __init__(self, api: Any = None, sleep: Any = time.sleep) -> None:
         self.api = api if api is not None else Win32Api()
+        self._sleep = sleep
 
     def _info(self, h: int, foreground: int) -> WindowInfo:
         a = self.api
@@ -181,15 +199,41 @@ class Win32Windows(WindowProvider):
         return handle
 
     def focus(self, handle: int) -> None:
+        """Bring ONE existing window to the foreground and prove it. Windows' foreground lock refuses a plain
+        SetForegroundWindow from a background process; the documented way around that is to join the input queue of the
+        current foreground thread for the duration of the call. No key or mouse events are injected (so nothing can reach
+        the previous foreground window), and the result is verified: if the window is not in front afterwards this raises."""
         def run() -> None:
             h = self._need(handle)
             if self.api.is_iconic(h):
                 self.api.show(h, SW_RESTORE)
-            self.api.set_foreground(h)
-            if self.api.foreground() != h:  # Windows' focus-stealing protection refused: report, do not hack around it
+            for attempt in range(self.FOCUS_ATTEMPTS):
+                if self.api.foreground() == h:
+                    return
+                self.api.set_foreground(h)
+                if self.api.foreground() == h:
+                    return
+                self._focus_via_input_queue(h)
+                if self.api.foreground() == h:
+                    return
+                self._sleep(self.FOCUS_RETRY_DELAY * (attempt + 1))
+            if self.api.foreground() != h:
                 raise ComputerError(ErrorCode.BACKEND_ERROR, "Windows did not bring the window to the foreground "
-                                                             "(focus-stealing protection); click it or use Alt+Tab manually")
+                                                             "(foreground lock / focus-stealing protection); nothing was sent to it")
         self._guard(run)
+
+    def _focus_via_input_queue(self, h: int) -> None:
+        a = self.api
+        fg = a.foreground()
+        me = a.current_thread_id()
+        other = a.window_thread(fg) if fg else 0
+        attached = bool(other) and other != me and a.attach_thread_input(me, other, True)
+        try:
+            a.bring_to_top(h)
+            a.set_foreground(h)
+        finally:
+            if attached:
+                a.attach_thread_input(me, other, False)
 
     def minimize(self, handle: int) -> None:
         self._guard(lambda: self.api.show(self._need(handle), SW_MINIMIZE))

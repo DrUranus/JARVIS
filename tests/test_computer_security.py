@@ -395,7 +395,7 @@ def test_typed_text_and_screen_content_leave_no_trace(rig, caplog):
         rig.run("mouse", action="click", x="3", y="3")
     everything = "\n".join(f"{r.name} {r.getMessage()} {r.exc_text or ''}" for r in caplog.records) + rig.audit_blob()
     assert secret not in everything and "diary" not in everything and "Untitled" not in everything
-    assert rig.fb.typed == [secret, secret + "2"]  # (it WAS typed: the user asked for it)
+    assert "".join(rig.fb.typed) == secret + secret + "2"  # typed in verified chunks  # (it WAS typed: the user asked for it)
 
 
 def test_error_messages_never_contain_typed_text(rig):
