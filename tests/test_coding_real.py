@@ -352,3 +352,20 @@ def test_halt_stops_a_running_test_immediately(tmp_path):
     assert time.monotonic() - t0 < 20
     assert r.ok(action="status")["session"]["status"] == "halted"
     assert code(r.run(action="test")) == "failsafe"
+
+
+def test_a_real_process_that_writes_windows_line_endings_is_normalised_but_keeps_its_streams(tmp_path):
+    script = ("import sys\nsys.stdout.buffer.write(b'out line\\r\\nsecond\\r\\n')\nsys.stdout.flush()\n"
+              "sys.stderr.buffer.write(b'Ran 1 test\\r\\n\\r\\nOK\\r\\n')\nsys.stderr.flush()\n")
+    res = LocalProvider().run_command(CommandSpec((sys.executable, "-c", script), str(tmp_path), 30, 10_000))
+    assert res.exit_code == 0 and res.stdout == "out line\nsecond\n" and res.stderr == "Ran 1 test\n\nOK\n" and "\r" not in res.stdout + res.stderr
+
+
+def test_real_unittest_output_is_split_correctly_and_recognised(tmp_path):
+    files = {"test_m.py": "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_double(self):\n        self.assertEqual(2 * 2, 4)\n"
+                          "    def test_neg(self):\n        self.assertEqual(-1 * 2, -2)\n"}
+    r = make_rig(tmp_path, [ONCE] * 4, real=True, files=files)
+    r.start()
+    res = r.ok(action="test", runner="python -m unittest", args=["-v"])
+    assert res["passed"] is True and res["summary"] == "OK" and "\r" not in res["stderr"] + res["stdout"]
+    assert "test_double" in res["stderr"] and "Ran 2 tests" in res["stderr"] and "test_double" not in res["stdout"]  # the interpreter's own stream, unchanged

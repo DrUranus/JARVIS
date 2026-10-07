@@ -47,6 +47,13 @@ def scrubbed_env(profile: str) -> dict[str, str]:
     return env
 
 
+def _text(data: bytes) -> str:
+    """One captured stream as text with '\\n' line endings. A Windows console program writes '\\r\\n' into a pipe; without this every
+    line-anchored result check (unittest's 'OK', pytest's 'FAILED ...') would see a trailing '\\r'. Streams are only decoded and
+    normalised here - never merged or moved between stdout and stderr."""
+    return data.decode("utf-8", "replace").replace("\r\n", "\n")
+
+
 class _Capture(threading.Thread):
     """Reads one pipe into a bounded buffer; asks for the process to be stopped when it produces too much."""
 
@@ -214,8 +221,8 @@ class LocalProvider(CodingProvider):
         proc.wait()
         out.join(2)
         err.join(2)
-        return CommandResult(None if (timed_out or aborted) else proc.returncode, out.data.decode("utf-8", "replace"),
-                             err.data.decode("utf-8", "replace"), timed_out, out.truncated or err.truncated, time.monotonic() - started, aborted)
+        return CommandResult(None if (timed_out or aborted) else proc.returncode, _text(out.data), _text(err.data), timed_out,
+                             out.truncated or err.truncated, time.monotonic() - started, aborted)
 
     @staticmethod
     def _terminate(proc: "subprocess.Popen[bytes]") -> None:

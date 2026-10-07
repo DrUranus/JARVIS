@@ -687,3 +687,36 @@ def test_every_write_needs_a_preview_first(started):
     assert shown.digest == performed.digest
     with pytest.raises(Exception):
         started.controller.plan("write", phase="perform", **kw)  # a preview is used up by one perform: no second write on the same approval
+
+
+# ---- result detection is independent of the platform's line endings ---------------------------------------------------------------------------------
+def _crlf(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\n", "\r\n")
+
+
+def test_unittest_results_are_recognised_with_windows_line_endings(started):
+    ok = "test_double (m.T.test_double) ... ok\ntest_neg (m.T.test_neg) ... ok\n\n----------------------------------------------------------------------\nRan 2 tests in 0.001s\n\nOK\n"
+    started.provider.command_handler = lambda spec: CommandResult(0, "", _crlf(ok), False, False, 0.1)
+    out = started.ok(action="test", runner="python -m unittest", args=["-v"])
+    assert out["passed"] is True and out["summary"] == "OK" and "test_double" in out["stderr"] and out["stdout"] == "" and "\r" not in out["stderr"]
+    bad = "F\n======\nFAIL: test_x (m.T.test_x)\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nFAILED (failures=1)\n"
+    started.provider.command_handler = lambda spec: CommandResult(1, "", _crlf(bad), False, False, 0.1)
+    out = started.ok(action="test", runner="python -m unittest")
+    assert out["passed"] is False and out["summary"] == "FAILED" and "FAIL: test_x" in out["stderr"]
+    started.provider.command_handler = lambda spec: CommandResult(0, "", _crlf("Ran 1 test in 0s\n\nOK (skipped=1)\n"), False, False, 0.1)
+    assert started.ok(action="test", runner="python -m unittest")["summary"] == "OK"
+
+
+def test_pytest_results_are_recognised_with_windows_line_endings(started):
+    out_text = ("collected 2 items\n\ntests/test_calc.py .F\n\n=========================== short test summary info ============================\n"
+                "FAILED tests/test_calc.py::test_add - assert -1 == 5\n========================= 1 failed, 1 passed in 0.03s =========================\n")
+    started.provider.command_handler = lambda spec: CommandResult(1, _crlf(out_text), "", False, False, 0.03)
+    out = started.ok(action="test")
+    assert out["summary"] == "1 failed, 1 passed" and out["failures"] == ["tests/test_calc.py::test_add"] and out["passed"] is False
+    assert "\r" not in out["stdout"] and out["stderr"] == ""
+
+
+def test_the_streams_stay_separate_whatever_the_line_endings(started):
+    started.provider.command_handler = lambda spec: CommandResult(0, "to-stdout\r\n", "to-stderr\r\n", False, False, 0.1)
+    out = started.ok(action="test")
+    assert out["stdout"] == "to-stdout\n" and out["stderr"] == "to-stderr\n"
