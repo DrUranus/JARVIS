@@ -29,6 +29,7 @@ HELP = """Befehle:
   /audit [n]     Letzte Sicherheitsereignisse
   /revoke        Sitzungsfreigaben widerrufen
   /computer      Status der Computersteuerung (stop = Notaus, resume = fortsetzen)
+  /browser       Browser-Agent: Status | start | stop | pages | halt (Notaus) | resume (sonst: /run browser action=...)
   /voice         Sprachmodus starten (zurück mit „exit“)
   /help          Diese Hilfe
   /exit          Beenden"""
@@ -59,6 +60,8 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
         return _run_tool(core, arg)
     if cmd == "/computer":
         return _computer(core, arg)
+    if cmd == "/browser":
+        return _browser(core, arg)
     if cmd == "/permissions":
         return _describe_permissions(core)
     if cmd == "/audit":
@@ -169,6 +172,29 @@ def _computer(core: JarvisCore, arg: str) -> str:
         lines.append("Gespeicherte Screenshots: " + (", ".join(d["stored_screenshots"]) or "keine"))
     elif d["status"] == "disabled":
         lines.append("Aktivieren: computer.enabled = true bzw. JARVIS_COMPUTER_ENABLED=true (benötigt pip install -e \".[computer]\")")
+    return "\n".join(lines)
+
+
+def _browser(core: JarvisCore, arg: str) -> str:
+    """Status / emergency stop of the optional browser agent. Real actions are ordinary tool calls (/run browser ...) and
+    therefore go through the permission engine like everything else; this helper adds no second command path."""
+    sub = core.subsystems.get("browser")
+    if sub is None:
+        return "Browser-Agent: nicht konfiguriert."
+    if arg == "halt":
+        return "Browser-Agent angehalten (Notaus). /browser resume setzt ihn fort." if sub.halt() else "Browser-Agent ist nicht aktiv."
+    if arg == "resume":
+        return "Browser-Agent fortgesetzt." if sub.resume() else "Browser-Agent ist nicht aktiv."
+    d = sub.describe()
+    if arg in ("start", "stop", "pages", "status") and d["status"] in ("enabled", "halted"):
+        return _run_tool(core, f"browser action={arg}")
+    names = {"enabled": "aktiv", "disabled": "deaktiviert", "unavailable": "nicht verfügbar", "halted": "ANGEHALTEN"}
+    lines = [f"Browser-Agent: {names.get(d['status'], d['status'])}" + (f" – {d['reason']}" if d.get("reason") else "")]
+    if d["status"] in ("enabled", "halted"):
+        lines.append(f"Provider: {d['provider']}   Sitzung: {d['session'] or 'keine'}   Seiten: {d['pages']}   Aktionen: {d['actions_used']}")
+        lines.append("Aufruf: /run browser action=start | goto url=https://… | text | links | find query=… | click element=e3 ...")
+    elif d["status"] == "disabled":
+        lines.append("Aktivieren: browser.enabled = true bzw. JARVIS_BROWSER_ENABLED=true (benötigt pip install -e \".[browser]\")")
     return "\n".join(lines)
 
 

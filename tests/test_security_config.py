@@ -364,10 +364,11 @@ def test_voice_memory_llm_planning_tasks_and_core_do_not_know_the_permission_sys
 
 
 def test_only_tools_bootstrap_and_cli_use_the_permission_package():
-    # `computer/` (Phase 4) is the one additional legitimate consumer; it is checked on its own in test_computer_security.py
+    # `computer/` (Phase 4) and `browser/` (Phase 5) are the additional legitimate consumers; each is checked on its own
+    # in test_computer_security.py / test_browser_security.py
     users = sorted(f.relative_to(SRC).as_posix() for f in SRC.rglob("*.py")
                    if any(m.startswith("jarvis.permissions") for m in imports(f))
-                   and f.parent.name not in ("permissions", "computer", "providers"))
+                   and f.parent.name not in ("permissions", "computer", "browser", "providers"))
     assert users == ["bootstrap.py", "interface/cli.py", "tools/base.py", "tools/builtin/__init__.py", "tools/registry.py"]
 
 

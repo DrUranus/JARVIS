@@ -40,6 +40,8 @@ CONSEQUENTIAL_VERBS = frozenset({
     # input / UI automation (Phase 4): anything that acts on a screen, window or application is never GREEN
     "click", "type", "press", "hotkey", "scroll", "drag", "focus", "minimize", "maximize", "restore", "close",
     "launch", "save",
+    # browser (Phase 5): typing into a page and fetching files are never GREEN
+    "fill", "download",
 })
 _SPLIT = re.compile(r"[._:\-/]+")
 APPROVAL_TTL_SECONDS = 60.0

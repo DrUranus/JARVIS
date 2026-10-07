@@ -3,9 +3,9 @@
 Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer Agent, dem man ein Ziel nennt und der selbstständig
 **denkt → plant → recherchiert → programmiert → handelt → testet → repariert → lernt → neue Fähigkeiten entwickelt**.
 
-**Status: Phase 1 (Core MVP), Phase 2 (Voice), Phase 3 (Memory), Phase 13 (Permissions & Security, vorgezogen) und Phase 4 (Computer Control) abgeschlossen.** JARVIS führt Pläne noch nicht autonom aus – Architektur und Schnittstellen dafür stehen.
+**Status: Phase 1 (Core MVP), Phase 2 (Voice), Phase 3 (Memory), Phase 13 (Permissions & Security, vorgezogen), Phase 4 (Computer Control) und Phase 5 (Browser Agent v1) abgeschlossen.** JARVIS führt Pläne noch nicht autonom aus – Architektur und Schnittstellen dafür stehen.
 
-## Was bisher funktioniert (Phase 1–4, 13)
+## Was bisher funktioniert (Phase 1–5, 13)
 
 - Konfiguration (Defaults < TOML < Umgebungsvariablen), Dev-/Produktionsmodus, Logging, Fehlerhierarchie
 - LLM-Abstraktion: `mock` (offline), `openai`, `anthropic` – austauschbar per Konfiguration
@@ -14,6 +14,7 @@ Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer A
 - Tool-System: Registry, dynamische Registrierung, fehlerisolierte Ausführung, Permission-Level
 - Planner: Ziel → Task mit Subtasks (LLM-JSON, mit Template-Fallback, damit nie „zu komplex“ zurückkommt)
 - CLI (`jarvis>`)
+- **Browser Agent v1 (Phase 5):** ein Browser (Playwright, optional) hinter austauschbaren Providern, gesteuert über **ein** `browser`-Tool – einzelne, einzeln bestätigte Schritte (öffnen, lesen, Elemente finden, klicken, ausfüllen, absenden, kontrolliert herunter-/hochladen); eigener `BrowserController`, getrennt von Computer Control
 - **Computer Control (Phase 4):** Bildschirm, Maus, Tastatur, Fenster und Anwendungen als `ProtectedTool`s – jede Aktion läuft durch die Berechtigungs-Engine; opt-in, Windows-first (`pyautogui` + `mss` + Win32 über `ctypes`), austauschbare Provider
 - **Permissions & Security (Phase 13):** Jede Tool-Ausführung läuft durch eine Berechtigungs-Engine (GREEN/YELLOW/RED, Regeln, Bestätigung, Pfad-Sicherheit, Audit-Log, Secret-Schutz) und schlägt im Zweifel fehl (fail closed)
 - **Memory (Phase 3):** persistentes lokales Langzeitgedächtnis (SQLite) hinter der Schnittstelle `MemoryStore`, mit Secret-Schutz; gemerkt wird nur auf ausdrücklichen Wunsch
@@ -357,6 +358,78 @@ Alle Automatiktests nutzen den `FakeBackend` (zeichnet jeden Aufruf auf, simulie
 - `pyautogui` tippt nur ASCII (+ Newline/Tab); anderes wird mit `unsupported` abgelehnt statt still verworfen. Mehrere Monitore mit unterschiedlicher Skalierung (DPI) sind nicht gesondert behandelt. Spiele/Remote-Desktops mit eigenem Eingabepfad können Eingaben ignorieren.
 - Das Fenster-/Monitor-Wissen steht im `screen`-Ergebnis (Fenstertitel können vertraulich sein); `screen`-Beobachtungen sind GREEN und werden nur mit `security.audit_green = true` auditiert (Metadaten stehen immer im Log).
 - Minimieren/Maximieren unter X11 ohne Fenstermanager (Xvfb) ist `unsupported`; X11 ist ein Entwicklungs-/Verifikationsbackend, nicht das Zielsystem.
+
+## Browser Agent v1 (Phase 5)
+
+Ein kleiner, bewusst **nicht autonomer** Browser-Agent: ein Tool-Aufruf = eine überprüfbare Aktion. Der Planner darf mehrere Schritte planen, aber jeder Schritt läuft einzeln durch ToolRegistry → PermissionEngine → `BrowserController` → `BrowserProvider`. Computer Control bleibt davon vollständig getrennt (eigener Controller, eigenes Paket, keine gegenseitigen Importe; der Browser steuert nie Maus oder Tastatur des PCs).
+
+```
+JARVIS Core → Planner/Tasks → browser-Tool → ToolRegistry → PermissionEngine → BrowserController → BrowserProvider (Playwright | Fake | …)
+```
+
+### Einrichtung (Windows)
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[browser]"
+.\.venv\Scripts\python.exe -m playwright install chromium      # oder: browser = "msedge" (Edge ist vorinstalliert, kein Download)
+$env:JARVIS_BROWSER_ENABLED = "true"
+.\.venv\Scripts\jarvis.exe
+jarvis> /browser                                  # Status
+jarvis> /run browser action=start                 # YELLOW: wird bestätigt
+jarvis> /run browser action=goto url=https://example.com
+jarvis> /run browser action=text                  # GREEN: sichtbarer Text (als „untrusted“ markiert)
+jarvis> /run browser action=find query=Search     # liefert Element-IDs (e1, e2, …)
+jarvis> /run browser action=fill element=e1 text="Wetter Berlin"
+jarvis> /run browser action=submit element=e1
+```
+Ohne `playwright` startet JARVIS ganz normal; der Browser-Agent meldet dann „nicht verfügbar“ mit dem Installationshinweis (`/browser`). Kein Python-3.14-spezifischer Code; Playwright braucht dafür ein passendes `greenlet`-Wheel – falls die Installation scheitert, Playwright aktualisieren. Das Profil ist **immer neu und flüchtig** (kein Zugriff auf deine echten Browser-Profile, Cookies oder Passwörter).
+
+### Aktionen des `browser`-Tools
+| Gruppe | `action` | Level |
+|---|---|---|
+| Sitzung | `status` | GREEN |
+| | `start`, `stop` | YELLOW |
+| Seiten | `pages`, `active` | GREEN |
+| | `new`, `activate`, `close`, `back`, `forward` | YELLOW |
+| | `goto url=…`, `new url=…` | GREEN für `browser.trusted_hosts`, sonst YELLOW; RED für verbotene Adressen |
+| | `reload` | GREEN auf vertrauenswürdigem Host, sonst YELLOW |
+| Lesen | `info`, `text`, `links`, `forms`, `find [role=…] [query=…]` | GREEN |
+| Elemente | `click`, `fill text=…`, `select value=…`, `check checked=true`, `submit` | YELLOW (RED bei Login/Zugangsdaten/verbotenem Ziel) |
+| Dateien | `download path=…`, `upload path=…` | YELLOW, immer gefragt, Pfad über `PathGuard` |
+
+Elemente werden **semantisch** gefunden (Rolle + zugänglicher Name aus `aria-label`, Label, Text, Placeholder …), nie über Bildschirmkoordinaten. `find|links|forms` liefern Element-IDs; nur diese IDs nehmen `click`/`fill`/… an – es gibt keine Selector-, XPath-, JavaScript- oder Koordinaten-Eingabe.
+
+### Ressourcen (was Engine, Regeln und Audit sehen)
+```
+browser://session/<sid>                       Start/Stopp
+browser://page/<sid>/<pid>@<host>             eine Seite (Lesen, Verlauf, Schließen)
+browser://element/<sid>/<pid>/<eid>@<host>    ein Element (click, fill, …)
+<host>                                        Navigation: Resource-Typ DOMAIN der Engine, also auch "*.example.com"-Regeln
+<Pfad>                                        Download-Ziel / Upload-Quelle: Resource-Typ PATH → PathGuard
+```
+Policy-Beispiel: `resource_type = "other"`, `resources = ["browser://element/*@*.example.com"]`. Der getippte Text steht **nie** in einer Ressource.
+
+### Sicherheitsmodell
+- **Eine Tür:** `BrowserController.execute` läuft nur mit einem von der Engine ausgestellten, einmaligen `ExecutionGrant` für genau *dieses* Tool, *diese* Aktion und *diese* Ressource; Pläne sind HMAC-signiert (verändert, handgebaut oder von einem anderen Controller → `not_authorized`). Kein `confirmed=`/`force=`. Der Provider ist privat im Controller; `register_browser_tools` lehnt lockere Registries ab. AST-Tests stellen sicher, dass außerhalb des Controllers kein Provider-Aufruf, kein Playwright-Import (nur ein Modul, lazy), kein Shell-/subprocess-Aufruf, keine Cookie-/Storage-/Header-API und kein weiteres Skript außer dem festen Beschreibungs-Skript existiert.
+- **RED (nicht konfigurierbar):** alle Schemata außer http(s) (`file:`, `javascript:`, `data:`, `chrome:`, `view-source:`, `ftp:`, `mailto:` …); URLs mit Zugangsdaten; Cloud-Metadaten-/Link-Local-Adressen; interne/private Adressen (`localhost`, `10.*`, `192.168.*`, `*.local`, einteilige Namen), es sei denn, du trägst den **exakten** Host in `browser.private_hosts_allowed` ein; `browser.blocked_hosts`; Login-Formulare (jede Aktion darin); Passwort-, Einmalcode- und Zahlungsfelder; Text, der wie ein Secret aussieht (API-Key, `password=…`), wird nie in eine Webseite getippt; Links/Formulare mit verbotenem Ziel; Datei-Auswahlfelder per `click`; ausführbare/Skript-Downloads (`.exe .msi .bat .cmd .ps1 .js .vbs .lnk .jar .sh …`, auch wenn der Server sie anbietet); Zugangsdaten-/Schlüsseldateien als Upload (`.env`, `id_rsa`, `*.pem`, `*.kdbx`, Cookies …). Eine Anmeldung muss der Benutzer selbst durchführen; JARVIS erkennt das Formular (`login_form_detected`) und stoppt.
+- **Immer fragen:** Baseline-Regeln `browser-baseline-*` (sichtbar in `/permissions`) erzwingen die Rückfrage bei jedem `fill`, `download` und `upload`, ohne Sitzungsfreigabe (abschaltbar nur per Config).
+- **Zielbindung und Elementidentität:** Jedes Element hat eine Referenz mit Sitzung, Seite, URL-Kontext (ohne Query/Fragment), Locator und einem Fingerabdruck aus Tag, Rolle, Name, Typ, id/name und Link-Ziel. Vor *jeder* Aktion – und noch einmal direkt vor dem Ausführen – wird geprüft: Seite existiert · richtige Sitzung · richtige Seite · URL noch kompatibel · Element existiert noch · gleiches logisches Element · (Berechtigung: einmaliger Grant). Bei Abweichung bricht die Aktion mit `stale_element`/`element_not_found`/`target_changed`/`session_mismatch`/`page_not_found` ab – es wird **nie** auf ein ähnliches Element ausgewichen. Nach einer Navigation sind alle Referenzen der alten Seite ungültig.
+- **Navigation wird im Browser selbst erzwungen:** der Controller reicht dem Provider einen URL-Guard, der jede Anfrage (Navigation, Redirect, Subressource) prüft und verbotene abbricht; zusätzlich wird die End-URL nach jeder Aktion neu geprüft (Seite wird sonst auf `about:blank` verlassen). Popups werden als Seiten registriert (Limit `max_pages`, überzählige werden geschlossen).
+- **Keine blinde Schleife:** Timeouts für Navigation und Aktionen, `max_actions_per_session` (Standard 300, danach `failsafe`), `max_actions_per_minute`, Notaus `/browser halt` bzw. `/browser resume`.
+- **Downloads/Uploads:** Das `browser`-Profil nimmt nie von selbst Downloads an – ungefragte werden abgebrochen und gemeldet. `download path=…` schreibt erst in ein privates Temp-Verzeichnis und kopiert dann auf den von der Engine geprüften echten Pfad (`PathGuard`: nur erlaubte Verzeichnisse, nie überschreiben, kein Symlink am Ende, Rechte 0600, Größenlimit); heruntergeladene Dateien werden nie geöffnet oder ausgeführt. `upload path=…` wählt nur eine geprüfte, vorhandene Datei in einem `<input type=file>` aus.
+- **Keine Zugangsdaten:** keine Passwortverwaltung, keine Cookie-/Token-/Header-/Storage-Funktion (nicht vorhanden, per AST-Test gesichert), frisches nicht persistentes Profil. Feldinhalte werden nie gelesen (nur `has_value`). URLs erscheinen in Prompts, Ergebnissen und Audit ohne Zugangsdaten, Query-Werte und Fragment. Getippter Text steht nur im Bestätigungsprompt (Secrets geschwärzt), nie in Audit, Logs, Fehlermeldungen oder `repr`.
+- **Seiteninhalt ist Daten:** `text` ist als `untrusted_content` markiert; Titel/Namen werden von Steuer- und Formatzeichen bereinigt (kein Fälschen von Prompt-Zeilen). Eine Seite kann JARVIS also nichts „befehlen“ – jede Aktion braucht trotzdem die Bestätigung.
+
+### Konfiguration `[browser]` (Umgebung: `JARVIS_BROWSER_<FELD>`)
+`enabled=false`, `provider="playwright"` (`fake` für Tests), `browser="chromium"` (`chrome`, `msedge`), `executable_path=""`, `headless=false`, `navigation_timeout=15`, `action_timeout=5`, `max_pages=5`, `max_text_chars=20000`, `max_elements=100`, `max_actions_per_minute=60`, `max_actions_per_session=300`, `max_download_bytes=50000000`, `trusted_hosts=[]` (GREEN-Navigation; exakt oder `*.example.com`), `blocked_hosts=[]`, `private_hosts_allowed=[]` (exakte interne Hosts), `confirm_fill_each_time=true`, `confirm_file_transfer_each_time=true`. Es gibt keinen Schalter, der RED, Login-Schutz oder die Berechtigungsprüfung abschaltet; unbekannte Schlüssel werden abgelehnt.
+
+### Tests
+`tests/test_browser_basics.py` (Interfaces, URL-Policy, Ressourcen, Config, Factory, CLI), `test_browser_controller.py` (Tool + echte Engine + Fake-Provider: Level, Sitzungen/Seiten, Lesen, Interaktion, Elementidentität, Budgets, Downloads/Uploads), `test_browser_security.py` (Bypass-Inspektion, Leaks, Architektur), `test_browser_real.py` (echter Browser gegen eine lokale Testseite; skippt sauber ohne Playwright/Browser; `JARVIS_TEST_BROWSER=msedge` wählt den Browser). Unter Windows: `.\.venv\Scripts\python.exe -m pytest -q -rf`.
+
+### Bekannte Grenzen (v1)
+- Kein DNS-Abgleich: ein Hostname, der auf eine private Adresse zeigt, wird nicht erkannt (nur Literale und typische interne Namen). Der Browser läuft mit deinen Netzwerkrechten – nur vertrauenswürdige Hosts in `trusted_hosts` eintragen.
+- Elemente werden über Dokumentreihenfolge + Fingerabdruck adressiert; erscheinen vor einem Element neue Elemente, gilt es bewusst als „stale“ und muss neu gelesen werden. Shadow-DOM/iframes werden in v1 nicht durchsucht.
+- Download-Größe wird erst nach dem Empfang in das private Temp-Verzeichnis geprüft.
+- Mehrere Sitzungen gleichzeitig gibt es nicht (eine Sitzung, mehrere Seiten). Kein Screenshot, kein Vision, kein autonomer Agentenloop (spätere Phasen).
 
 ## Tests & Entwicklungsworkflow
 

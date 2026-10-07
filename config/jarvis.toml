@@ -77,3 +77,21 @@ blocked_titles = []
 # Application aliases: only these can be launched (unless allow_unlisted_apps). Terminals/shells/script hosts are always refused.
 # [computer.apps]
 # notepad = "%SystemRoot%\\System32\\notepad.exe"
+
+[browser]
+# The browser agent is OFF by default (pip install -e ".[browser]" and python -m playwright install chromium). Every action still
+# goes through the permission engine; login forms, credentials, internal addresses and executable downloads are always refused.
+enabled = false
+provider = "playwright"     # playwright | fake (tests)
+browser = "chromium"        # chromium | chrome | msedge (Edge is preinstalled on Windows)
+headless = false            # false: you can watch what JARVIS does
+navigation_timeout = 15
+action_timeout = 5
+max_pages = 5
+max_actions_per_minute = 60
+max_actions_per_session = 300   # hard stop against runaway loops
+trusted_hosts = []          # navigation to these hosts needs no question: "docs.python.org", "*.wikipedia.org"
+blocked_hosts = []
+private_hosts_allowed = []  # exact internal hosts that may be visited, e.g. ["127.0.0.1"]
+confirm_fill_each_time = true
+confirm_file_transfer_each_time = true

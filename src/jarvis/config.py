@@ -105,6 +105,33 @@ class ComputerSettings:
     blocked_titles: tuple[str, ...] = ()                     # window-title fragments to refuse (adds to the built-in list)
 
 
+BROWSER_PROVIDERS = ("playwright", "fake")
+BROWSER_KINDS = ("chromium", "chrome", "msedge")
+
+
+@dataclass(frozen=True)
+class BrowserSettings:
+    """Browser agent (v1). Opt-in; every action is permission-checked; no profile, cookie or password handling."""
+    enabled: bool = False
+    provider: str = "playwright"       # playwright | fake (tests)
+    browser: str = "chromium"          # chromium | chrome | msedge (Edge is preinstalled on Windows)
+    executable_path: str = ""          # optional explicit browser binary
+    headless: bool = False             # False: you can watch what JARVIS does
+    navigation_timeout: float = 15.0   # seconds per navigation
+    action_timeout: float = 5.0        # seconds per click/fill/...
+    max_pages: int = 5                 # open tabs per session (popups beyond this are closed)
+    max_text_chars: int = 20_000       # visible text returned per read
+    max_elements: int = 100            # interactive elements listed per read
+    max_actions_per_minute: int = 60
+    max_actions_per_session: int = 300  # hard stop against runaway loops; start a new session to continue
+    max_download_bytes: int = 50_000_000
+    trusted_hosts: tuple[str, ...] = ()           # navigation to these hosts is GREEN (no question)
+    blocked_hosts: tuple[str, ...] = ()           # never visited (RED)
+    private_hosts_allowed: tuple[str, ...] = ()   # exact internal hosts that may be visited (e.g. "127.0.0.1")
+    confirm_fill_each_time: bool = True           # typing into a page is always asked, never covered by a session grant
+    confirm_file_transfer_each_time: bool = True  # downloads and uploads are always asked
+
+
 @dataclass(frozen=True)
 class Settings:
     mode: str = "development"
@@ -116,6 +143,7 @@ class Settings:
     memory: MemorySettings = field(default_factory=MemorySettings)
     security: SecuritySettings = field(default_factory=SecuritySettings)
     computer: ComputerSettings = field(default_factory=ComputerSettings)
+    browser: BrowserSettings = field(default_factory=BrowserSettings)
 
     @property
     def is_production(self) -> bool:
@@ -173,6 +201,21 @@ class Settings:
                 raise ConfigError(f"computer.apps: invalid entry {alias!r} (alias: letters/digits/_/-, path non-empty)")
         if any(not x.strip() for x in (*c.blocked_processes, *c.blocked_titles)):
             raise ConfigError("computer.blocked_processes/blocked_titles must not contain empty entries")
+        b = self.browser
+        if b.provider not in BROWSER_PROVIDERS or b.browser not in BROWSER_KINDS:
+            raise ConfigError(f"browser.provider must be one of {BROWSER_PROVIDERS}, browser.browser one of {BROWSER_KINDS}")
+        if b.navigation_timeout <= 0 or b.action_timeout <= 0 or b.navigation_timeout > 300 or b.action_timeout > 120:
+            raise ConfigError("browser.navigation_timeout must be 0..300 s and browser.action_timeout 0..120 s (positive)")
+        if not 1 <= b.max_pages <= 20 or not 100 <= b.max_text_chars <= 500_000 or not 1 <= b.max_elements <= 1000:
+            raise ConfigError("browser.max_pages 1..20, max_text_chars 100..500000, max_elements 1..1000")
+        if b.max_actions_per_minute < 0 or b.max_actions_per_session < 0 or b.max_download_bytes < 1:
+            raise ConfigError("browser.max_actions_per_minute/max_actions_per_session must be >= 0, max_download_bytes >= 1")
+        if any(not x.strip() for x in (*b.trusted_hosts, *b.blocked_hosts, *b.private_hosts_allowed)):
+            raise ConfigError("browser.trusted_hosts/blocked_hosts/private_hosts_allowed must not contain empty entries")
+        if any(t.strip() in ("*", "*.*") or ("*" in t and not t.strip().startswith("*.")) for t in b.trusted_hosts):
+            raise ConfigError("browser.trusted_hosts: use exact hosts or '*.example.com'; a bare wildcard is not allowed")
+        if any("*" in h for h in b.private_hosts_allowed):
+            raise ConfigError("browser.private_hosts_allowed takes exact hosts only (no wildcards)")
         m = self.memory
         if not m.backend.strip():
             raise ConfigError("memory.backend must not be empty")

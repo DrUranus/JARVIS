@@ -29,6 +29,9 @@ def build_core(settings: Settings) -> JarvisCore:
     # and JARVIS starts normally. Its tools are ordinary ProtectedTools in the registry above.
     from jarvis.computer.factory import build_computer
     core.subsystems["computer"] = build_computer(settings, tools, permissions)
+    # The browser agent is a separate, equally opt-in subsystem with its own controller; it never drives mouse/keyboard.
+    from jarvis.browser.factory import build_browser
+    core.subsystems["browser"] = build_browser(settings, tools, permissions)
     return core
 
 
