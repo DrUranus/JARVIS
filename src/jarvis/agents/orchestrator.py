@@ -456,6 +456,19 @@ class AgentOrchestrator:
             self._cond.wait_for(lambda: rec.status in TERMINAL, timeout=timeout)
             return rec.result
 
+    def wait_any(self, task_ids: Sequence[str], timeout: float | None = None, interrupt: Callable[[], bool] | None = None) -> list[AgentResult]:
+        """Wait (without polling) until at least one of the tasks is terminal, `interrupt()` is true or `timeout` seconds passed; returns the
+        results of the tasks that are terminal (possibly none). Used by layers above that run several tasks at once."""
+        with self._cond:
+            recs = [self._rec(t) for t in task_ids]
+            self._cond.wait_for(lambda: any(r.status in TERMINAL for r in recs) or (interrupt is not None and bool(interrupt())), timeout=timeout)
+            return [r.result for r in recs if r.status in TERMINAL]
+
+    def notify_waiters(self) -> None:
+        """Wake everybody blocked in wait/wait_any so that they re-check their own condition (e.g. an interrupt flag)."""
+        with self._cond:
+            self._cond.notify_all()
+
     def wait_idle(self, timeout: float | None = None) -> bool:
         """Wait (without polling) until no worker is executing any more - including work of tasks that already timed out."""
         with self._cond:

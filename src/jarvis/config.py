@@ -118,6 +118,18 @@ class AgentsSettings:
     max_output_chars: int = 20_000     # size of a stored task output
 
 
+@dataclass(frozen=True)
+class GoalsSettings:
+    """Goal engine (v1). Opt-in; needs the multi-agent layer. It plans and supervises steps; it adds no capability and no permission."""
+    enabled: bool = False
+    max_steps: int = 20                    # steps per goal (hard limit 50)
+    max_attempts_per_step: int = 2         # 1 = no retry (hard limit 5)
+    goal_timeout_seconds: float = 1800.0
+    step_timeout_seconds: float = 300.0
+    max_active_goals: int = 3
+    max_history: int = 100                 # finished goals kept for /goals
+
+
 CODING_PROVIDERS = ("local", "fake")
 CODING_TEST_COMMANDS = ("pytest", "python -m pytest", "python -m unittest", "npm test")  # the only runners that exist
 
@@ -182,6 +194,7 @@ class Settings:
     browser: BrowserSettings = field(default_factory=BrowserSettings)
     coding: CodingSettings = field(default_factory=CodingSettings)
     agents: AgentsSettings = field(default_factory=AgentsSettings)
+    goals: GoalsSettings = field(default_factory=GoalsSettings)
 
     @property
     def is_production(self) -> bool:
@@ -275,6 +288,12 @@ class Settings:
         if not 1 <= ag.max_history <= 10_000 or not 0 <= ag.cancel_grace_seconds <= 300 or not 1 <= ag.tool_call_limit <= 5000 \
                 or not 1_000 <= ag.max_output_chars <= 1_000_000:
             raise ConfigError("agents.max_history 1..10000, cancel_grace_seconds 0..300, tool_call_limit 1..5000, max_output_chars 1000..1000000")
+        gl = self.goals
+        if not 1 <= gl.max_steps <= 50 or not 1 <= gl.max_attempts_per_step <= 5:
+            raise ConfigError("goals.max_steps 1..50, max_attempts_per_step 1..5")
+        if not 0 < gl.goal_timeout_seconds <= 86_400 or not 0 < gl.step_timeout_seconds <= 3600 or not 1 <= gl.max_active_goals <= 8 \
+                or not 1 <= gl.max_history <= 1000:
+            raise ConfigError("goals.goal_timeout_seconds 0..86400, step_timeout_seconds 0..3600 (positive), max_active_goals 1..8, max_history 1..1000")
         m = self.memory
         if not m.backend.strip():
             raise ConfigError("memory.backend must not be empty")

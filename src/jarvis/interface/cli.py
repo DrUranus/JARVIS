@@ -5,7 +5,7 @@ import argparse
 import re
 import shlex
 import sys
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 
 from jarvis import __version__
 from jarvis.bootstrap import build_core, build_voice_session
@@ -34,6 +34,8 @@ HELP = """Befehle:
   /agents        Agenten und ihr Status
   /agent <id>    Details eines Agenten | halt <task_id> (abbrechen) | plan <Text> | enable|disable|reset <id>
   /agenttasks    Aktive und letzte Agent-Tasks
+  /goals         Ziele und ihr Status
+  /goal <Ziel>   Ziel ausführen (optional: url=… workspace=… runner=… read_paths=a,b) | status|steps|cancel <id>
   /voice         Sprachmodus starten (zurück mit „exit“)
   /help          Diese Hilfe
   /exit          Beenden"""
@@ -70,6 +72,8 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
         return _coding(core, arg)
     if cmd in ("/agents", "/agent", "/agenttasks"):
         return _agents(core, cmd, arg)
+    if cmd in ("/goals", "/goal"):
+        return _goals(core, cmd, arg)
     if cmd == "/permissions":
         return _describe_permissions(core)
     if cmd == "/audit":
@@ -285,6 +289,73 @@ def _agents(core: JarvisCore, cmd: str, arg: str) -> str:
     return "\n".join([f"{d['id']}: {d['name']} – {d['status']}" + (f" ({d['reason']})" if d["reason"] else ""), f"  {d['description']}",
                       "  Fähigkeiten: " + ", ".join(d["capabilities"]), "  Werkzeuge: " + (", ".join(d["tools"]) or "keine"),
                       f"  Abbruch unterstützt: {'ja' if d['supports_cancellation'] else 'nein'}"])
+
+
+_GOAL_OPT = re.compile(r"(?:^|\s)(url|workspace|runner|read_paths)=(\"[^\"]*\"|\S+)")
+
+
+def _fmt_goal(g: Any) -> str:
+    return f"{g.goal_id}  {g.status.value:<9} {g.objective[:60]}"
+
+
+def _goals(core: JarvisCore, cmd: str, arg: str) -> str:
+    """Goal engine front-end (duck-typed through the Core). It only creates, runs, shows and cancels goals; the agents behind it still
+    act only through the permission-checked tools, so every confirmation question is asked as usual."""
+    sub = core.subsystems.get("goals")
+    if sub is None:
+        return "Goal Engine: nicht konfiguriert."
+    if getattr(sub, "engine", None) is None:
+        return f"Goal Engine: deaktiviert – {sub.reason}\nAktivieren: goals.enabled = true und agents.enabled = true (bzw. JARVIS_GOALS_ENABLED=true)"
+    engine = sub.engine
+    try:
+        if cmd == "/goals":
+            goals = core.list_goals(limit=15)
+            d = engine.describe()
+            head = f"Ziele (aktiv {d['active']}/{d['max_active']}):"
+            return "\n".join([head] + [("  " + _fmt_goal(g)) for g in goals]) if goals else "Keine Ziele."
+        word, _, rest = arg.partition(" ")
+        rest = rest.strip()
+        if not arg:
+            return "Verwendung: /goal <Ziel> [url=… workspace=… runner=… read_paths=a,b] | status <id> | steps <id> | cancel <id>"
+        if word == "status" and rest:
+            r = engine.result(rest)
+            lines = [f"{r.goal.goal_id}: {r.status.value}" + (f" – {r.summary}" if r.summary else ""),
+                     f"  Ziel: {r.goal.objective[:200]}", f"  Schritte: {sum(1 for s in r.steps if s.status.value == 'SUCCEEDED')}/{len(r.steps)} erfolgreich"]
+            lines += [f"  Hinweis: {w}" for w in r.warnings]
+            return "\n".join(lines)
+        if word == "steps" and rest:
+            steps = engine.steps(rest)
+            if not steps:
+                return "Noch keine Schritte (nicht geplant)."
+            out = []
+            for st in steps:
+                tries = f" Versuche {st.attempts}/{st.max_attempts}" if st.attempts else ""
+                res = f" – {st.result.summary[:80]}" if st.result and st.result.summary else ""
+                out.append(f"  {st.step_id:<4} {st.status.value:<9} {st.assigned_agent or 'prüfung':<9}{tries}{res}")
+            return "\n".join(out)
+        if word == "cancel" and rest:
+            rep = core.cancel_goal(rest)
+            return f"{rep.goal_id}: {rep.message} ({rep.status.value})"
+        context: dict[str, Any] = {}
+        for m in _GOAL_OPT.finditer(arg):
+            key, val = m.group(1), m.group(2).strip('"')
+            context[key] = [p for p in val.split(",") if p] if key == "read_paths" else val
+        objective = _GOAL_OPT.sub("", arg).strip()
+        goal = core.create_goal(objective, context=context or None)
+        print(f"Ziel {goal.goal_id} gestartet … (Strg+C bricht ab)", flush=True)
+        try:
+            result = core.run_goal(goal.goal_id)
+        except KeyboardInterrupt:
+            rep = core.cancel_goal(goal.goal_id)
+            result = engine.wait(goal.goal_id, timeout=10)
+            print(f"Abbruch angefordert: {rep.message}", flush=True)
+        lines = [f"Ziel {result.goal.goal_id}: {result.status.value}" + (f" – {result.summary}" if result.summary else "")]
+        lines += [f"  {st.step_id}: {st.status.value} {st.assigned_agent or 'prüfung'}" + (f" ({st.attempts} Versuche)" if st.attempts > 1 else "")
+                  for st in result.steps]
+        lines += [f"  Hinweis: {w}" for w in result.warnings]
+        return "\n".join(lines)
+    except JarvisError as exc:
+        return f"Nicht möglich: {exc}"
 
 
 def _describe_permissions(core: JarvisCore) -> str:

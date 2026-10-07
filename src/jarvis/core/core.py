@@ -138,6 +138,29 @@ class JarvisCore:
         return Response(text, ResponseKind.PLAN, task=task)
 
     # -- memory ------------------------------------------------------------------------------------
+    # ---- goals (optional layer built by the composition root; the Core never imports it) -------------------------------------------------
+    def _goal_engine(self) -> Any:
+        engine = getattr(self.subsystems.get("goals"), "engine", None)
+        if engine is None:
+            raise JarvisError("the goal engine is off (goals.enabled = true and agents.enabled = true)")
+        return engine
+
+    def create_goal(self, objective: str, **options: Any) -> Any:
+        """Register a goal (PENDING). Only explicit calls create goals: ordinary chat is never turned into a goal."""
+        return self._goal_engine().create(objective, **options)
+
+    def run_goal(self, goal_id: str) -> Any:
+        return self._goal_engine().run(goal_id)
+
+    def cancel_goal(self, goal_id: str) -> Any:
+        return self._goal_engine().cancel(goal_id)
+
+    def get_goal(self, goal_id: str) -> Any:
+        return self._goal_engine().get(goal_id)
+
+    def list_goals(self, **filters: Any) -> list[Any]:
+        return self._goal_engine().list(**filters)
+
     def _memory_notes(self, text: str) -> list[str]:
         """Relevant memories as a temporary prompt note. Off unless explicitly enabled (privacy: the
         note is sent to the LLM provider). A memory failure never breaks the conversation."""

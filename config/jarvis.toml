@@ -124,3 +124,14 @@ max_history = 200
 cancel_grace_seconds = 5    # an agent that ignores cancel/timeout this long is marked FAILED
 tool_call_limit = 200       # tool calls per task
 max_output_chars = 20000
+
+[goals]
+# The goal engine is OFF by default and needs [agents] enabled. It only plans steps and lets the existing agents do them through the
+# permission-checked tools; it adds no capability and no permission. Goals and their results are NOT saved to the long-term memory.
+enabled = false
+max_steps = 20                  # steps per goal (hard limit 50)
+max_attempts_per_step = 2       # 1 = no retry (hard limit 5); only transient failures are retried, never a permission denial
+goal_timeout_seconds = 1800
+step_timeout_seconds = 300
+max_active_goals = 3
+max_history = 100

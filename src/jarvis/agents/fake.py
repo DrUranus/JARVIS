@@ -32,13 +32,14 @@ class ConcurrencyProbe:
 
 
 class FakeAgent(Agent):
-    """behavior: success | failure | blocked | crash | cancelled | wait (blocks until released or cancelled) | hang (blocks until released,
+    """`script` = a list of behaviours used call by call (e.g. ["crash", "success"] to test retries). behavior: success | failure | blocked | crash | cancelled | wait (blocks until released or cancelled) | hang (blocks until released,
     ignores cancellation)."""
 
     def __init__(self, agent_id: str = "fake", capabilities: frozenset[str] | set[str] = frozenset({"research.web"}), *,
                  behavior: str = "success", output: Any = None, summary: str = "done", tool_names: frozenset[str] = frozenset(),
                  tool_calls: list[tuple[str, dict[str, Any]]] | None = None, probe: ConcurrencyProbe | None = None,
-                 supports_cancellation: bool = True, name: str | None = None) -> None:
+                 supports_cancellation: bool = True, name: str | None = None, script: list[str] | None = None,
+                 failure_code: str = "fake_failure") -> None:
         super().__init__()
         self.id = agent_id
         self.name = name or agent_id.title()
@@ -47,6 +48,8 @@ class FakeAgent(Agent):
         self.tool_names = frozenset(tool_names)
         self.supports_cancellation = supports_cancellation
         self.behavior, self.output, self.summary = behavior, output, summary
+        self.script = list(script or [])      # one behaviour per call (consumed in order); afterwards `behavior`
+        self.failure_code = failure_code
         self.tool_calls = tool_calls or []
         self.probe = probe
         self.started = threading.Event()      # set when perform() was entered
@@ -65,11 +68,11 @@ class FakeAgent(Agent):
         try:
             for tool, args in self.tool_calls:
                 self.tool_results.append(ctx.tools.call(tool, **args) if ctx.tools else None)
-            b = self.behavior
+            b = self.script.pop(0) if self.script else self.behavior
             if b == "crash":
                 raise RuntimeError("fake agent exploded with token=abc123456789")
             if b == "failure":
-                return AgentOutcome.failed("the fake agent failed", code="fake_failure")
+                return AgentOutcome.failed("the fake agent failed", code=self.failure_code)
             if b == "blocked":
                 return AgentOutcome.blocked("the fake agent was blocked", code="fake_blocked")
             if b == "cancelled":

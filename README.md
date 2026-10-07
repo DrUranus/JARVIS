@@ -3,9 +3,9 @@
 Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer Agent, dem man ein Ziel nennt und der selbstständig
 **denkt → plant → recherchiert → programmiert → handelt → testet → repariert → lernt → neue Fähigkeiten entwickelt**.
 
-**Status: Phase 1 (Core MVP), Phase 2 (Voice), Phase 3 (Memory), Phase 13 (Permissions & Security, vorgezogen), Phase 4 (Computer Control), Phase 5 (Browser Agent v1), Phase 6 (Coding Agent v1) und Phase 7 (Multi-Agent-Orchestrierung v1) abgeschlossen.** JARVIS führt Pläne noch nicht autonom aus – Architektur und Schnittstellen dafür stehen.
+**Status: Phase 1 (Core MVP), Phase 2 (Voice), Phase 3 (Memory), Phase 13 (Permissions & Security, vorgezogen), Phase 4 (Computer Control), Phase 5 (Browser Agent v1), Phase 6 (Coding Agent v1) und Phase 7 (Multi-Agent-Orchestrierung v1) abgeschlossen; Phase 8 (Goal Engine v1) ist implementiert und auf Linux getestet – die Windows-Validierung steht noch aus.** JARVIS plant und überwacht Ziele nur über die vorhandenen Agenten; es verändert weder sich selbst noch installiert es Fähigkeiten.
 
-## Was bisher funktioniert (Phase 1–7, 13)
+## Was bisher funktioniert (Phase 1–8, 13)
 
 - Konfiguration (Defaults < TOML < Umgebungsvariablen), Dev-/Produktionsmodus, Logging, Fehlerhierarchie
 - LLM-Abstraktion: `mock` (offline), `openai`, `anthropic` – austauschbar per Konfiguration
@@ -15,6 +15,7 @@ Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer A
 - Planner: Ziel → Task mit Subtasks (LLM-JSON, mit Template-Fallback, damit nie „zu komplex“ zurückkommt)
 - CLI (`jarvis>`)
 - **Multi-Agent-Orchestrierung v1 (Phase 7):** `AgentOrchestrator` lässt Browser-, Coding-, Computer- und (Platzhalter-)Research-Agent auf strukturierten `AgentTask`s arbeiten – begrenzt parallel, mit Timeout, Abbruch, Abhängigkeiten und Ergebnisübergabe; fügt keine Fähigkeit hinzu, jede Aktion läuft weiter durch ToolRegistry → PermissionEngine
+- **Goal Engine v1 (Phase 8):** Ziel → kurze, geprüfte Schrittfolge → Ausführung ausschließlich über den `AgentOrchestrator` → Auswertung → `SUCCEEDED/FAILED/BLOCKED/CANCELLED/TIMEOUT`; mit harten Grenzen (Schritte, Versuche, Timeouts), ohne neue Fähigkeit und ohne Selbstveränderung
 - **Coding Agent v1 (Phase 6):** kontrollierte Softwareentwicklung in *einem* bestätigten Workspace – Projekt erkennen, lesen, suchen, ändern (hash-geschützt, mit Änderungszusammenfassung), Tests ausführen (ohne Shell, nur Allow-List), Git nur lesend; ein `coding`-Tool, eigener `CodingController`, jede Aktion durch ToolRegistry und PermissionEngine
 - **Browser Agent v1 (Phase 5):** ein Browser (Playwright, optional) hinter austauschbaren Providern, gesteuert über **ein** `browser`-Tool – einzelne, einzeln bestätigte Schritte (öffnen, lesen, Elemente finden, klicken, ausfüllen, absenden, kontrolliert herunter-/hochladen); eigener `BrowserController`, getrennt von Computer Control
 - **Computer Control (Phase 4):** Bildschirm, Maus, Tastatur, Fenster und Anwendungen als `ProtectedTool`s – jede Aktion läuft durch die Berechtigungs-Engine; opt-in, Windows-first (`pyautogui` + `mss` + Win32 über `ctypes`), austauschbare Provider
@@ -594,6 +595,72 @@ Ein Agent-Crash wird abgefangen: Task `FAILED(agent_crashed)` (nur Exception-Typ
 - `ResearchAgent` ist ein Platzhalter; Cancel stoppt den Coding-Testlauf über das globale Coding-`halt`, danach muss der Benutzer fortsetzen.
 - Mehrere Orchestratoren/Prozesse teilen keinen Zustand; Ergebnisse sind nur im Speicher (nicht persistent).
 
+## Goal Engine v1 (Phase 8)
+
+Der Benutzer nennt ein **Ziel**; JARVIS macht daraus eine kontrollierte Folge von Schritten, lässt die **vorhandenen** Agenten sie ausführen, wertet die Ergebnisse aus und entscheidet: Ziel erreicht, nächster Schritt, blockiert, fehlgeschlagen oder Zeitüberschreitung. Die Goal Engine ist reine Koordination: sie fügt **keine Fähigkeit und keine Berechtigung** hinzu, ruft nie ein Tool, einen Provider oder das Betriebssystem direkt auf und ändert weder JARVIS noch installiert sie etwas (kein Self-Repair, keine Selbstmodifikation – das sind spätere Phasen).
+
+```
+Core ─▶ GoalEngine ─▶ GoalPlanner ─▶ AgentPlanner (wer?) ─▶ AgentOrchestrator ─▶ Agent ─▶ ToolGateway ─▶ ToolRegistry ─▶ PermissionEngine ─▶ Controller ─▶ Provider
+        (Fortschritt)  (Schritte)                              (Ausführung)
+```
+
+| Verantwortung | Baustein |
+|---|---|
+| Ziele und Fortschritt verwalten | `GoalEngine` (`engine.py`) |
+| Schritte erzeugen (deterministisch, ohne LLM) | `GoalPlanner` (`planner.py`) + Plan-Validierung (`validation.py`) |
+| Agenten auswählen | bestehender `AgentPlanner` |
+| Agenten ausführen, Concurrency, Timeouts, Abbruch | bestehender `AgentOrchestrator` |
+| Ergebnisse bewerten, Retry/Blockade/Erfolg entscheiden | `GoalEvaluator` (`evaluator.py`, deterministisch) |
+| Sicherheit durchsetzen | `PermissionEngine` (unverändert) |
+
+### Modelle und Lebenszyklus
+`Goal` (`goal_id`, `objective`, `status`, `priority`, `created_at`, `updated_at`, `timeout`, `max_steps`, `metadata`), `GoalStep` (`step_id`, `goal_id`, `objective`, `required_capabilities`, `assigned_agent`, `dependencies`, `status`, `result`, `attempts`, `max_attempts`, …), `GoalStepResult` (`step_id`, `status`, `summary`, `output`, `agent_id`, `task_id`, `duration`, `attempts`, `attempt_log`). Alle sind unveränderlich, begrenzt, serialisierbar und ohne Inhalte im `repr`; die Ausgabe wird geschwärzt.
+Ziel: `PENDING → PLANNING → RUNNING ⇄ WAITING → SUCCEEDED | FAILED | BLOCKED | CANCELLED | TIMEOUT`. Schritt: `PENDING → RUNNING → SUCCEEDED | FAILED | BLOCKED | CANCELLED | TIMEOUT`. Endzustände sind endgültig, es gibt keinen Weg zurück (ein Retry bleibt `RUNNING` und zählt Versuche).
+
+### Planung
+Deterministische Vorlagen, getrieben von dem, was der Benutzer **ausdrücklich** angibt (URL im Ziel oder `url=…`, `workspace=…`, `edits`, `runner`, `read_paths`) – keine freie LLM-Schleife, keine erfundenen Fähigkeiten:
+- **Webseite** (`Analysiere example.com und finde die Öffnungszeiten`): Research-Agent liest die Seite → Auswertung.
+- **Coding** (`workspace` gegeben): Projekt analysieren → (nur mit ausdrücklich übergebenen `edits`) schreiben → Tests ausführen → Auswertung → Sitzung wieder beenden. „Behebe den Fehler“ **ohne** `edits` wird nicht erfunden, sondern endet `BLOCKED`.
+- **Bildschirm** („Zeige die Fenster“): nur lesend (`computer.screen`). Maus/Tastatur-Ziele werden in v1 nicht automatisch geplant.
+Nicht planbare oder mehrdeutige Ziele enden ehrlich `BLOCKED` mit Begründung.
+
+### Prüfung vor der Ausführung
+Ein Plan wird **vollständig** geprüft, bevor der erste Schritt startet (Goal-ID, doppelte/unbekannte Schritt-IDs, unbekannte Agenten/Fähigkeiten, Zyklen, max. Schritte (hart 50), max. Tiefe (20), Timeouts, Versuche, verbotene Schlüssel wie `confirmed/force/bypass/skip_permissions`, ungültige URLs/Schritt-Eingaben). Ein ungültiger Plan wird nie teilweise ausgeführt.
+
+### Ausführung und Auswertung
+`PLAN → STEP → RESULT → EVALUATE → NEXT` mit harten Grenzen (`max_steps`, `max_attempts_per_step`, `goal_timeout`, `step_timeout`). Unabhängige bereite Schritte werden gemeinsam an den Orchestrator übergeben; **er** entscheidet über Parallelität (keine zweite Parallelisierungslogik, kein Polling, kein eigener Scheduler – die Engine wartet auf die Condition des Orchestrators). Ein Schritt läuft erst nach erfolgreichen Abhängigkeiten; scheitert/blockiert/bricht eine Abhängigkeit ab, wird der Folgeschritt `BLOCKED` (keine Umgehung). Nach einem Fehler startet kein neuer Schritt mehr (Fail-fast); laufende werden abgewartet.
+**Retries** nur bei vorübergehenden Fehlern (Timeout, Agentenabsturz, Provider-Fehler) und solange Versuche übrig sind; **nie** bei verweigerter Berechtigung (RED/abgelehnt), ungültigem Plan/Input, unbekanntem Agenten oder Fähigkeit. Jeder Versuch steht im `attempt_log` des Ergebnisses.
+Der `GoalEvaluator` erklärt **kein** Ziel für erreicht, wenn ein Schritt eine Fehlermeldung meldet (z. B. Testlauf `passed=false`) oder nichts geliefert hat.
+
+### Abbruch und Timeout
+`cancel(goal_id)`: `PENDING` → sofort `CANCELLED`; laufend → Abbruch wird bei den Agenten angefordert (deren eigener Cancel-Mechanismus, z. B. Stopp des Testprozesses) und das Ziel wird `CANCELLED`, sobald das behandelt ist. Beendete Ziele bleiben unverändert. Reagiert ein Agent nicht, steht das als Warnung im Ergebnis – es wird nie behauptet, er sei gestoppt. Das Ziel-Timeout ist unabhängig vom Schritt-Timeout (der Orchestrator setzt dieses durch); nach Ablauf werden laufende Agenten über den bestehenden Cancel-Weg angehalten, das Ziel endet `TIMEOUT`.
+
+### Kontext und Memory
+`GoalContext` enthält nur, was der Benutzer ausdrücklich freigibt (`explicit_user_context`: nur bekannte Schlüssel, reine Daten, begrenzt, ohne Bypass-Schlüssel) und die Ergebnisse dieses Ziels. Keine Verbindung zum globalen Memory; Ziele, Schritt- und Ergebnisdaten werden **nicht** automatisch gespeichert. Logs enthalten nur IDs und Status – keine Ziele, Eingaben, Ausgaben oder Texte.
+
+### Core-Integration und CLI
+`bootstrap` baut `core.subsystems["goals"]` (opt-in, braucht `agents.enabled`; der Core importiert die Schicht nicht). Der Core bietet `create_goal()`, `run_goal()`, `cancel_goal()`, `get_goal()`, `list_goals()`. Aus normalem Chat entstehen **keine** Ziele; nur ausdrücklich (`/goal` oder Core-Aufruf).
+`/goals` · `/goal <Ziel> [url=… workspace="…" runner=… read_paths=a,b]` · `/goal status <id>` · `/goal steps <id>` · `/goal cancel <id>`. Beispiele:
+```
+/goal Analysiere example.com und finde die Öffnungszeiten
+/goal Prüfe das Projekt mit den Tests workspace="C:\Users\ich\arbeit\projekt" runner=pytest
+```
+Die CLI umgeht keine Prüfung: jede Bestätigung fragt weiterhin die PermissionEngine (ohne Rückfrage-Möglichkeit endet ein Ziel `BLOCKED`). `Strg+C` während `/goal …` bricht das Ziel ab.
+
+### Konfiguration `[goals]` (Umgebung: `JARVIS_GOALS_<FELD>`)
+`enabled=false`, `max_steps=20` (hart 50), `max_attempts_per_step=2` (hart 5), `goal_timeout_seconds=1800`, `step_timeout_seconds=300`, `max_active_goals=3`, `max_history=100`. Keine unbegrenzten Werte.
+
+### Tests
+`tests/test_goals_models.py` (Modelle, Status, Kontext, Policy), `test_goals_planner.py` (Planer, Plan-Validierung, Evaluator), `test_goals_engine.py` (Ausführung, Abhängigkeiten, Retry, Abbruch, Timeout, Loop-Sicherheit – deterministisch über Events/Fake-Agenten), `test_goals_integration.py` (komplette Kette gegen die echte PermissionEngine, Config, Bootstrap, Core, CLI), `test_goals_security.py` (AST-/Quellscans, Invarianten), `test_goals_real.py` (echte Threads, echter Orchestrator, echtes pytest, echter Abbruch/Timeout). Unter Windows: `.\.venv\Scripts\python.exe -m pytest tests/test_goals*.py -vv -rs`.
+
+### Bekannte Grenzen (v1)
+- Planer ist heuristisch und kennt drei Vorlagen (Webseite lesen, Projekt prüfen/ändern/testen, Bildschirm ansehen); keine freie Zielzerlegung, kein LLM. Neue Ziele brauchen neue Vorlagen.
+- Code wird **nicht** selbst geschrieben: Änderungen nur über ausdrücklich übergebene `edits`.
+- Ein Coding-Ziel braucht, dass noch keine Coding-Sitzung läuft (sonst scheitert `start`); der Browser-Pfad nutzt den selbstaufräumenden Research-Agenten.
+- Abbruch/Timeout sind kooperativ (siehe Phase 7); ein nicht reagierender Agent bleibt mit Warnung zurück.
+- Ziele und Ergebnisse liegen nur im Speicher (nicht persistent); es gibt keine automatische Zielerkennung im Chat.
+- Nicht enthalten (spätere Phasen, ausdrücklich nicht begonnen): Self-Repair, Selbstmodifikation, automatische Installation von Fähigkeiten, Zugangsdaten-Verwaltung, autonome Zahlungen/Verträge/externe Kommunikation.
+
 ## Tests & Entwicklungsworkflow
 
 ```bash
@@ -617,6 +684,8 @@ src/jarvis/
 ├── permissions/ levels · request · decision · engine · policy · paths · resources · grants · confirmation · audit · factory
 ├── redaction.py Neutrale Secret-Erkennung (von Memory und Permissions geteilt)
 ├── computer/   backend (Provider-Interfaces) · controller · tools · safety · resources · validation · screenshots · vision · policy · factory · providers/{fake,mss_screen,pyautogui_input,win32_windows,xlib_windows,subprocess_apps}
+├── agents/     Multi-Agent: Orchestrator · Planner · Registry · Adapter
+├── goals/      Goal Engine: models · state · planner · validation · evaluator · engine · context · policy · factory · fake
 ├── memory/     base (Interface) · models · validation · ranking · sqlite_store · inmemory · null · guard · guarded · extraction · factory
 ├── voice/      base (Interfaces) · session · factory · console · mock · devices · openai_provider · system_tts
 └── interface/  cli
@@ -677,13 +746,13 @@ Abhängigkeiten zeigen nach innen: Core kennt nur Interfaces (`LLMProvider`, `To
 | 3 Memory ✅ | `jarvis/memory/`. Offen: semantische/Vektor-Suche (neues Backend, `MemoryHit.score` ist vorbereitet), persistente Tasks (`TaskManager` hinter Interface, Ergebnisse als `task_result`), automatische Extraktion, Zusammenfassung/Verfall alter Einträge |
 | 4 Computer ✅ | `jarvis/computer/`; Provider austauschbar (`register_backend`), Beobachten→Handeln→Prüfen vorbereitet |
 | 5–6 Browser/Coding | neue `ProtectedTool`-Klassen mit `describe_action` (Host/Pfad/Command als Ressource); Policy-Regeln pro Tool; Vision über `ImageObserver` |
-| 7–8 Multi-Agent, Goal Engine | `Task.required_agents`/`subtasks` sind belegt; Executor-Schleife über Subtasks fehlt noch |
+| 7 Multi-Agent ✅ · 8 Goal Engine (implementiert) | `jarvis/agents/`, `jarvis/goals/`; Goal Engine nutzt nur die `AgentOrchestrator`-Schnittstelle |
 | 9 Self-Repair | Task-Übergang `FAILED → PENDING` (Retry) existiert |
 | 13 Security ✅ | `jarvis/permissions/` + `ToolRegistry.execute` als einzige Kontrollstelle. Offen: OS-Sandbox/Subprozess-Isolation, Hash-verkettetes Audit-Log, Voice/GUI-Bestätigung, Netzwerk-/Geld-Policies |
 | 15 Self-Improvement | Provider-/Tool-Registry erlauben Austausch und Rollback von Komponenten |
 
 ## Zukünftige Phasen
 
-1 Core ✅ · 2 Voice ✅ · 3 Memory ✅ · 4 Computer Control ✅ · 5 Browser/Internet · 6 Coding Agent · 7 Multi-Agent · 8 Goal Engine ·
+1 Core ✅ · 2 Voice ✅ · 3 Memory ✅ · 4 Computer Control ✅ · 5 Browser/Internet ✅ · 6 Coding Agent ✅ · 7 Multi-Agent ✅ · 8 Goal Engine (Windows-Validierung offen) ·
 9 Self-Testing/Repair · 10 Business/Research/Finance · 11 GUI · 12 Smartphone · 13 Permissions/Security ✅ (vorgezogen) · 14 Maximum Autonomy · 15 Self-Improvement.
 Phase 13 wurde vor Phase 4 vorgezogen (Begründung: Computersteuerung ohne belastbares Rechtesystem ist riskant).

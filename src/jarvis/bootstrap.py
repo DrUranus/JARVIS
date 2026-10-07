@@ -39,6 +39,9 @@ def build_core(settings: Settings) -> JarvisCore:
     # Multi-agent orchestration sits ABOVE those subsystems: agents only use their tools through the registry (and so the permission engine).
     from jarvis.agents.factory import build_agents
     core.subsystems["agents"] = build_agents(settings, tools, memory, core.tasks, core.subsystems)
+    # The goal engine sits above the agent layer and talks to it only through the orchestrator.
+    from jarvis.goals.factory import build_goals
+    core.subsystems["goals"] = build_goals(settings, core.subsystems["agents"])
     return core
 
 
