@@ -17,6 +17,7 @@ Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer A
 - **Multi-Agent-Orchestrierung v1 (Phase 7):** `AgentOrchestrator` lässt Browser-, Coding-, Computer- und (Platzhalter-)Research-Agent auf strukturierten `AgentTask`s arbeiten – begrenzt parallel, mit Timeout, Abbruch, Abhängigkeiten und Ergebnisübergabe; fügt keine Fähigkeit hinzu, jede Aktion läuft weiter durch ToolRegistry → PermissionEngine
 - **Goal Engine v1 (Phase 8):** Ziel → kurze, geprüfte Schrittfolge → Ausführung ausschließlich über den `AgentOrchestrator` → Auswertung → `SUCCEEDED/FAILED/BLOCKED/CANCELLED/TIMEOUT`; mit harten Grenzen (Schritte, Versuche, Timeouts), ohne neue Fähigkeit und ohne Selbstveränderung
 - **Self-Testing / Self-Repair v1 (Phase 9):** Tests in einem ausdrücklich genannten Workspace ausführen, Fehler deterministisch diagnostizieren, eine **begrenzte** Reparatur über den bestehenden Coding-Agent durchführen lassen, gezielt und per Regression nachtesten – Erfolg nur, wenn beides grün ist und nur geplante Dateien geändert wurden; kein Self-Improvement, kein Git, keine Installation
+- **Self-Improvement (Phase 15, standardmäßig aus):** Verbesserungsvorschläge aus echten Laufdaten, Vorbereitung in isoliertem Git-Branch, Prüf-Pipeline, Aktivierung/Rollback nur nach ausdrücklicher Benutzerfreigabe; Sicherheitscode bleibt gesperrt – siehe Abschnitt „Self-Improvement“
 - **Business / Research / Finance v1 (Phase 10):** drei echte Agenten im bestehenden Agent-System: Research liest öffentliche Seiten über das Browser-Tool und liefert belegte, klassifizierte (FACT/INFERENCE/OPINION/UNCERTAIN) Ergebnisse mit Quellen und Widersprüchen; Business macht daraus Markt-/Wettbewerbsanalysen, Businessplan-Rechnungen und Entwürfe; Finance rechnet Kennzahlen und Paper-Trades – **ohne** Echtgeld, Orders, Überweisungen oder Nachrichtenversand
 - **Coding Agent v1 (Phase 6):** kontrollierte Softwareentwicklung in *einem* bestätigten Workspace – Projekt erkennen, lesen, suchen, ändern (hash-geschützt, mit Änderungszusammenfassung), Tests ausführen (ohne Shell, nur Allow-List), Git nur lesend; ein `coding`-Tool, eigener `CodingController`, jede Aktion durch ToolRegistry und PermissionEngine
 - **Browser Agent v1 (Phase 5):** ein Browser (Playwright, optional) hinter austauschbaren Providern, gesteuert über **ein** `browser`-Tool – einzelne, einzeln bestätigte Schritte (öffnen, lesen, Elemente finden, klicken, ausfüllen, absenden, kontrolliert herunter-/hochladen); eigener `BrowserController`, getrennt von Computer Control
@@ -732,6 +733,49 @@ Ausgaben und Zusammenfassungen sind begrenzt (Test-Ausgabe ≤ 3000 Zeichen, Feh
 - Läuft nur im ausdrücklich genannten Workspace und nur, wenn dort keine andere Coding-Sitzung läuft; das JARVIS-Repository ist ausgenommen.
 - Abbruch/Timeout sind kooperativ (siehe Phase 7); Läufe liegen nur im Speicher.
 - Nicht enthalten (spätere Phasen): Self-Improvement/Selbstmodifikation, autonome Hintergrund-Reparatur, Git commit/push, Paketinstallation, Credentials, Remote-Ausführung.
+
+## Self-Improvement & kontrollierte Selbstmodifikation (Phase 15)
+
+JARVIS kann aus **tatsächlich vorhandenen Daten** (beendete Ziele und Replans der Goal Engine, Reparaturläufe, Audit-Log) wiederkehrende Probleme erkennen, **Verbesserungsvorschläge** speichern, eine Änderung in einem **isolierten Git-Branch/Worktree** vorbereiten, sie durch eine Prüf-Pipeline schicken und dem Benutzer zur **Freigabe** vorlegen. Er überschreibt nie selbstständig den aktiven Code. Alles ist standardmäßig **aus** (`[self_improvement]`).
+
+```
+DETECTED ─▶ PROPOSED ─▶ PREPARED ─▶ TESTED ─▶ READY_FOR_APPROVAL ─▶ APPROVED (nur durch den Benutzer) ─▶ ACTIVATED ─▶ ROLLED_BACK
+                     seitlich: FAILED (Vorbereitung/Tests, wiederholbar) · REJECTED (Benutzer) · BLOCKED (Sicherheitsgrenze → manuelle Prüfung)
+```
+
+Paket `src/jarvis/self_improvement/` – wiederverwendet werden Goal-/Repair-Engine (nur lesend über deren öffentliche Sichten), `AuditLogger`, `SecretDetector`, die LLM-Abstraktion (`complete_text`, wie der Goal-Replanner) und den `ConfirmationProvider` der PermissionEngine.
+
+| Modul | Aufgabe |
+|---|---|
+| `analysis.py` | deterministische Beobachtungen (wiederkehrend ≥ `min_occurrences`) → Vorschläge mit **Beleg** (Quelle, Anzahl, IDs der gezählten Datensätze). Keine Daten ⇒ keine Vorschläge; fehlende/defekte Quellen werden gemeldet, nichts wird geschätzt. |
+| `models.py`, `state.py`, `store.py` | Vorschlag (ID, Problem+Beleg, Änderung, Nutzen, Risiken, betroffene Dateien, Tests, Status, Zeitstempel, Historie), Statusautomat ohne Abkürzungen, JSON-Speicher (atomar; eine beschädigte Datei wird nie überschrieben). |
+| `llm.py` | optional (`use_llm`): Formulierung der Vorschläge und **Entwurf** von Textersetzungen. Antwort = strikt validiertes JSON, untrusted; ungültig/zu lang/Provider-Fehler ⇒ sicherer Rückfall auf die deterministischen Vorschläge. |
+| `workspace.py` | einziges Modul mit Prozessen/Dateizugriff: `git worktree` + eigener Branch `jarvis/improve-<id>`, feste Argumentlisten (keine Shell), Timeout, Abbruch (Prozessgruppe wird beendet), begrenzte Ausgabe, bereinigte Umgebung (Allow-List: keine API-Schlüssel), Git-Hooks aus. |
+| `pipeline.py` | Umfang → Diff-Prüfung → Syntax (`ast`) → Import (aus dem Worktree, geprüft) → gezielte Tests → Regression. Jede Stufe meldet `executed` und `passed`; **nicht ausgeführt zählt nie als bestanden** (auch pytest-Exit 5 nicht). |
+| `approval.py`, `manager.py` | `ApprovalGate` fragt den Benutzer über den *aktuellen* Confirmation-Provider (nur ein einzelnes „Ja“ zählt; Sitzungsfreigabe, Fehler, EOF, Strg+C ⇒ Nein). `ImprovementManager` ist der einzige Schreiber, auditiert jeden Übergang. |
+
+### Sicherheitsgrenzen (im Code, nicht konfigurierbar)
+- **Isolation:** Vorbereiten und Testen schreiben nur im eigenen Worktree/Branch; aktiver Branch und Arbeitsbaum bleiben unberührt (Test prüft HEAD und Dateien).
+- **Freigabe nur durch den Benutzer:** `APPROVED` wird an genau einer Stelle gesetzt – nach `ApprovalGate.ask`. Analyzer, LLM-Schreiber und Pipeline haben keinen Zugriff darauf (Quellcode-Scan im Test); es gibt kein Tool, das ein Modell aufrufen könnte; `confirmation = deny` (headless) ⇒ keine Freigabe möglich. Die Freigabe ist an Branch-Commit **und** Diff-Digest gebunden; wird der Branch danach verändert, ist sie ungültig.
+- **Aktivierung** zusätzlich nur mit `allow_activation = true`: Fast-forward-Merge genau des getesteten Commits, nur wenn der aktive Branch noch auf der Test-Basis steht und keine uncommitteten Änderungen hat; **Rollback** = Revert-Commit (Historie wird nur verlängert, nichts wird überschrieben oder gelöscht). Audit-Fehler ⇒ Freigabe/Aktivierung/Rollback werden verweigert (fail closed, wie `audit_strict`).
+- **Gesperrte Ziele ⇒ `BLOCKED` + manuelle Prüfung:** `permissions/`, Policies (`policy*.py`, `safety.py`, `guard*.py`, `registry.py`, `confirmation*`, `audit*`), `redaction.py`, `config.py`, `bootstrap.py`, `errors.py`, `self_improvement/` selbst, Secrets, `.git`, Tests, Nicht-Python, Pfade außerhalb `src/jarvis/` (Traversal, absolute Pfade, Symlinks). Hinzugefügter Code, der Prozesse/Netz/`eval`/`exec`/Löschen oder die Sicherheitsmaschinerie anspricht, wird ebenfalls blockiert – bevor irgendein Code der Änderung ausgeführt wird. Nur Ersetzungen in **bestehenden** Dateien; keine neuen Dateien, Löschungen, Umbenennungen.
+- Logs, Audit-Texte und Modellantworten sind Daten: sie werden redigiert, begrenzt und ändern nie einen Status.
+- Kein Push, kein Merge ohne Freigabe, kein Shell-Befehl aus Text. Die Prüf-Pipeline führt Tests/Importe **des vorbereiteten Codes** in einem Unterprozess aus (siehe Grenzen).
+
+### CLI
+`/improve analyze [llm]` · `list` · `show <id>` · `propose "<Titel>" "<Problem>"` · `prepare <id> edits=<datei.json> | files=a,b` · `test <id>` · `submit <id>` · `approve <id>` · `activate <id>` · `rollback <id>` · `reject <id>` · `cancel <id>`. `edits` ist eine JSON-Liste `[{"path": "src/jarvis/…py", "old_text": "…", "new_text": "…"}]`; ohne `edits` entwirft (bei `use_llm`) das Modell die Änderung für die genannten `files`. Audit-Ereignisse: `type=improvement`, `tool=self_improvement`.
+
+### Konfiguration `[self_improvement]` (Umgebung: `JARVIS_SELF_IMPROVEMENT_<FELD>`)
+`enabled=false`, `use_llm=false`, `repo_path=""`, `data_dir="data/improvements"`, `allow_prepare=false`, `allow_activation=false`, `max_proposals`, `min_occurrences=2`, `max_edits=5`, `max_diff_bytes`, `prepare_timeout_seconds`, `test_timeout_seconds`, `regression_paths=["tests"]`. `allow_prepare`/`allow_activation` brauchen `repo_path`; Aktivierung braucht `allow_prepare`. `data_dir` sollte außerhalb von `security.allowed_roots` liegen.
+
+### Tests
+`tests/test_self_improvement_{analysis,workflow,security}.py` (+ `tests/si_util.py`): echtes temporäres Git-Repo, echte Unterprozesse (git, pytest); Erkennung/Speicherung/Dedup, ungültige LLM-Antworten, fehlende Daten/Provider, fehlgeschlagene Tests ⇒ gesperrt, fehlende/verweigerte Freigabe, Freigabe → Aktivierung → Rollback, Audit & Statusübergänge, Path-Traversal/Symlinks, Timeout, Abbruch, Manipulation nach dem Test, Quellcode-Scans der Grenzen.
+
+### Bekannte Grenzen (v1)
+- Die Prüf-Pipeline führt den **vorbereiteten Code** (Import, pytest) in einem Unterprozess mit bereinigter Umgebung, Timeout und Worktree als Arbeitsverzeichnis aus – **kein Sandbox-/Netzwerk-/Dateisystem-Container**. Die Diff-Prüfung vorab blockiert bekannte riskante Muster, ist aber ein Filter, kein Beweis. Aktivieren Sie `allow_prepare` nur, wenn Sie Änderungen vor `approve` selbst ansehen (`/improve show`, `git diff` auf dem Branch).
+- `proposals.json` ist nicht manipulationssicher signiert: wer Schreibzugriff auf `data_dir` hat, kann Einträge fälschen. Deshalb prüft die Aktivierung unabhängig davon den Branch-Commit, den Diff-Digest und die Basis; `data_dir` gehört außerhalb der Coding-Agent-Roots.
+- Analyse nur aus Goal-/Repair-Verlauf (im Speicher, begrenzt) und der Audit-Log-Tail; keine Laufzeit-/Zuverlässigkeitsmetriken über Neustarts hinweg – solche Daten existieren in dieser Version nicht und werden nicht erfunden. Betroffene Dateien der automatischen Vorschläge sind Komponentenhinweise, keine Edit-Ziele.
+- Nur Textersetzungen in bestehenden Python-Dateien; Tests, Konfiguration, Abhängigkeiten und Sicherheitscode sind ausgenommen (manuelle Änderung). Nach `activate` lädt ein laufender Prozess den neuen Code erst nach Neustart. Auf Windows nicht validiert (Prozessgruppen-Abbruch via `taskkill`, Pfade).
 
 ## Business / Research / Finance v1 (Phase 10)
 

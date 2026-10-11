@@ -35,6 +35,7 @@ class AuditEventType(str, Enum):
     EXECUTION_RESULT = "execution_result"
     CALLER_CONFIRMATION_IGNORED = "caller_confirmation_ignored"
     SECURITY_ERROR = "security_error"
+    IMPROVEMENT = "improvement"     # self-improvement lifecycle event (tool="self_improvement")
 
 
 @dataclass(frozen=True)

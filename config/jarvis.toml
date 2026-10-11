@@ -151,6 +151,25 @@ step_timeout_seconds = 300      # one agent task (e.g. one test run), hard limit
 max_active_repairs = 1
 max_history = 50
 
+[self_improvement]
+# Controlled self-improvement (Phase 15) is OFF by default. It reads what actually happened (finished goals, repair runs, audit log), writes IMPROVEMENT PROPOSALS and -
+# only if you allow it - prepares a change in a separate git branch + worktree and tests it there. It never overwrites the running code on its own: a change is
+# activated only after YOU approved it (confirmation prompt) and only if allow_activation = true. Permissions, policies, secrets, configuration, wiring and this
+# feature itself can never be changed by it (such a change is BLOCKED and needs a manual review). Proposals are saved in data_dir/proposals.json.
+enabled = false
+use_llm = false                 # true: the LLM provider may word proposals / draft edits (redacted observations and the named files are sent to it)
+repo_path = ""                  # your JARVIS git checkout, e.g. "C:/Users/you/JARVIS"; "" = proposals only, nothing can be prepared or tested
+data_dir = "data/improvements"  # keep this OUTSIDE security.allowed_roots so the coding tools cannot write to it
+allow_prepare = false           # prepare changes in a separate branch/worktree (needs repo_path)
+allow_activation = false        # let YOU merge an approved, tested change into the active branch (needs allow_prepare)
+max_proposals = 200
+min_occurrences = 2             # a problem must have been recorded at least this often
+max_edits = 5                   # text replacements per change (hard limit 10)
+max_diff_bytes = 100000
+prepare_timeout_seconds = 60    # per git command
+test_timeout_seconds = 600      # per test command
+regression_paths = ["tests"]
+
 [research]
 # Research agent: reads public web pages THROUGH the permission-checked browser tool (every navigation is still judged by the browser rules and asked
 # via the permission engine). Needs [agents] and [browser]. OFF by default. It reads the URLs it is given; it does not search the web.

@@ -39,6 +39,7 @@ HELP = """Befehle:
   /business      Business-Agent: Status (Analysen/Entwürfe, sendet nichts; /run business action=break_even …)
   /finance       Finance-Agent: Status (nur Analyse und Paper-Trading, keine Orders; /run finance action=risk_reward …)
   /repair <Ziel> workspace="…" [tests=… runner=… candidates='[…]'] | status [id] | attempts <id> | cancel <id>   Test/Reparatur im Workspace
+  /improve       Selbstverbesserung: analyze | list | show <id> | propose "<Titel>" "<Problem>" | prepare <id> [edits=<datei.json>|files=a,b] | test <id> | submit <id> | approve <id> | activate <id> | rollback <id> | reject <id> | cancel <id>
   /goal <Ziel>   Ziel ausführen (optional: url=… workspace=… runner=… read_paths=a,b) | status|steps|cancel <id>
   /voice         Sprachmodus starten (zurück mit „exit“)
   /help          Diese Hilfe
@@ -80,6 +81,8 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
         return _goals(core, cmd, arg)
     if cmd == "/repair":
         return _repair(core, arg)
+    if cmd == "/improve":
+        return _improve(core, arg)
     if cmd in ("/research", "/business", "/finance"):
         return _analysis_status(core, cmd[1:], arg)
     if cmd == "/permissions":
@@ -393,6 +396,97 @@ def _analysis_status(core: JarvisCore, name: str, arg: str) -> str:
              f"  Aktive/wartende Tasks: {d['active_tasks']}", "  Fähigkeiten: " + ", ".join(d["capabilities"]),
              "  Limits: " + ", ".join(f"{k}={v}" for k, v in d["limits"].items()), "  " + how, "  Beispiel: " + example]
     return "\n".join(lines)
+
+
+def _improve(core: JarvisCore, arg: str) -> str:
+    """Self-improvement front-end (duck-typed through the Core's subsystems). Approval, activation and rollback are typed by the USER here and confirmed through
+    the permission engine's confirmation provider; nothing a model returns can trigger them."""
+    import json
+    from pathlib import Path
+    sub = core.subsystems.get("self_improvement")
+    if sub is None:
+        return "Selbstverbesserung: nicht konfiguriert."
+    mgr = getattr(sub, "manager", None)
+    if mgr is None:
+        return f"Selbstverbesserung: deaktiviert – {sub.reason}\nAktivieren: self_improvement.enabled = true (JARVIS_SELF_IMPROVEMENT_ENABLED=true)"
+    try:
+        words = shlex.split(arg)
+    except ValueError:
+        return "Nicht möglich: Anführungszeichen sind nicht ausgeglichen."
+    word, rest = (words[0] if words else "list"), words[1:]
+
+    def line(p: Any) -> str:
+        return f"  {p.proposal_id}  {p.status.value:<18} {p.source:<8} {p.title[:70]}"
+
+    def need_id() -> str:
+        if not rest:
+            raise JarvisError(f"Verwendung: /improve {word} <id>")
+        return rest[0]
+
+    try:
+        if word == "list":
+            items = mgr.list(limit=20)
+            return "\n".join(["Verbesserungsvorschläge:"] + [line(p) for p in items]) if items else "Keine Vorschläge. /improve analyze wertet die vorhandenen Daten aus."
+        if word == "analyze":
+            rep = mgr.analyze(use_llm="llm" in rest)
+            out = [f"Analyse: {len(rep.created)} neue(r) Vorschlag/Vorschläge, {rep.known} bereits bekannt. Quellen: {', '.join(rep.sources_used) or 'keine'}"]
+            if rep.sources_missing:
+                out.append("  Keine Datengrundlage: " + ", ".join(rep.sources_missing))
+            out += [line(p) for p in rep.created] + [f"  Hinweis: {w}" for w in rep.warnings]
+            return "\n".join(out)
+        if word == "show":
+            p = mgr.get(need_id())
+            out = [f"{p.proposal_id}  {p.status.value}  ({p.source}, {p.created_at:%Y-%m-%d %H:%M})", f"  Titel: {p.title}", f"  Problem: {p.problem}"]
+            out += [f"  Beleg: [{e.source}] {e.description} – {e.count} Datensatz/Datensätze" for e in p.evidence]
+            out += [f"  Änderung: {p.change}", f"  Nutzen: {p.benefit}"] + [f"  Risiko: {r}" for r in p.risks]
+            out += ["  Betrifft: " + ", ".join(p.affected), "  Tests: " + ", ".join(p.suggested_tests)]
+            if p.branch:
+                out += [f"  Branch: {p.branch}  Basis {p.base_commit[:12]}  Stand {p.head_commit[:12]}  Digest {p.diff_digest}", p.diff_stat]
+            out += [f"  Stufe {s.name}: {'ausgeführt, bestanden' if s.passed else ('ausgeführt, FEHLGESCHLAGEN' if s.executed else 'NICHT ausgeführt')}" for s in p.stages]
+            if p.approval:
+                out.append(f"  Freigabe: {p.approval.at:%Y-%m-%d %H:%M} über {p.approval.channel}")
+            if p.reason:
+                out.append(f"  Grund: {p.reason}")
+            out += [f"  {t.at:%H:%M:%S} {(t.old.value if t.old else '-')} -> {t.new.value} ({t.actor})" for t in p.history]
+            return "\n".join(out)
+        if word == "propose":
+            if len(rest) < 2:
+                return 'Verwendung: /improve propose "<Titel>" "<Problem>"'
+            return line(mgr.propose(rest[0], rest[1]))
+        if word == "prepare":
+            pid, opts = need_id(), dict(w.split("=", 1) for w in rest[1:] if "=" in w)
+            edits = None
+            if "edits" in opts:
+                try:
+                    edits = json.loads(Path(opts["edits"]).read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    return "Nicht möglich: edits muss auf eine lesbare JSON-Datei zeigen ([{path, old_text, new_text}, ...])."
+            p = mgr.prepare(pid, edits, files=[f for f in opts.get("files", "").split(",") if f])
+            return line(p) + (f"\n  {p.reason}" if p.reason else f"\n  Branch {p.branch}: {p.diff_stat}")
+        if word == "test":
+            print("Tests laufen … (Strg+C bricht ab)", flush=True)
+            pid = need_id()
+            try:
+                p = mgr.test(pid)
+            except KeyboardInterrupt:
+                mgr.cancel(pid)
+                return "Abbruch angefordert."
+            return "\n".join([line(p)] + [f"  {s.name}: {'ok' if s.passed else ('FEHLER' if s.executed else 'nicht ausgeführt')}" for s in p.stages] + ([f"  {p.reason}"] if p.reason else []))
+        if word == "submit":
+            return line(mgr.submit_for_approval(need_id()))
+        if word == "approve":
+            return line(mgr.approve(need_id())) + "\n  Freigegeben. Aktiviert ist noch nichts (/improve activate <id>)."
+        if word == "activate":
+            return line(mgr.activate(need_id())) + "\n  Aktiviert. JARVIS neu starten, damit der Code geladen wird."
+        if word == "rollback":
+            return line(mgr.rollback(need_id()))
+        if word == "reject":
+            return line(mgr.reject(need_id(), " ".join(rest[1:])))
+        if word == "cancel":
+            return "Abbruch angefordert." if mgr.cancel(need_id()) else "Es läuft nichts für diesen Vorschlag."
+        return "Verwendung: /improve analyze|list|show|propose|prepare|test|submit|approve|activate|rollback|reject|cancel"
+    except JarvisError as exc:
+        return f"Nicht möglich: {exc}"
 
 
 _REPAIR_OPT = re.compile(r"(?:^|\s)(workspace|tests|runner|candidates|repair)=(\"[^\"]*\"|'[^']*'|\S+)")

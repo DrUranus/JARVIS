@@ -50,6 +50,12 @@ def build_core(settings: Settings) -> JarvisCore:
     # Self-repair also sits above the agent layer: its only way to act is a Coding-Agent task through the orchestrator.
     from jarvis.self_repair.factory import build_self_repair
     core.subsystems["self_repair"] = build_self_repair(settings, core.subsystems["agents"], core.subsystems.get("coding"))
+    # Self-improvement (Phase 15) reads what the goal/repair engines and the audit log recorded; it prepares changes only in an isolated branch and an approval
+    # needs the USER (the permission engine's current confirmation provider). The Core does not import it.
+    from jarvis.self_improvement.factory import build_self_improvement
+    core.subsystems["self_improvement"] = build_self_improvement(
+        settings, goals=getattr(core.subsystems.get("goals"), "engine", None), repairs=getattr(core.subsystems.get("self_repair"), "engine", None),
+        audit=permissions.audit, llm=provider, confirmation=lambda: permissions.confirmation, detector=guard)
     return core
 
 
