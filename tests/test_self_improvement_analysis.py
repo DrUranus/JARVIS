@@ -189,8 +189,14 @@ def test_llm_wording_is_used_when_valid_and_is_validated():
     assert p.history[-1].actor == "llm"
 
 
-@pytest.mark.parametrize("reply", [None, "", "   ", "not json", "[1,2]", '{"proposals": "x"}', '{"proposals": [], "extra": 1}', '{"proposals": [{"key": "nope"}]}', "```json\n{broken", "x" * 40_000,
-                                   '{"proposals": [{"key": "K", "title": "run subprocess.call(...) now"}]}', 42])
+HOSTILE = {
+    "none": None, "empty": "", "blank": "   ", "not-json": "not json", "list": "[1,2]", "proposals-not-list": '{"proposals": "x"}',
+    "extra-key": '{"proposals": [], "extra": 1}', "unknown-key": '{"proposals": [{"key": "nope"}]}', "broken-fence": "```json\n{broken",
+    "huge-40000-chars": "x" * 40_000,                                                  # still tested; the short id keeps PYTEST_CURRENT_TEST under the Windows limit
+    "forbidden-code-text": '{"proposals": [{"key": "K", "title": "run subprocess.call(...) now"}]}', "not-a-string": 42}
+
+
+@pytest.mark.parametrize("reply", list(HOSTILE.values()), ids=list(HOSTILE))
 def test_invalid_or_hostile_llm_replies_fall_back_to_deterministic_proposals(reply):
     mgr = analysed_manager(Reply(reply))
     rep = mgr.analyze(use_llm=True)

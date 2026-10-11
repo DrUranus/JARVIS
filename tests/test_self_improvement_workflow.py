@@ -21,8 +21,9 @@ def source(repo):
 
 
 # ---- the happy path and the isolation guarantee ---------------------------------------------------------------------------------------
-def test_full_lifecycle_with_user_approval(tmp_path):
-    r = rig(tmp_path)
+@pytest.mark.parametrize("crlf", [False, True], ids=["lf", "windows-crlf-autocrlf"])
+def test_full_lifecycle_with_user_approval(tmp_path, crlf):
+    r = rig(tmp_path, crlf=crlf)
     base = head(r.repo)
     p = r.m.propose("Fix add", "add subtracts instead of adds", suggested_tests=TESTS)
     assert p.status is S.PROPOSED
@@ -51,8 +52,9 @@ def test_full_lifecycle_with_user_approval(tmp_path):
     assert all(t.at for t in p.history)
 
 
-def test_audit_trail_covers_every_transition_and_security_actions(tmp_path):
-    r = rig(tmp_path)
+@pytest.mark.parametrize("crlf", [False, True], ids=["lf", "windows-crlf-autocrlf"])
+def test_audit_trail_covers_every_transition_and_security_actions(tmp_path, crlf):
+    r = rig(tmp_path, crlf=crlf)
     p = r.ready()
     r.m.approve(p.proposal_id)
     r.m.activate(p.proposal_id)
@@ -187,8 +189,9 @@ def test_branch_moved_after_approval_blocks_activation(tmp_path):
     assert head(r.repo) == base and r.m.get(p.proposal_id).status is S.APPROVED
 
 
-def test_active_branch_moved_or_dirty_blocks_activation(tmp_path):
-    r = rig(tmp_path)
+@pytest.mark.parametrize("crlf", [False, True], ids=["lf", "windows-crlf-autocrlf"])
+def test_active_branch_moved_or_dirty_blocks_activation(tmp_path, crlf):
+    r = rig(tmp_path, crlf=crlf)
     p = r.m.approve(r.ready().proposal_id)
     (r.repo / "src/jarvis/goals/__init__.py").write_text("# dirty\n", encoding="utf-8")
     with pytest.raises(PreparationError, match="uncommitted"):

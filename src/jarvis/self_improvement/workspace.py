@@ -158,7 +158,9 @@ class GitWorkspace:
     def _git(self, args: Sequence[str], cwd: Path, cancel: threading.Event | None = None, identity: bool = False) -> CommandResult:
         hooks = self._data / "_nohooks"
         hooks.mkdir(parents=True, exist_ok=True)
-        pre = ["git", "-c", f"core.hooksPath={hooks}", "-c", "core.fsmonitor=false", "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false"]
+        pre = ["git", "-c", f"core.hooksPath={hooks}", "-c", "core.fsmonitor=false", "-c", "commit.gpgsign=false", "-c", "core.safecrlf=false"]
+        # core.autocrlf is deliberately NOT overridden: the repository's own setting decides how line endings are compared, otherwise a Windows checkout
+        # (autocrlf=true, CRLF in the working tree) would look "modified" to every status check here.
         if identity:
             pre += ["-c", "user.name=JARVIS Self-Improvement", "-c", "user.email=jarvis@localhost"]
         return self._runner.run([*pre, *args], cwd, self._timeout, cancel)
@@ -192,7 +194,9 @@ class GitWorkspace:
         return self._need(self._git(["symbolic-ref", "--short", "-q", "HEAD"], self.root()), "git symbolic-ref").strip()
 
     def tracked_changes(self) -> str:
-        return self._need(self._git(["status", "--porcelain", "--untracked-files=no"], self.root()), "git status").strip()
+        """Porcelain lines (`XY path`) of modified tracked files; empty = clean. Anything else in the output (git warnings) is not a change."""
+        out = self._need(self._git(["status", "--porcelain", "--untracked-files=no"], self.root()), "git status")
+        return "\n".join(ln for ln in out.splitlines() if re.match(r"^[ MADRCTU]{2} \S", ln))
 
     # ---- preparation ---------------------------------------------------------------------------------------------------------------------
     def create_worktree(self, proposal_id: str, cancel: threading.Event | None = None) -> Worktree:

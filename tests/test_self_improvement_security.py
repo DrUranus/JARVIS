@@ -181,3 +181,14 @@ def test_cli_analyze_reports_missing_data_honestly(tmp_path):
 def test_only_approval_and_manager_import_the_permission_package():
     users = sorted(f.name for f, tree in trees() if any(m.startswith("jarvis.permissions") for m in imports(tree)))
     assert users == ["approval.py", "manager.py"]
+
+
+def test_cli_argument_splitting_keeps_windows_paths_and_quotes():
+    from jarvis.interface.cli import _split_args
+    assert _split_args(r"prepare imp-1 edits=C:\Users\Admin\edits.json") == ["prepare", "imp-1", r"edits=C:\Users\Admin\edits.json"]
+    assert _split_args(r'prepare imp-1 edits="C:\My Dir\e.json" files=a,b') == ["prepare", "imp-1", r"edits=C:\My Dir\e.json", "files=a,b"]
+    assert _split_args("propose 'Fix add' \"add subtracts\"") == ["propose", "Fix add", "add subtracts"]
+    assert _split_args("  ") == [] and _split_args('x ""') == ["x", ""]
+    for bad in ('propose "open', "propose it's"):
+        with pytest.raises(ValueError):
+            _split_args(bad)

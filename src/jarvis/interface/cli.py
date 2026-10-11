@@ -398,6 +398,29 @@ def _analysis_status(core: JarvisCore, name: str, arg: str) -> str:
     return "\n".join(lines)
 
 
+_ARG_PART = re.compile(r"\"([^\"]*)\"|'([^']*)'|([^\"'\s]+)")
+
+
+def _split_args(arg: str) -> list[str]:
+    """Split a command line into words. Quotes group words (a quoted part may sit inside a word: edits="C:\\my dir\\e.json"); backslashes are ALWAYS literal,
+    so Windows paths survive (shlex in POSIX mode would eat them). An unbalanced quote raises ValueError."""
+    words: list[str] = []
+    pos, n = 0, len(arg)
+    while pos < n:
+        if arg[pos].isspace():
+            pos += 1
+            continue
+        parts: list[str] = []
+        while pos < n and not arg[pos].isspace():
+            m = _ARG_PART.match(arg, pos)
+            if not m:
+                raise ValueError("unbalanced quote")
+            parts.append(next(g for g in m.groups() if g is not None))
+            pos = m.end()
+        words.append("".join(parts))
+    return words
+
+
 def _improve(core: JarvisCore, arg: str) -> str:
     """Self-improvement front-end (duck-typed through the Core's subsystems). Approval, activation and rollback are typed by the USER here and confirmed through
     the permission engine's confirmation provider; nothing a model returns can trigger them."""
@@ -410,7 +433,7 @@ def _improve(core: JarvisCore, arg: str) -> str:
     if mgr is None:
         return f"Selbstverbesserung: deaktiviert – {sub.reason}\nAktivieren: self_improvement.enabled = true (JARVIS_SELF_IMPROVEMENT_ENABLED=true)"
     try:
-        words = shlex.split(arg)
+        words = _split_args(arg)
     except ValueError:
         return "Nicht möglich: Anführungszeichen sind nicht ausgeglichen."
     word, rest = (words[0] if words else "list"), words[1:]

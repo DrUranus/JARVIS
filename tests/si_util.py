@@ -32,14 +32,18 @@ def git(repo: Path, *args: str) -> str:
     return r.stdout.strip()
 
 
-def make_repo(tmp_path: Path, files: dict[str, str] | None = None) -> Path:
+def make_repo(tmp_path: Path, files: dict[str, str] | None = None, *, crlf: bool = False) -> Path:
+    """`crlf=True` reproduces a Windows checkout: core.autocrlf=true and CRLF line endings in the working tree."""
     repo = tmp_path / "repo"
     repo.mkdir(parents=True)
     git(repo, "init", "-q", "-b", "main")
+    if crlf:
+        git(repo, "config", "core.autocrlf", "true")
     for rel, text in {**FILES, **(files or {})}.items():
         f = repo / rel
         f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(text, encoding="utf-8")
+        with open(f, "w", encoding="utf-8", newline="\r\n" if crlf else "\n") as fh:
+            fh.write(text)
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "init")
     return repo
@@ -61,8 +65,8 @@ class Rig:
 
 
 def rig(tmp_path: Path, *, answers=(ONCE,), allow_activation=True, allow_prepare=True, files=None, test_timeout=120.0, audit=True, writer=None, analyzer=None,
-        runner=None, strict_audit=True) -> Rig:
-    repo = make_repo(tmp_path, files)
+        runner=None, strict_audit=True, crlf=False) -> Rig:
+    repo = make_repo(tmp_path, files, crlf=crlf)
     data = tmp_path / "data"
     runner = runner or SubprocessRunner()
     ws = GitWorkspace(repo, data, runner, timeout=30)
