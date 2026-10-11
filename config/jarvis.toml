@@ -135,6 +135,10 @@ goal_timeout_seconds = 1800
 step_timeout_seconds = 300
 max_active_goals = 3
 max_history = 100
+# Controlled replanning (Phase 14): after a RETRYABLE failure (never after a permission denial, cancel or timeout) the configured LLM provider may propose an
+# alternative plan - at most 2 attempts per goal. The plan is only a restructuring of what the goal already uses: it cannot add capabilities or write actions,
+# it is validated like every plan and the agents/permission engine still decide everything. OFF by default (the goal text and redacted results go to the provider).
+replanning = false
 
 [self_repair]
 # Self-testing / self-repair is OFF by default. It needs [agents] and [coding] enabled and works ONLY in a workspace you name explicitly

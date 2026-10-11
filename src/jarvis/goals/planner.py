@@ -10,13 +10,14 @@ Templates (driven by what the user explicitly gave in the context or wrote in th
 from __future__ import annotations
 
 import re
-from typing import Any, Protocol, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from jarvis.agents.planner import AgentPlanner
 from jarvis.goals import policy as P
 from jarvis.goals.context import GoalContext
 from jarvis.goals.errors import PlanningError
 from jarvis.goals.models import Goal, GoalStep
+from jarvis.goals.state import StepStatus
 
 _URL = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _DOMAIN = re.compile(r"\b((?:[a-z0-9-]+\.)+(?:com|de|org|net|io|eu|ch|at|info|dev|app|co\.uk))\b(/[^\s<>\"']*)?", re.IGNORECASE)
@@ -34,6 +35,11 @@ class Planner(Protocol):
     def plan(self, goal: Goal, ctx: GoalContext, max_steps: int) -> Sequence[GoalStep]: ...
 
 
+# A replanner proposes candidate step specs after a failure: (goal, context, max_steps, feedback) -> list of spec dicts. It is untrusted: GoalPlanner.replan
+# re-checks everything and chooses the agents itself.
+Replanner = Callable[[Goal, GoalContext, int, Mapping[str, Any]], Sequence[Mapping[str, Any]]]
+
+
 def find_url(objective: str, ctx: dict[str, Any]) -> str | None:
     u = ctx.get("url")
     if isinstance(u, str) and u.strip():
@@ -46,8 +52,10 @@ def find_url(objective: str, ctx: dict[str, Any]) -> str | None:
 
 
 class GoalPlanner:
-    def __init__(self, agent_planner: AgentPlanner | None, *, max_attempts: int = 2, step_timeout: float | None = None) -> None:
+    def __init__(self, agent_planner: AgentPlanner | None, *, max_attempts: int = 2, step_timeout: float | None = None,
+                 replanner: Replanner | None = None) -> None:
         self._agents = agent_planner
+        self._replanner = replanner
         self._max_attempts, self._step_timeout = max(1, max_attempts), step_timeout
 
     # ---- public ------------------------------------------------------------------------------------------------------------------------
@@ -81,6 +89,110 @@ class GoalPlanner:
         if len(steps) > max_steps:
             raise PlanningError(f"the plan needs {len(steps)} steps; the limit is {max_steps}")
         return steps
+
+    # ---- replanning (Phase 14) ---------------------------------------------------------------------------------------------------------------
+    @property
+    def supports_replanning(self) -> bool:
+        return self._replanner is not None and self._agents is not None
+
+    def replan(self, goal: Goal, ctx: GoalContext, max_steps: int, feedback: Mapping[str, Any]) -> tuple[GoalStep, ...]:
+        """An alternative plan for the same goal. The replanner's candidate is DATA: this method checks keys, capabilities, dependencies, input rules and that
+        outstanding work is still covered, picks every agent through the AgentPlanner and numbers the steps r<n>-s<i>. validate_plan (engine) comes after."""
+        if not self.supports_replanning:
+            raise PlanningError("replanning is not available")
+        previous: tuple[GoalStep, ...] = tuple(feedback.get("previous_plan", ()))
+        if not previous:
+            raise PlanningError("there is no previous plan to replace")
+        used = frozenset().union(*(s.required_capabilities for s in previous))
+        allowed = used & self._agents.available_capabilities()                  # never more than the goal already used - and only what some agent can do now
+        fb = dict(feedback)
+        fb["allowed_capabilities"] = allowed
+        raw = self._replanner(goal, ctx, max_steps, fb)
+        specs = self._check_candidate(raw, previous, allowed, max_steps)
+        return self._build(goal, specs, prefix=f"r{int(feedback.get('attempt', 1))}-s")
+
+    def _check_candidate(self, raw: Sequence[Mapping[str, Any]], previous: tuple[GoalStep, ...], allowed: frozenset[str], max_steps: int) -> list[dict[str, Any]]:
+        if not isinstance(raw, (list, tuple)) or not raw or len(raw) > max_steps:
+            raise PlanningError(f"the candidate needs 1..{max_steps} steps")
+        by_id = {s.step_id: s for s in previous}
+        specs: list[dict[str, Any]] = []
+        agent_idx: list[int] = []
+        for i, item in enumerate(raw):
+            if not isinstance(item, Mapping) or set(item) - P.REPLAN_KEYS:
+                raise PlanningError(f"step {i}: only the keys {sorted(P.REPLAN_KEYS)} are accepted (agents, tools and permissions cannot be chosen)")
+            after_raw = item.get("depends_on")
+            if after_raw is None:
+                after = [len(specs) - 1] if specs else []
+            elif isinstance(after_raw, list) and all(isinstance(j, int) and not isinstance(j, bool) and 0 <= j < i for j in after_raw) and len(set(after_raw)) == len(after_raw):
+                after = list(after_raw)
+            else:
+                raise PlanningError(f"step {i}: depends_on must list distinct indexes of EARLIER steps")
+            if item.get("evaluate") is True:
+                if i != len(raw) - 1 or set(item) - {"evaluate", "depends_on"}:
+                    raise PlanningError("the evaluation step must be the last step and carries nothing else")
+                specs.append({"evaluate": True, "after": after})
+                continue
+            if "evaluate" in item:
+                raise PlanningError(f"step {i}: evaluate must be true")
+            obj, caps = item.get("objective"), item.get("capabilities")
+            if not isinstance(obj, str) or not 5 <= len(obj.strip()) <= 300 or any(ord(c) < 32 and c not in "\n\t" or ord(c) == 127 for c in obj):
+                raise PlanningError(f"step {i}: objective must be 5..300 characters of plain text")
+            if not isinstance(caps, list) or not caps or len(caps) > 4 or not all(isinstance(c, str) for c in caps):
+                raise PlanningError(f"step {i}: capabilities must be a short list of names")
+            capset = frozenset(caps)
+            if not capset <= allowed:
+                raise PlanningError(f"step {i}: capabilities outside the goal's own set are refused: {sorted(capset - allowed)[:3]}")
+            src, own = item.get("input_from"), item.get("input")
+            if (src is None) == (own is None):
+                raise PlanningError(f"step {i}: give exactly one of input_from / input")
+            if src is not None:
+                origin = by_id.get(src) if isinstance(src, str) else None
+                if origin is None or origin.is_evaluation or P.is_cleanup_input(origin.input):
+                    raise PlanningError(f"step {i}: input_from must name an ordinary step of the previous plan")
+                if not capset <= origin.required_capabilities:
+                    raise PlanningError(f"step {i}: reused input needs capabilities within those of {src}")
+                inp = {k: v for k, v in origin.input.items() if k != "cleanup"}
+                inp_origin = origin.step_id
+            else:
+                research_only = capset == {"research.web"}
+                if not (capset <= P.REPLAN_AUTHORABLE or research_only):
+                    raise PlanningError(f"step {i}: input may only be written for {sorted(P.REPLAN_AUTHORABLE)} or research.web; reuse another step's input with input_from")
+                if not isinstance(own, Mapping) or P.find_reserved(own):
+                    raise PlanningError(f"step {i}: invalid input")
+                if research_only:                                       # research may be re-arranged over the URLs the plan already had - never pointed somewhere new
+                    urls = own.get("urls", [])
+                    if set(own) - P.RESEARCH_INPUT_KEYS or own.get("kind") != "research_web" or not isinstance(urls, list) or not urls \
+                            or not set(urls) <= P.known_urls([s.input for s in previous]):
+                        raise PlanningError(f"step {i}: research input may only re-use URLs of the previous plan (keys: {sorted(P.RESEARCH_INPUT_KEYS)})")
+                try:
+                    P.check_plain(own, "input")
+                except ValueError as exc:
+                    raise PlanningError(f"step {i}: {exc}") from None
+                inp, inp_origin = P.plain_copy(own), None
+            specs.append({"objective": obj.strip(), "caps": capset, "input": inp, "after": after, "_origin": inp_origin})
+            agent_idx.append(len(specs) - 1)
+        if not agent_idx:
+            raise PlanningError("the candidate contains no work step")
+        if not specs[-1].get("evaluate"):                                    # the goal is still judged by an evaluation of the last result
+            specs.append({"evaluate": True, "after": [agent_idx[-1]]})
+        elif not specs[-1]["after"]:
+            specs[-1]["after"] = [agent_idx[-1]]
+        outstanding = frozenset().union(*(s.required_capabilities for s in previous if s.status is not StepStatus.SUCCEEDED and not s.is_evaluation
+                                          and not P.is_cleanup_input(s.input)), frozenset())
+        covered = frozenset().union(*(specs[i]["caps"] for i in agent_idx))
+        if not outstanding <= covered:
+            raise PlanningError(f"the candidate drops outstanding work: {sorted(outstanding - covered)[:3]} is no longer covered")
+        # a session opened by a reused step is closed again, exactly as the previous plan did
+        for c in previous:
+            if P.is_cleanup_input(c.input):
+                for i in agent_idx:
+                    if specs[i].get("_origin") == c.input["cleanup"]:
+                        specs.append({"objective": c.objective, "caps": set(c.required_capabilities),
+                                      "input": {k: v for k, v in c.input.items() if k != "cleanup"}, "cleanup_of": i})
+                        break
+        for sp in specs:
+            sp.pop("_origin", None)
+        return specs
 
     # ---- templates: lists of (objective, caps, input, depends_on_previous_work) ---------------------------------------------------------
     def _web(self, goal: Goal, objective: str, user: dict[str, Any], url: str | None) -> list[dict[str, Any]]:
@@ -177,8 +289,8 @@ class GoalPlanner:
         return specs
 
     # ---- assembling --------------------------------------------------------------------------------------------------------------------
-    def _build(self, goal: Goal, specs: list[dict[str, Any]]) -> tuple[GoalStep, ...]:
-        ids = [f"s{i + 1}" for i in range(len(specs))]
+    def _build(self, goal: Goal, specs: list[dict[str, Any]], prefix: str = "s") -> tuple[GoalStep, ...]:
+        ids = [f"{prefix}{i + 1}" for i in range(len(specs))]
         steps: list[GoalStep] = []
         for i, spec in enumerate(specs):
             after = spec.get("after", [i - 1] if i > 0 else [])

@@ -637,6 +637,14 @@ Der `GoalEvaluator` erklärt **kein** Ziel für erreicht, wenn ein Schritt eine 
 ### Abbruch und Timeout
 `cancel(goal_id)`: `PENDING` → sofort `CANCELLED`; laufend → Abbruch wird bei den Agenten angefordert (deren eigener Cancel-Mechanismus, z. B. Stopp des Testprozesses) und das Ziel wird `CANCELLED`, sobald das behandelt ist. Beendete Ziele bleiben unverändert. Reagiert ein Agent nicht, steht das als Warnung im Ergebnis – es wird nie behauptet, er sei gestoppt. Das Ziel-Timeout ist unabhängig vom Schritt-Timeout (der Orchestrator setzt dieses durch); nach Ablauf werden laufende Agenten über den bestehenden Cancel-Weg angehalten, das Ziel endet `TIMEOUT`.
 
+### Kontrolliertes Replanning (Phase 14, optional)
+Mit `goals.replanning = true` **und** einem vorhandenen LLM-Provider (derselbe, den der Core benutzt – es wird kein zweiter erzeugt) darf die Goal Engine nach einem **retryfähigen** Fehler (`timeout`, `agent_crashed`, `executor_failed`, `queue_full`, `step_failed`; nachdem die Retries des Schritts aufgebraucht sind) einen **alternativen Plan** anfordern – höchstens **2 zusätzliche Planungsversuche je Goal** (auch abgelehnte zählen), innerhalb des Goal-Timeouts. Kein Replanning bei Berechtigungsfehlern/BLOCKED, fatalen oder unbekannten Fehlercodes, Abbruch, Timeout oder fehlgeschlagener Auswertung.
+- **Das Modell bekommt:** Ziel, bisherigen Plan, fehlgeschlagenen Schritt mit Fehlercode und geschwärzter, begrenzter Fehlermeldung, kurze Zusammenfassungen früherer Ergebnisse (keine Ausgaben), erlaubte Fähigkeiten und Limits – als Daten, nicht als Anweisungen. Antwort: **ein striktes JSON-Objekt**.
+- **Das Modell darf nicht:** Agenten, Tools oder Berechtigungen nennen (Agenten wählt der `AgentPlanner`), Fähigkeiten hinzufügen (nur die, die das Goal schon nutzt), Eingaben für Schritte schreiben, die lesen/ändern/Code ausführen (dort nur `input_from` = unveränderte Wiederverwendung einer bisherigen Eingabe), neue URLs einführen (nur Umordnen vorhandener), offene Arbeit weglassen oder die Auswertung am Ende entfernen.
+- **Prüfung:** jeder Kandidat durchläuft Schlüssel-/Fähigkeits-/Abhängigkeitsprüfung, danach `validate_plan` (Zyklen, Duplikate, Schritt-/Tiefenlimits, Timeouts, Versuche, verbotene Schlüssel); ein **strukturell identischer** Plan (Agent, Fähigkeiten, Abhängigkeiten, Eingaben) wird abgelehnt. Nicht gültig ⇒ Ziel endet wie ohne Replanning (`FAILED`), Grund in den Hinweisen.
+- **Ablauf/Audit:** der alte Plan bleibt mit allen Ergebnissen im Ergebnis stehen (offene Schritte → `BLOCKED/replaced_by_replan`); der neue Plan trägt die Schritt-IDs `r<n>-s<i>`; Cleanup des alten Plans läuft **vor** dem neuen; das Ziel bleibt `RUNNING` (kein Rückweg nach `PLANNING`); `GoalResult.replans` und die Hinweise zeigen angenommene/abgelehnte Versuche.
+- **Datenschutz:** das Ziel und geschwärzte Fehlertexte gehen an den Provider – deshalb standardmäßig **aus**.
+
 ### Kontext und Memory
 `GoalContext` enthält nur, was der Benutzer ausdrücklich freigibt (`explicit_user_context`: nur bekannte Schlüssel, reine Daten, begrenzt, ohne Bypass-Schlüssel) und die Ergebnisse dieses Ziels. Keine Verbindung zum globalen Memory; Ziele, Schritt- und Ergebnisdaten werden **nicht** automatisch gespeichert. Logs enthalten nur IDs und Status – keine Ziele, Eingaben, Ausgaben oder Texte.
 
@@ -650,7 +658,7 @@ Der `GoalEvaluator` erklärt **kein** Ziel für erreicht, wenn ein Schritt eine 
 Die CLI umgeht keine Prüfung: jede Bestätigung fragt weiterhin die PermissionEngine (ohne Rückfrage-Möglichkeit endet ein Ziel `BLOCKED`). `Strg+C` während `/goal …` bricht das Ziel ab.
 
 ### Konfiguration `[goals]` (Umgebung: `JARVIS_GOALS_<FELD>`)
-`enabled=false`, `max_steps=20` (hart 50), `max_attempts_per_step=2` (hart 5), `goal_timeout_seconds=1800`, `step_timeout_seconds=300`, `max_active_goals=3`, `max_history=100`. Keine unbegrenzten Werte.
+`enabled=false`, `max_steps=20` (hart 50), `max_attempts_per_step=2` (hart 5), `goal_timeout_seconds=1800`, `step_timeout_seconds=300`, `max_active_goals=3`, `max_history=100`, `replanning=false`. Keine unbegrenzten Werte.
 
 ### Tests
 `tests/test_goals_models.py` (Modelle, Status, Kontext, Policy), `test_goals_planner.py` (Planer, Plan-Validierung, Evaluator), `test_goals_engine.py` (Ausführung, Abhängigkeiten, Retry, Abbruch, Timeout, Loop-Sicherheit – deterministisch über Events/Fake-Agenten), `test_goals_integration.py` (komplette Kette gegen die echte PermissionEngine, Config, Bootstrap, Core, CLI), `test_goals_security.py` (AST-/Quellscans, Invarianten), `test_goals_real.py` (echte Threads, echter Orchestrator, echtes pytest, echter Abbruch/Timeout). Unter Windows: `.\.venv\Scripts\python.exe -m pytest tests/test_goals*.py -vv -rs`.

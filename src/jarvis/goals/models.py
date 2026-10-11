@@ -189,6 +189,7 @@ class GoalResult:
     reason_code: str | None = None
     warnings: tuple[str, ...] = field(default=(), repr=False)
     duration: float = 0.0
+    replans: int = 0                 # accepted alternative plans (step ids of a replan are prefixed r<n>-)
 
     @property
     def status(self) -> GoalStatus:
@@ -200,4 +201,4 @@ class GoalResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {"goal": self.goal.to_dict(), "steps": [s.to_dict() for s in self.steps], "summary": self.summary,
-                "reason_code": self.reason_code, "warnings": list(self.warnings), "duration": round(self.duration, 3)}
+                "reason_code": self.reason_code, "warnings": list(self.warnings), "duration": round(self.duration, 3), "replans": self.replans}

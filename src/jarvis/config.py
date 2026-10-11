@@ -128,6 +128,7 @@ class GoalsSettings:
     step_timeout_seconds: float = 300.0
     max_active_goals: int = 3
     max_history: int = 100                 # finished goals kept for /goals
+    replanning: bool = False               # after a retryable failure ask the LLM provider for an alternative plan (at most 2 attempts per goal). OFF: it sends the goal text and redacted step results to the provider
 
 
 @dataclass(frozen=True)

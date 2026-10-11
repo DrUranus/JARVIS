@@ -9,6 +9,7 @@ from typing import Any
 from jarvis.config import Settings
 from jarvis.goals.engine import GoalEngine
 from jarvis.goals.planner import GoalPlanner
+from jarvis.goals.replanner import LLMReplanner
 
 log = logging.getLogger("jarvis.goals")
 
@@ -31,14 +32,17 @@ class GoalsSubsystem:
         return info
 
 
-def build_goals(settings: Settings, agents: Any) -> GoalsSubsystem:
+def build_goals(settings: Settings, agents: Any, llm: Any = None) -> GoalsSubsystem:
+    """`llm` is the application's ONE existing provider (bootstrap passes it on; nothing is created here). Replanning is wired only if goals.replanning is
+    true AND a provider with `complete_text` is present - otherwise the planner has no replanner and the engine never replans."""
     cfg = settings.goals
     if not cfg.enabled:
         return GoalsSubsystem("disabled", "the goal engine is off (goals.enabled = false)")
     if agents is None or getattr(agents, "orchestrator", None) is None or getattr(agents, "planner", None) is None:
         return GoalsSubsystem("disabled", "the goal engine needs the multi-agent layer (agents.enabled = true)")
     try:
-        planner = GoalPlanner(agents.planner, max_attempts=cfg.max_attempts_per_step, step_timeout=cfg.step_timeout_seconds)
+        replanner = LLMReplanner(llm) if cfg.replanning and llm is not None and callable(getattr(llm, "complete_text", None)) else None
+        planner = GoalPlanner(agents.planner, max_attempts=cfg.max_attempts_per_step, step_timeout=cfg.step_timeout_seconds, replanner=replanner)
         engine = GoalEngine(agents.orchestrator, planner, max_steps=cfg.max_steps, max_attempts=cfg.max_attempts_per_step,
                             goal_timeout=cfg.goal_timeout_seconds, step_timeout=cfg.step_timeout_seconds, max_active=cfg.max_active_goals,
                             max_history=cfg.max_history)
@@ -46,5 +50,5 @@ def build_goals(settings: Settings, agents: Any) -> GoalsSubsystem:
     except Exception as exc:  # noqa: BLE001 - whatever happens here, JARVIS still starts
         log.warning("goal engine unavailable: %s", type(exc).__name__)
         return GoalsSubsystem("disabled", f"could not be built ({type(exc).__name__})")
-    log.info("goal engine enabled (max %d steps, %d attempts per step)", cfg.max_steps, cfg.max_attempts_per_step)
+    log.info("goal engine enabled (max %d steps, %d attempts per step, replanning %s)", cfg.max_steps, cfg.max_attempts_per_step, "on" if planner.supports_replanning else "off")
     return GoalsSubsystem("enabled", "", engine, planner)

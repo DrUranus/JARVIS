@@ -8,6 +8,7 @@ the orchestrator decides how many run at once.
 """
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -24,7 +25,7 @@ from jarvis.goals.errors import GoalError, GoalStateError, InvalidGoalError, Inv
 from jarvis.goals.evaluator import TERMINAL_DECISIONS, Decision, GoalEvaluator, Verdict, is_cleanup
 from jarvis.goals.models import Goal, GoalResult, GoalStep, GoalStepResult, utcnow
 from jarvis.goals.planner import Planner
-from jarvis.goals.state import GOAL_TERMINAL, STEP_TERMINAL, GoalStatus, StepStatus
+from jarvis.goals.state import GOAL_TERMINAL, STEP_BAD, STEP_TERMINAL, GoalStatus, StepStatus
 from jarvis.goals.validation import validate_plan
 from jarvis.redaction import SecretDetector
 
@@ -67,6 +68,10 @@ class _Rec:
     deadline: float | None = None
     max_steps: int = 0
     cancelled_tasks: bool = False
+    active: set[str] | None = None                 # step ids of the CURRENT plan (None = all); earlier plans stay in `steps` as history/audit
+    replan_attempts: int = 0                       # additional planning attempts used (accepted or not); never more than MAX_REPLANS
+    replans: int = 0                               # accepted alternative plans
+    plan_sigs: list[tuple] = field(default_factory=list)    # structure of every plan that was run: an identical plan is never run again
 
     @property
     def status(self) -> GoalStatus:
@@ -175,7 +180,7 @@ class GoalEngine:
             rec = self._rec(goal_id)
             end = rec.ended if rec.ended is not None else self._clock.monotonic()
             return GoalResult(rec.goal, tuple(rec.steps.values()), rec.summary, rec.reason_code, tuple(rec.warnings),
-                              max(0.0, end - rec.began) if rec.started else 0.0)
+                              max(0.0, end - rec.began) if rec.started else 0.0, rec.replans)
 
     def list(self, status: GoalStatus | None = None, limit: int | None = None) -> list[Goal]:
         with self._lock:
@@ -186,6 +191,7 @@ class GoalEngine:
     def describe(self) -> dict[str, Any]:
         with self._lock:
             return {"goals": len(self._recs), "active": self._active(), "max_active": self.max_active, "max_steps": self.max_steps,
+                    "replanning": bool(getattr(self._planner, "supports_replanning", False)),
                     "max_attempts_per_step": self.max_attempts, "goal_timeout": self.goal_timeout, "step_timeout": self.step_timeout}
 
     def shutdown(self, wait: float = 2.0) -> None:
@@ -280,9 +286,14 @@ class GoalEngine:
                 self._finalize(rec, GoalStatus.CANCELLED, "cancelled while planning", "cancelled")
                 return False
             rec.steps = {s.step_id: s for s in steps}
+            rec.plan_sigs.append(self._signature(steps))
             rec.goal = rec.goal.with_status(GoalStatus.RUNNING)
         log.info("goal %s planned: %d step(s)", rec.goal.goal_id, len(steps))
         return True
+
+    def _current(self, rec: _Rec) -> list[GoalStep]:
+        """The steps of the plan that is being executed (all steps until a replan switched plans)."""
+        return [s for sid, s in rec.steps.items() if rec.active is None or sid in rec.active]
 
     def _loop(self, rec: _Rec) -> None:
         guard = rec.max_steps * (self.max_attempts + 2) * 3 + 50     # every pass starts a step, handles a result or ends: this is only a net
@@ -293,8 +304,15 @@ class GoalEngine:
                 timed_out = remaining is not None and remaining <= 0
                 if not rec.cancel_requested and not timed_out:      # a stopped goal ends its open steps as CANCELLED, not as "dependency failed"
                     self._block_dependents(rec)
-                decision = self._eval.decide(list(rec.steps.values()), cancelled=rec.cancel_requested, timed_out=timed_out)
+                decision = self._eval.decide(self._current(rec), cancelled=rec.cancel_requested, timed_out=timed_out)
             if decision.kind in TERMINAL_DECISIONS:
+                if decision.kind is Decision.FAILED:
+                    if self._try_replan(rec):
+                        guard += rec.max_steps * (self.max_attempts + 2) * 3    # a new plan gets its own iteration budget
+                        continue
+                    left = self._remaining(rec)
+                    if rec.cancel_requested or (left is not None and left <= 0):
+                        continue                                              # cancelled / out of time while replanning: the next pass ends the goal CANCELLED / TIMEOUT
                 self._conclude(rec, decision.kind, decision.reason)
                 return
             if decision.kind is Decision.NEXT:
@@ -308,8 +326,91 @@ class GoalEngine:
         self._abandon(rec)
         self._finalize(rec, GoalStatus.FAILED, "the goal engine stopped after too many iterations", "loop_guard")
 
+    # ---- controlled replanning ---------------------------------------------------------------------------------------------------------------
+    @staticmethod
+    def _signature(steps: Any) -> tuple:
+        """The structure of a plan: agent, capabilities, dependencies (by position) and input of every step - not the wording of objectives or step ids."""
+        order = {s.step_id: i for i, s in enumerate(steps)}
+        return tuple((s.assigned_agent, tuple(sorted(s.required_capabilities)), tuple(sorted(order.get(d, -1) for d in s.dependencies)),
+                      json.dumps(s.input, sort_keys=True, default=str)) for s in steps)
+
+    def _replan_root(self, rec: _Rec) -> GoalStep | None:
+        """The failed step if (and only if) replanning is allowed after this failure: every root cause ended FAILED/TIMEOUT with a RETRYABLE code. A permission
+        denial, a halt, invalid input, a cancelled step or any other code means: no replanning."""
+        roots = [s for s in self._current(rec) if s.status in STEP_BAD and not (s.result and (s.result.error_code or "").startswith("dependency_"))]
+        if not roots or any(s.status not in (StepStatus.FAILED, StepStatus.TIMEOUT) or s.result is None or not P.is_retryable(TaskStatus.FAILED, s.result.error_code)
+                            for s in roots):
+            return None
+        return roots[0]
+
+    def _try_replan(self, rec: _Rec) -> bool:
+        """After a failure: ask the planner for another plan (at most MAX_REPLANS attempts per goal). True = a validated, structurally different plan is now
+        the current plan. False = the goal ends as it would have without replanning. Never runs after cancel / timeout, never recursive."""
+        if not getattr(self._planner, "supports_replanning", False) or rec.replan_attempts >= P.MAX_REPLANS:
+            return False
+        failed = self._replan_root(rec)
+        if failed is None:
+            return False
+        rejected = ""
+        while rec.replan_attempts < P.MAX_REPLANS:
+            remaining = self._remaining(rec)
+            if rec.cancel_requested or (remaining is not None and remaining <= 0):
+                return False
+            rec.replan_attempts += 1
+            n = rec.replan_attempts
+            reason = ""
+            try:
+                steps = self._propose(rec, failed, n, rejected)
+            except (GoalError, InvalidPlanError) as exc:
+                steps, reason = None, self._detector.redact(str(exc))[:200]
+            except Exception as exc:  # noqa: BLE001 - a replanner bug must never take the goal down or leak
+                steps, reason = None, f"replanner error ({type(exc).__name__})"
+            remaining = self._remaining(rec)
+            if steps is not None and (rec.cancel_requested or (remaining is not None and remaining <= 0)):
+                steps, reason = None, "the goal was cancelled or ran out of time while planning"
+            if steps is None:
+                rejected = reason
+                self._warn(rec, f"replan {n} rejected: {reason}")
+                log.info("goal %s: replan attempt %d rejected", rec.goal.goal_id, n)
+                if rec.cancel_requested or (remaining is not None and remaining <= 0):
+                    return False
+                continue
+            self._cleanup(rec)                                    # close what the previous plan opened BEFORE the new plan may open it again
+            with self._lock:
+                for old in self._current(rec):                    # nothing of the replaced plan stays pending: it is history now
+                    if old.status is StepStatus.PENDING:
+                        rec.steps[old.step_id] = old.with_result(GoalStepResult(old.step_id, StepStatus.BLOCKED, "not run: the plan was replaced after a failure", None,
+                                                                                old.assigned_agent, None, 0.0, 1, "replaced_by_replan"))
+                rec.steps.update({s.step_id: s for s in steps})
+                rec.active = {s.step_id for s in steps}
+                rec.plan_sigs.append(self._signature(steps))
+                rec.replans += 1
+                rec.goal = rec.goal if rec.status is GoalStatus.RUNNING else rec.goal.with_status(GoalStatus.RUNNING)
+            self._warn(rec, f"replan {n} accepted: {len(steps)} step(s) after {failed.step_id} {failed.status.value}")
+            log.info("goal %s: replan attempt %d accepted (%d steps)", rec.goal.goal_id, n, len(steps))
+            return True
+        return False
+
+    def _propose(self, rec: _Rec, failed: GoalStep, attempt: int, rejected: str) -> tuple[GoalStep, ...]:
+        with self._lock:
+            current = tuple(self._current(rec))
+            results = tuple(s.result for s in rec.steps.values() if s.result is not None)[:30]
+            total = len(rec.steps)
+        ctx = GoalContext(rec.goal.goal_id, rec.goal.objective, failed, results, dict(rec.user_ctx))
+        feedback = {"attempt": attempt, "failed_step": failed, "error_code": failed.result.error_code if failed.result else None,
+                    "error": self._detector.redact(failed.result.summary if failed.result else "")[:300], "previous_plan": current, "rejected": rejected}
+        room = max(0, min(rec.max_steps, P.MAX_STEPS_HARD - total))
+        if room < 2:
+            raise InvalidPlanError("no room left for another plan within the step limits")
+        steps = tuple(self._planner.replan(rec.goal, ctx, room, feedback))
+        steps = validate_plan(rec.goal, steps, max_steps=room, max_attempts=self.max_attempts, max_step_timeout=self.step_timeout,
+                              agent_exists=getattr(getattr(self._orch, "registry", None), "has", None))
+        if self._signature(steps) in rec.plan_sigs:
+            raise InvalidPlanError("the candidate has the same structure as a plan that already ran")
+        return steps
+
     def _block_dependents(self, rec: _Rec) -> None:
-        for sid in self._eval.blocked_by_dependencies(list(rec.steps.values())):
+        for sid in self._eval.blocked_by_dependencies(self._current(rec)):
             step = rec.steps[sid]
             res = GoalStepResult(sid, StepStatus.BLOCKED, "not run: a step it depends on did not succeed", None, step.assigned_agent,
                                  None, 0.0, 1, "dependency_failed")
@@ -488,13 +589,14 @@ class GoalEngine:
         names = {Decision.REACHED: GoalStatus.SUCCEEDED, Decision.FAILED: GoalStatus.FAILED, Decision.BLOCKED: GoalStatus.BLOCKED,
                  Decision.TIMEOUT: GoalStatus.TIMEOUT, Decision.CANCELLED: GoalStatus.CANCELLED}
         with self._lock:
-            ok = sum(1 for s in rec.steps.values() if s.status is StepStatus.SUCCEEDED and not is_cleanup(s))
-            total = sum(1 for s in rec.steps.values() if not is_cleanup(s))
-            bad = next((s for s in rec.steps.values() if s.status in (StepStatus.FAILED, StepStatus.BLOCKED, StepStatus.TIMEOUT, StepStatus.CANCELLED)
+            cur = self._current(rec)
+            ok = sum(1 for s in cur if s.status is StepStatus.SUCCEEDED and not is_cleanup(s))
+            total = sum(1 for s in cur if not is_cleanup(s))
+            bad = next((s for s in cur if s.status in (StepStatus.FAILED, StepStatus.BLOCKED, StepStatus.TIMEOUT, StepStatus.CANCELLED)
                         and not is_cleanup(s) and not (s.result and (s.result.error_code or "").startswith("dependency_"))), None)
-        text = f"{reason} ({ok}/{total} steps succeeded)"
+        text = f"{reason} ({ok}/{total} steps succeeded)" + (f" after {rec.replans} replan(s)" if rec.replans else "")
         if bad is not None and bad.result is not None and kind in (Decision.FAILED, Decision.BLOCKED):
-            text = f"step {bad.step_id} {bad.status.value}: {bad.result.summary} ({ok}/{total} steps succeeded)"
+            text = f"step {bad.step_id} {bad.status.value}: {bad.result.summary} ({ok}/{total} steps succeeded)" + (f" after {rec.replans} replan(s)" if rec.replans else "")
         self._finalize(rec, names[kind], text, kind.value if kind is not Decision.REACHED else None)
 
     def _cleanup(self, rec: _Rec) -> None:

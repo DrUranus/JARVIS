@@ -55,3 +55,7 @@ class LLMProvider(ABC):
     @abstractmethod
     def complete(self, request: LLMRequest) -> LLMResponse:
         """Return the model's reply. Must raise LLMError on any failure."""
+
+    def complete_text(self, system: str, user: str, *, max_tokens: int | None = None, temperature: float | None = 0.0) -> str:
+        """One system + one user message in, the reply text out (for callers that must not depend on the request types, e.g. the goal replanner)."""
+        return self.complete(LLMRequest([Message.system(system), Message.user(user)], temperature=temperature, max_tokens=max_tokens)).content

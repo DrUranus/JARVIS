@@ -77,6 +77,14 @@ class AgentPlanner:
                 scores[agent_id] = total
         return scores
 
+    def available_capabilities(self) -> frozenset[str]:
+        """Capabilities offered by agents that can take a task right now (AVAILABLE or BUSY)."""
+        caps: set[str] = set()
+        for a in self._registry.list():
+            if a.status in (AgentStatus.AVAILABLE, AgentStatus.BUSY):
+                caps |= set(a.capabilities)
+        return frozenset(caps)
+
     def select(self, objective: str, required: frozenset[str] = frozenset()) -> Selection:
         """The best REGISTERED, not disabled/failed agent for the objective; `required` capabilities must all be offered."""
         if not isinstance(objective, str) or not objective.strip():

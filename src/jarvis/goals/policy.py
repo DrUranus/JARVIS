@@ -118,3 +118,35 @@ _URL_RE = re.compile(r"^https?://[^\s/$.?#][^\s]{0,2000}$", re.IGNORECASE)
 
 def valid_url(value: object) -> bool:
     return isinstance(value, str) and bool(_URL_RE.match(value))
+
+
+# Phase 14: controlled replanning. At most MAX_REPLANS additional planning ATTEMPTS per goal (accepted or not), only after a retryable failure.
+MAX_REPLANS = 2
+MAX_REPLAN_REPLY_CHARS = 20_000
+REPLAN_AUTHORABLE = frozenset({"business.analyze", "finance.analyze"})     # only pure computations may carry model-written input; everything else is reused verbatim
+REPLAN_KEYS = frozenset({"objective", "capabilities", "depends_on", "input", "input_from", "evaluate"})
+
+
+def is_cleanup_input(inp: Mapping[str, Any]) -> bool:
+    return isinstance(inp.get("cleanup"), str)
+RESEARCH_INPUT_KEYS = frozenset({"kind", "urls", "questions", "max_sources", "max_actions", "timeout", "allowed_domains", "excluded_domains", "follow_links"})
+
+
+def known_urls(inputs: Any) -> frozenset[str]:
+    """Every URL that already stands in the given step inputs (a replan may re-arrange these, never add one)."""
+    out: set[str] = set()
+
+    def walk(v: Any, depth: int = 0) -> None:
+        if depth > MAX_JSON_DEPTH:
+            return
+        if isinstance(v, str):
+            if v.startswith(("http://", "https://")):
+                out.add(v)
+        elif isinstance(v, Mapping):
+            for x in v.values():
+                walk(x, depth + 1)
+        elif isinstance(v, (list, tuple)):
+            for x in v:
+                walk(x, depth + 1)
+    walk(inputs)
+    return frozenset(out)

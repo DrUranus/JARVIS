@@ -41,7 +41,7 @@ def build_core(settings: Settings) -> JarvisCore:
     core.subsystems["agents"] = build_agents(settings, tools, memory, core.tasks, core.subsystems)
     # The goal engine sits above the agent layer and talks to it only through the orchestrator.
     from jarvis.goals.factory import build_goals
-    core.subsystems["goals"] = build_goals(settings, core.subsystems["agents"])
+    core.subsystems["goals"] = build_goals(settings, core.subsystems["agents"], provider)
     # Research / Business / Finance are agents of that layer; these objects only describe them (status) and add small GREEN calculation tools for /run.
     from jarvis.agents.groups import build_analysis_subsystems
     from jarvis.tools.analysis import register_analysis_tools
