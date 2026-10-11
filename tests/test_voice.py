@@ -381,5 +381,20 @@ def test_system_tts_missing_binary_at_runtime():
 
 def test_system_player_without_player(monkeypatch):
     monkeypatch.setattr("jarvis.voice.devices.shutil.which", lambda n: None)
-    with pytest.raises(VoiceUnavailableError):
-        SystemPlayer().play(AudioClip(b"\x00\x00"))
+
+    if __import__("os").name == "nt":
+        import numpy as np
+        import sounddevice as sd
+
+        played = []
+        monkeypatch.setattr(sd, "play", lambda samples, samplerate, blocking: played.append(
+            (samples, samplerate, blocking)
+        ))
+
+        SystemPlayer().play(AudioClip(struct.pack("<h", 100), 16000))
+
+        assert len(played) == 1
+        assert played[0][1:] == (16000, True)
+    else:
+        with pytest.raises(VoiceUnavailableError):
+            SystemPlayer().play(AudioClip(b"\x00\x00"))

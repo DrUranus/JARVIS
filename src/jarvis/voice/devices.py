@@ -63,7 +63,7 @@ class SoundDeviceSource(AudioSource):
         ep = Endpointer(self._threshold, self._silence, self._max)
         chunks: list[bytes] = []
         try:
-            with self._sd.RawInputStream(samplerate=self._rate, channels=1, dtype="int16") as stream:
+            with self._sd.RawInputStream(samplerate=self._rate, channels=1, dtype="int16", device=2) as stream:
                 while True:
                     data, _overflow = stream.read(frames)
                     raw = bytes(data)
@@ -80,27 +80,56 @@ class SoundDeviceSource(AudioSource):
 _PLAYERS = (("afplay", []), ("paplay", []), ("aplay", ["-q"]), ("ffplay", ["-nodisp", "-autoexit", "-loglevel", "quiet"]))
 
 
+
 class SystemPlayer(AudioPlayer):
-    """Plays WAV through whichever common system player exists (afplay, paplay, aplay, ffplay)."""
+    """Plays WAV through a system player or sounddevice on Windows."""
 
     def __init__(self) -> None:
-        self._cmd = next(([path, *args] for name, args in _PLAYERS if (path := shutil.which(name))), None)
+        self._cmd = next(
+            ([path, *args] for name, args in _PLAYERS
+             if (path := shutil.which(name))),
+            None,
+        )
 
     def play(self, clip: AudioClip) -> None:
+        if os.name == "nt":
+            try:
+                import sounddevice as sd
+                import numpy as np
+
+                samples = np.frombuffer(clip.pcm, dtype="<i2")
+                sd.play(samples, samplerate=clip.sample_rate, blocking=True)
+                return
+            except Exception as exc:
+                raise VoiceUnavailableError(
+                    f"Windows audio playback failed: {exc}"
+                ) from exc
+
         if self._cmd is None:
-            raise VoiceUnavailableError("no audio player found (afplay/paplay/aplay/ffplay)")
+            raise VoiceUnavailableError(
+                "no audio player found (afplay/paplay/aplay/ffplay)"
+            )
+
         fd, path = tempfile.mkstemp(suffix=".wav")
         try:
             with os.fdopen(fd, "wb") as f:
                 f.write(clip.to_wav())
-            subprocess.run([*self._cmd, path], check=True, capture_output=True, timeout=120)
+            subprocess.run(
+                [*self._cmd, path],
+                check=True,
+                capture_output=True,
+                timeout=120,
+            )
         except (subprocess.SubprocessError, OSError) as exc:
-            raise VoiceUnavailableError(f"audio playback failed: {exc}") from exc
+            raise VoiceUnavailableError(
+                f"audio playback failed: {exc}"
+            ) from exc
         finally:
             try:
                 os.unlink(path)
             except OSError:
                 pass
+
 
 
 class NullPlayer(AudioPlayer):
