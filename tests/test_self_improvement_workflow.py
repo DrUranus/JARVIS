@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import subprocess
 import threading
+from pathlib import PurePath
 
 import pytest
 
@@ -221,8 +222,9 @@ def test_unversioned_changes_cannot_make_a_test_pass():
     r.m.prepare(p.proposal_id, [GOOD])
     r.m.test(p.proposal_id)
     argv, export_dir = r.sandbox.calls[0]
-    assert str(export_dir) == "/fake-export" and ".git" not in str(export_dir)
-    assert all(str(d) == "/fake-export" for _, d in r.sandbox.calls)
+    expected = PurePath("/fake-export")                                  # PurePath compares parts, so "/fake-export" == "\\fake-export" on Windows as well
+    assert PurePath(export_dir) == expected and ".git" not in PurePath(export_dir).parts
+    assert all(PurePath(d) == expected for _, d in r.sandbox.calls)
 
 
 def test_a_changed_export_after_the_run_discards_the_result():

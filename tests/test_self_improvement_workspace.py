@@ -7,6 +7,7 @@ import hashlib
 import os
 import subprocess
 import sys
+import tempfile
 import textwrap
 import time
 from pathlib import Path
@@ -57,6 +58,37 @@ def commit_change(repo: Path, changes: dict[str, str | None]) -> tuple[str, str]
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "change")
     return base, git(repo, "rev-parse", "HEAD")
+
+
+def commit_with_entries(repo: Path, entries: dict[str, tuple[str, str, str]], parent: str | None = None) -> str:
+    """Build a commit from (mode, type, sha) entries with git PLUMBING (mktree + commit-tree). No working tree, index, OS symlink, file mode or case-sensitivity of the host
+    file system is involved, so the same fixture is valid on Linux and Windows (where core.fileMode=false and symlinks need a privilege)."""
+    def tree_of(items: dict[str, tuple[str, str, str]]) -> str:
+        rows: list[str] = []
+        subdirs: dict[str, dict[str, tuple[str, str, str]]] = {}
+        for path, (mode, kind, sha) in items.items():
+            head, _, rest = path.partition("/")
+            if rest:
+                subdirs.setdefault(head, {})[rest] = (mode, kind, sha)
+            else:
+                rows.append(f"{mode} {kind} {sha}\t{head}\n")
+        rows += [f"040000 tree {tree_of(sub)}\t{name}\n" for name, sub in subdirs.items()]
+        return subprocess.run(["git", "mktree"], cwd=repo, input="".join(rows), capture_output=True, text=True, check=True).stdout.strip()
+    args = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", tree_of(entries), "-m", "fixture"] + (["-p", parent] if parent else [])
+    return subprocess.run(args, cwd=repo, capture_output=True, text=True, check=True).stdout.strip()
+
+
+def tree_entries(repo: Path, commit: str) -> dict[str, tuple[str, str, str]]:
+    out = {}
+    for line in git(repo, "ls-tree", "-r", commit).splitlines():
+        meta, path = line.split("\t", 1)
+        mode, kind, sha = meta.split(" ")
+        out[path] = (mode, kind, sha)
+    return out
+
+
+def blob(repo: Path, content: str) -> str:
+    return subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=repo, input=content, capture_output=True, text=True, check=True).stdout.strip()
 
 
 def ws(tmp_path, repo) -> GitWorkspace:
@@ -130,25 +162,25 @@ def test_added_deleted_and_unlisted_files_block(tmp_path, changes, text):
 
 
 def test_mode_changes_symlinks_renames_and_binary_files_block(tmp_path):
+    """Mode and type changes are built as git objects (plumbing), so this runs unchanged on Windows: there `os.chmod` is invisible to git (core.fileMode=false) and
+    `os.symlink` needs a privilege, which made the old file-system based fixture fail with 'nothing to commit'."""
     repo = make_repo(tmp_path)
     base = git(repo, "rev-parse", "HEAD")
-    os.chmod(repo / PLANNER, 0o755)
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "chmod")
-    head = git(repo, "rev-parse", "HEAD")
-    if os.name == "posix":
-        with pytest.raises(ChangeBlocked, match="mode"):
-            ws(tmp_path, repo).review(base, head)
-        os.chmod(repo / PLANNER, 0o644)
-        git(repo, "add", "-A")
-        git(repo, "commit", "-q", "-m", "chmod back")
-        base2 = git(repo, "rev-parse", "HEAD")
-        (repo / "src/jarvis/goals/evaluator.py").unlink()
-        os.symlink("planner.py", repo / "src/jarvis/goals/evaluator.py")
-        git(repo, "add", "-A")
-        git(repo, "commit", "-q", "-m", "symlink")
-        with pytest.raises(ChangeBlocked):
-            ws(tmp_path, repo).review(base2, git(repo, "rev-parse", "HEAD"))
+    entries = tree_entries(repo, base)
+    mode, kind, sha = entries[PLANNER]
+    assert mode == "100644"
+    head = commit_with_entries(repo, {**entries, PLANNER: ("100755", kind, sha)}, base)                       # executable bit set
+    assert tree_entries(repo, head)[PLANNER][0] == "100755"                                                    # precondition: the mode change really is in the commit
+    with pytest.raises(ChangeBlocked, match="mode"):
+        ws(tmp_path, repo).review(base, head)
+    link = blob(repo, "planner.py")
+    head2 = commit_with_entries(repo, {**entries, "src/jarvis/goals/evaluator.py": ("120000", "blob", link)}, base)   # regular file replaced by a symlink
+    assert tree_entries(repo, head2)["src/jarvis/goals/evaluator.py"][0] == "120000"
+    with pytest.raises(ChangeBlocked):
+        ws(tmp_path, repo).review(base, head2)
+    # a content change in an allowed file is accepted when the mode is unchanged (the check is not simply refusing everything)
+    head3 = commit_with_entries(repo, {**entries, PLANNER: ("100644", "blob", blob(repo, "def add(a, b):\n    return a + b\n"))}, base)
+    assert ws(tmp_path, repo).review(base, head3).changed_files == (PLANNER,)
     repo2 = make_repo(tmp_path / "b")
     b0, h0 = commit_change(repo2, {PLANNER: "x = 1\n\x00\x01"})
     with pytest.raises(ChangeBlocked, match="binary"):
@@ -190,7 +222,7 @@ def test_any_difference_between_export_and_manifest_is_detected(tmp_path):
                 w.verify_export(exp)
             for q in list(exp.path.rglob("extra.py")) + list(exp.path.rglob(".git")):
                 (q.rmdir() if q.is_dir() else q.unlink())
-            (exp.path / PLANNER).write_text(FILES[PLANNER])
+            (exp.path / PLANNER).write_bytes(FILES[PLANNER].encode())      # bytes, not write_text(): on Windows text mode would write CRLF and the (correct) hash check would fail
             w.verify_export(exp)
         # a missing file
         os.chmod(exp.path / "src/jarvis/goals", 0o700)
@@ -201,21 +233,32 @@ def test_any_difference_between_export_and_manifest_is_detected(tmp_path):
         w.remove_export(exp.path)
 
 
-@pytest.mark.skipif(os.name != "posix", reason="symlinks")
 def test_export_refuses_symlinks_submodule_entries_and_unusual_names(tmp_path):
+    """All fixtures are commits built with git plumbing (see commit_with_entries): no OS symlink, no case-sensitive file system and no non-ASCII file name on disk needed."""
     repo = make_repo(tmp_path)
-    os.symlink("/etc/passwd", repo / "src/jarvis/link.py")
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "link")
-    with pytest.raises(PreparationError, match="regular file"):
-        ws(tmp_path, repo).export_commit(git(repo, "rev-parse", "HEAD"))
-    repo2 = make_repo(tmp_path / "n", {"src/jarvis/we irdé.py": "x = 1\n"})
-    with pytest.raises(PreparationError, match="unusual"):
-        ws(tmp_path / "n", repo2).export_commit(git(repo2, "rev-parse", "HEAD"))
-    repo3 = make_repo(tmp_path / "c", {"src/jarvis/A.py": "x = 1\n", "src/jarvis/a.py": "x = 2\n"})
-    with pytest.raises(PreparationError, match="colliding"):
-        ws(tmp_path / "c", repo3).export_commit(git(repo3, "rev-parse", "HEAD"))
-    assert not P.refuse_target(".git/config") is None and ".git" not in [p.name for p in tmp_path.rglob(".GIT")]
+    base = git(repo, "rev-parse", "HEAD")
+    entries = tree_entries(repo, base)
+    one = blob(repo, "x = 1\n")
+    w = ws(tmp_path, repo)
+    cases = {
+        "symlink": ({**entries, "src/jarvis/link.py": ("120000", "blob", blob(repo, "/etc/passwd"))}, "regular file"),
+        "submodule": ({**entries, "src/jarvis/sub": ("160000", "commit", base)}, "regular file"),
+        "non-ascii-name": ({**entries, "src/jarvis/we ird\u00e9.py": ("100644", "blob", one)}, "unusual"),
+        "case-collision": ({**entries, "src/jarvis/A.py": ("100644", "blob", one), "src/jarvis/a.py": ("100644", "blob", blob(repo, "x = 2\n"))}, "colliding"),
+        "backslash-name": ({**entries, "src/jarvis/a\\b.py": ("100644", "blob", one)}, "unusual"),
+        "drive-colon-name": ({**entries, "src/jarvis/c:x.py": ("100644", "blob", one)}, "unusual"),
+        "trailing-dot-name": ({**entries, "src/jarvis/x.py.": ("100644", "blob", one)}, "unusual"),
+    }
+    def leftovers() -> set[Path]:
+        return set(Path(tempfile.gettempdir()).glob("jarvis-export-*"))
+    before = leftovers()
+    for name, (ents, text) in cases.items():
+        commit = commit_with_entries(repo, ents, base)
+        with pytest.raises(PreparationError, match=text):
+            w.export_commit(commit)
+        assert leftovers() == before, name                                                  # a refused export leaves no directory behind
+    ok = w.export_commit(commit_with_entries(repo, {**entries, "src/jarvis/ok.py": ("100755", "blob", one)}, base))   # an executable regular file is a regular file
+    w.remove_export(ok.path)
 
 
 def test_export_survives_clean_smudge_filters_and_crlf_settings(tmp_path):

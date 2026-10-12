@@ -159,6 +159,13 @@ def test_the_improvement_layer_registers_no_tool_the_model_could_call(tmp_path):
 
 
 # ---- the tests themselves never execute proposal samples -----------------------------------------------------------------------------------
+def test_no_collected_test_id_comes_near_the_windows_environment_limit(request):
+    """PYTEST_CURRENT_TEST holds the node id; Windows limits an environment variable to 32,767 characters. A huge parametrize value without an explicit id broke it once."""
+    ours = [i for i in request.session.items if i.nodeid.startswith("tests/test_self_improvement_")]       # only this phase's tests (others are not ours to judge)
+    longest = max(ours, key=lambda i: len(i.nodeid))
+    assert len(longest.nodeid) < 1000, (len(longest.nodeid), longest.nodeid[:120])
+
+
 def test_the_test_suite_for_this_phase_never_execs_or_imports_samples():
     for f in sorted(TESTS.glob("test_self_improvement_*.py")) + [TESTS / "si_util.py"]:
         tree = ast.parse(f.read_text(encoding="utf-8"))

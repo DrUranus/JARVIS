@@ -170,10 +170,12 @@ def test_unclassifiable_or_forbidden_entries_block(kw, text):
         review(b"x = 1\n", b"x = 2\n", **kw)
 
 
+# explicit short ids: the default id would contain the whole 600 KB parameter, and the node id goes into PYTEST_CURRENT_TEST (Windows limit: 32,767 characters)
 @pytest.mark.parametrize("old, new, text", [
     (b"x = 1\n", b"x = 1\n\x00", "binary"), (b"x = 1\n", b"\xff\xfe\x00x", "binary"), (b"x = 1\n", b"x = '\xe9'\n", "UTF-8"), (b"x = 1\n", b"x = 1\n" * 100_000, "too large"),
     (b"x = 1\n", b"def broken(:\n", "manual review"), (b"x = 1\n", b"x = '" + b"a" * 300 + b"'\n", "too long"),
-    (b"x = 1\n", b"".join(b"y%d = %d\n" % (i, i) for i in range(MAX_VIEW_LINES + 20)), "cannot be shown completely")])
+    (b"x = 1\n", b"".join(b"y%d = %d\n" % (i, i) for i in range(MAX_VIEW_LINES + 20)), "cannot be shown completely")],
+    ids=["nul-byte", "nul-and-invalid-utf8", "invalid-utf8", "600kb-file", "unparsable-module", "300-char-line", "more-than-max-view-lines"])
 def test_binary_unreadable_oversized_or_undisplayable_changes_block(old, new, text):
     with pytest.raises(ChangeBlocked, match=text):
         review(old, new)
