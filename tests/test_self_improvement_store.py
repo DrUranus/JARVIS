@@ -101,6 +101,7 @@ def test_concurrent_processes_never_lose_an_update(tmp_path):
         wins = 0
         for i in range(8):
             while True:
+                st.list()                                          # extra reader: opens the file while other processes replace it
                 cur = st.get({shared.proposal_id!r})
                 try:
                     st.save(cur.evolve(title="w" + n)); wins += 1; break
@@ -114,6 +115,135 @@ def test_concurrent_processes_never_lose_an_update(tmp_path):
     assert all(p.returncode == 0 for p in procs), [o[1][-300:] for o in outs]
     st2 = JsonProposalStore(path, KEY)
     assert st2.get(shared.proposal_id).rev == 1 + sum(int(o[0]) for o in outs) == 1 + 32 and len([p for p in st2.list() if p.title.startswith("own-")]) == 32
+    assert [p.returncode for p in procs] == [0, 0, 0, 0] and all(o[0].strip() == "8" for o in outs)           # every process finished all its 8 updates
+    assert sorted(f.name for f in path.parent.iterdir()) == ["proposals.json", "proposals.json.lock"]        # ONE shared lock file, no stray temp/tampered files
+
+
+# ---- root cause of the Windows failure: readers opened the file outside the lock while a writer replaced it ----------------------------------------
+# On Windows a file opened by Python's open() can not be replaced/deleted by another process (no FILE_SHARE_DELETE): os.replace -> PermissionError [WinError 5].
+# So the invariant is: the store file is only ever OPENED (read) or REPLACED while the inter-process lock is held.
+def test_every_open_and_replace_of_the_store_file_happens_under_the_inter_process_lock(tmp_path, monkeypatch):
+    """Platform-neutral regression test of the invariant (no Windows needed): record lock depth at every read and replace of the store file."""
+    import pathlib
+    from jarvis.self_improvement import store as store_mod
+    depth = {"n": 0}
+    seen: list[tuple[str, int]] = []
+    real_enter, real_exit = store_mod._FileLock.__enter__, store_mod._FileLock.__exit__
+
+    def enter(self):
+        r = real_enter(self)
+        depth["n"] += 1
+        return r
+
+    def exit_(self, *a):
+        depth["n"] -= 1
+        return real_exit(self, *a)
+    real_read, real_replace = pathlib.Path.read_bytes, os.replace
+    target = (tmp_path / "d" / "proposals.json")
+
+    def read_bytes(self):
+        if self == target:
+            seen.append(("read", depth["n"]))
+        return real_read(self)
+
+    def replace(src, dst):
+        if Path(dst) == target:
+            seen.append(("replace", depth["n"]))
+        return real_replace(src, dst)
+    monkeypatch.setattr(store_mod._FileLock, "__enter__", enter)
+    monkeypatch.setattr(store_mod._FileLock, "__exit__", exit_)
+    monkeypatch.setattr(pathlib.Path, "read_bytes", read_bytes)
+    monkeypatch.setattr(store_mod.os, "replace", replace)
+    st = store(tmp_path)                       # constructor reads (nothing there yet)
+    a = st.save(prop("a"))                     # save reads + replaces
+    st.get(a.proposal_id)
+    st.list()
+    JsonProposalStore(target, KEY).list()      # a second instance (like a second process): constructor + list
+    assert {k for k, _ in seen} == {"read", "replace"} and len(seen) >= 6
+    assert all(d >= 1 for _, d in seen), seen  # never outside the lock
+
+
+def test_simulated_windows_open_handle_semantics_do_not_break_concurrent_stores(tmp_path, monkeypatch):
+    """SIMULATION (runs on Linux, not Windows): emulate the Windows rule 'os.replace of a file that another handle has open fails with PermissionError [WinError 5]'.
+    Each thread uses its OWN store object (own in-process lock), like separate processes, so only the file lock can keep readers and the writer apart."""
+    import pathlib
+    import time
+    from jarvis.self_improvement import store as store_mod
+    path = tmp_path / "d" / "proposals.json"
+    open_handles = {"n": 0}
+    guard = threading.Lock()
+    real_read, real_replace = pathlib.Path.read_bytes, os.replace
+
+    def read_bytes(self):
+        if self != path:
+            return real_read(self)
+        with guard:
+            open_handles["n"] += 1
+        try:
+            time.sleep(0.002)                  # keep the 'handle' open long enough to overlap with a replace
+            return real_read(self)
+        finally:
+            with guard:
+                open_handles["n"] -= 1
+
+    def replace(src, dst):
+        if Path(dst) == path:
+            with guard:
+                busy = open_handles["n"]
+            if busy:
+                raise PermissionError(13, "[WinError 5] Zugriff verweigert (simulated: the destination is open in another handle)")
+        return real_replace(src, dst)
+    monkeypatch.setattr(pathlib.Path, "read_bytes", read_bytes)
+    monkeypatch.setattr(store_mod.os, "replace", replace)
+    first = JsonProposalStore(path, KEY)
+    shared = first.save(prop("shared"))
+    errors: list[BaseException] = []
+    wins: list[int] = []
+    lock = threading.Lock()
+
+    def worker(n):
+        st = JsonProposalStore(path, KEY)
+        try:
+            for _ in range(8):
+                while True:
+                    st.list()
+                    cur = st.get(shared.proposal_id)
+                    try:
+                        st.save(cur.evolve(title=f"w{n}"))
+                        with lock:
+                            wins.append(n)
+                        break
+                    except ConcurrentUpdateError:
+                        continue
+                st.save(prop(f"own-{n}"))
+        except BaseException as exc:  # noqa: BLE001 - collected and asserted below
+            errors.append(exc)
+    ts = [threading.Thread(target=worker, args=(i,)) for i in range(4)]
+    [t.start() for t in ts]
+    [t.join(120) for t in ts]
+    assert not errors, errors[:2]
+    final = JsonProposalStore(path, KEY)
+    assert len(wins) == 32 and final.get(shared.proposal_id).rev == 1 + 32 and len([p for p in final.list() if p.title.startswith("own-")]) == 32
+
+
+def test_a_refused_replace_is_reported_clearly_and_loses_nothing(tmp_path, monkeypatch):
+    """If the OS still refuses the replace (another program, e.g. a virus scanner, holds the file) the store says so, keeps the old file intact, removes its temp file
+    and stays usable. No silent retry loop: the caller sees the failure."""
+    from jarvis.self_improvement import ImprovementError, store as store_mod
+    st = store(tmp_path)
+    a = st.save(prop("a"))
+    f = tmp_path / "d" / "proposals.json"
+    before = f.read_bytes()
+
+    def refuse(src, dst):
+        raise PermissionError(13, "[WinError 5] Zugriff verweigert")
+    monkeypatch.setattr(store_mod.os, "replace", refuse)
+    with pytest.raises(ImprovementError, match="in use by another program"):
+        st.save(prop("b"))
+    assert f.read_bytes() == before and not f.with_suffix(".json.tmp").exists() and [p.title for p in st.list()] == ["a"]
+    monkeypatch.undo()
+    b = st.save(prop("b"))                                          # the store is still consistent and usable
+    assert {p.title for p in st.list()} == {"a", "b"} and b.rev == 1 and a.rev == 1
 
 
 # ---- tamper detection (fail closed) ----------------------------------------------------------------------------------------------------------

@@ -60,7 +60,10 @@ def test_only_the_workspace_starts_processes_and_only_the_store_writes_its_own_f
             continue
         assert not imports(tree) & {"subprocess", "shutil", "tempfile", "socket", "ctypes", "pickle", "marshal", "importlib", "multiprocessing", "http", "urllib", "signal"}, f.name
         assert not builtin_calls(tree) & {"eval", "exec", "compile", "__import__", "open"} - ({"open"} if f.name in ("store.py",) else set()), f.name
-        assert not calls(tree) & {"Popen", "system", "popen", "rmtree", "unlink", "chmod", "execv", "spawn"}, f.name
+        assert not calls(tree) & {"Popen", "system", "popen", "rmtree", "chmod", "execv", "spawn"}, f.name
+        unlinks = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "unlink"]
+        # the only deletion outside workspace.py: the store removing ITS OWN temp file (the variable `tmp`) after a refused replace
+        assert all(f.name == "store.py" and isinstance(u.func.value, ast.Name) and u.func.value.id == "tmp" for u in unlinks), f.name
         assert f.name == "store.py" or not calls(tree) & {"write_bytes", "write_text", "mkdir", "replace", "fsync"} - {"replace"}, f.name      # only the store writes its own files
 
 

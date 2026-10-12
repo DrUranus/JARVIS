@@ -173,7 +173,20 @@ class JsonProposalStore(ProposalStore):
     def _mac(self, payload: dict) -> str:
         return hmac.new(self._key, _canonical(payload), hashlib.sha256).hexdigest()
 
+    @property
+    def _lock_path(self) -> Path:
+        return self.path.with_suffix(self.path.suffix + ".lock")
+
     def _read(self) -> tuple[int, dict[str, Proposal]]:
+        """Verified read UNDER the inter-process lock. The file is only ever opened or replaced while that lock is held: on Windows a file that another process has
+        open cannot be replaced (no FILE_SHARE_DELETE, os.replace -> PermissionError [WinError 5]), so an unlocked reader made concurrent writers fail. Callers that
+        already hold the lock (save) use _read_unlocked - the lock is not re-entrant across handles."""
+        if not self.path.exists():                       # nothing to open: no lock (and no directory) needed; a file that appears later is simply not part of this snapshot
+            return self._seq_seen, {}
+        with _FileLock(self._lock_path):
+            return self._read_unlocked()
+
+    def _read_unlocked(self) -> tuple[int, dict[str, Proposal]]:
         try:
             raw = self.path.read_bytes()
         except FileNotFoundError:
@@ -215,8 +228,8 @@ class JsonProposalStore(ProposalStore):
             return sorted(self._read()[1].values(), key=lambda p: p.created_at, reverse=True)
 
     def save(self, proposal: Proposal) -> Proposal:
-        with self._lock, _FileLock(self.path.with_suffix(self.path.suffix + ".lock")):
-            seq, items = self._read()                       # verified; raises IntegrityError and writes nothing if the file is not trusted
+        with self._lock, _FileLock(self._lock_path):
+            seq, items = self._read_unlocked()              # verified; raises IntegrityError and writes nothing if the file is not trusted
             cur = items.get(proposal.proposal_id)
             if (cur.rev if cur else 0) != proposal.rev:
                 raise ConcurrentUpdateError(f"proposal {proposal.proposal_id} was changed by someone else (expected rev {proposal.rev}, stored {cur.rev if cur else 'none'})")
@@ -235,6 +248,13 @@ class JsonProposalStore(ProposalStore):
                 fh.write(json.dumps(doc, ensure_ascii=True, indent=1))
                 fh.flush()
                 os.fsync(fh.fileno())
-            os.replace(tmp, self.path)
+            try:
+                os.replace(tmp, self.path)
+            except PermissionError as exc:                  # something outside this store (e.g. a virus scanner) holds the file: report it, keep the old file, no retry loop
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+                raise ImprovementError("the proposal file is in use by another program (replace refused); nothing was written") from exc
             self._seq_seen = seq + 1
             return stored
