@@ -340,8 +340,10 @@ class GitWorkspace:
                     rel = m.group(5).decode("utf-8")
                 except UnicodeDecodeError:
                     raise PreparationError("the commit contains a file name that is not valid UTF-8") from None
-                if not _export_path_ok(rel) or rel.casefold() in folded:
-                    raise PreparationError("the commit contains an unusual or colliding file name")
+                if not _export_path_ok(rel):
+                    raise PreparationError("the commit contains an unusual file name")
+                if rel.casefold() in folded:
+                    raise PreparationError("the commit contains file names that differ only in case (collision on case-insensitive file systems)")
                 folded.add(rel.casefold())
                 data = self.read_blob(m.group(3).decode("ascii"), cancel)
                 if hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest() != m.group(3).decode("ascii"):  # noqa: S324
