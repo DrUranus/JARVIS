@@ -12,6 +12,9 @@ from typing import Callable, Mapping
 from jarvis.permissions.confirmation import ConfirmationChoice, ConfirmationProvider, ConfirmationRequest
 from jarvis.permissions.levels import PermissionLevel
 
+import re
+
+_SAFE = re.compile(r"^[\n\x20-\x7e]*\Z")          # printable ASCII and newline only: no ESC, bidi, NUL, CR, tabs
 log = logging.getLogger("jarvis.self_improvement")
 
 
@@ -37,10 +40,13 @@ class ApprovalGate:
         provider = self._current()
         if provider is None:
             return False
+        if not all(isinstance(k, str) and isinstance(v, str) and _SAFE.match(k + v) for k, v in context.items()) or not _SAFE.match(reason):
+            log.warning("approval request refused: a field contains control characters")       # fail closed: an unreadable/forgeable prompt is never shown
+            return False
         req = ConfirmationRequest(request_id=uuid.uuid4().hex[:12], tool="self_improvement", action=action, level=PermissionLevel.YELLOW,
                                   resource=proposal_id, reason=reason, context=dict(context), session_allowed=False)
         try:
             return provider.confirm(req) is ConfirmationChoice.ALLOW_ONCE
-        except BaseException as exc:  # noqa: BLE001 - Ctrl-C, closed input, a broken UI: all of these are "no"
+        except Exception as exc:  # noqa: BLE001 - closed input (EOFError), a broken UI: "no" (Ctrl-C propagates and leaves the state unchanged)
             log.warning("approval prompt failed (%s): treated as refusal", type(exc).__name__)
             return False

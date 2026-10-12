@@ -31,3 +31,11 @@ class ChangeBlocked(ImprovementError):
 
 class PreparationError(ImprovementError):
     """The isolated copy could not be prepared (git missing, repository unusable, edit does not apply, timeout, cancelled)."""
+
+
+class ConcurrentUpdateError(ImprovementError):
+    """The stored proposal changed since it was read (another thread or process won); nothing was written."""
+
+
+class IntegrityError(ImprovementError):
+    """The proposal store failed its integrity check (or has no usable key): the store is read-only and nothing in it is trusted."""

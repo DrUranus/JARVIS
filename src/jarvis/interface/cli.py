@@ -39,7 +39,7 @@ HELP = """Befehle:
   /business      Business-Agent: Status (Analysen/Entwürfe, sendet nichts; /run business action=break_even …)
   /finance       Finance-Agent: Status (nur Analyse und Paper-Trading, keine Orders; /run finance action=risk_reward …)
   /repair <Ziel> workspace="…" [tests=… runner=… candidates='[…]'] | status [id] | attempts <id> | cancel <id>   Test/Reparatur im Workspace
-  /improve       Selbstverbesserung: analyze | list | show <id> | propose "<Titel>" "<Problem>" | prepare <id> [edits=<datei.json>|files=a,b] | test <id> | submit <id> | approve <id> | activate <id> | rollback <id> | reject <id> | cancel <id>
+  /improve       Selbstverbesserung (nur Vorschläge; Code wird nicht vorbereitet/getestet/aktiviert): analyze [llm] | list | show <id> | propose "<Titel>" "<Problem>" | reject <id>
   /goal <Ziel>   Ziel ausführen (optional: url=… workspace=… runner=… read_paths=a,b) | status|steps|cancel <id>
   /voice         Sprachmodus starten (zurück mit „exit“)
   /help          Diese Hilfe
@@ -458,20 +458,19 @@ def _improve(core: JarvisCore, arg: str) -> str:
             out += [line(p) for p in rep.created] + [f"  Hinweis: {w}" for w in rep.warnings]
             return "\n".join(out)
         if word == "show":
+            from jarvis.self_improvement.policy import one_line as q          # text from analysis/logs/models is shown quoted on ONE line, escaped
             p = mgr.get(need_id())
-            out = [f"{p.proposal_id}  {p.status.value}  ({p.source}, {p.created_at:%Y-%m-%d %H:%M})", f"  Titel: {p.title}", f"  Problem: {p.problem}"]
-            out += [f"  Beleg: [{e.source}] {e.description} – {e.count} Datensatz/Datensätze" for e in p.evidence]
-            out += [f"  Änderung: {p.change}", f"  Nutzen: {p.benefit}"] + [f"  Risiko: {r}" for r in p.risks]
-            out += ["  Betrifft: " + ", ".join(p.affected), "  Tests: " + ", ".join(p.suggested_tests)]
-            if p.branch:
-                out += [f"  Branch: {p.branch}  Basis {p.base_commit[:12]}  Stand {p.head_commit[:12]}  Digest {p.diff_digest}", p.diff_stat]
-            out += [f"  Stufe {s.name}: {'ausgeführt, bestanden' if s.passed else ('ausgeführt, FEHLGESCHLAGEN' if s.executed else 'NICHT ausgeführt')}" for s in p.stages]
-            if p.approval:
-                out.append(f"  Freigabe: {p.approval.at:%Y-%m-%d %H:%M} über {p.approval.channel}")
+            out = [f"{p.proposal_id}  {p.status.value}  ({p.source}, {p.created_at:%Y-%m-%d %H:%M})", f"  Titel (ungeprueft): {q(p.title)}", f"  Problem (ungeprueft): {q(p.problem, 400)}"]
+            out += [f"  Beleg: [{q(e.source, 40)}] {q(e.description, 200)} - {e.count} Datensatz/Datensaetze" for e in p.evidence]
+            out += [f"  Aenderung (ungeprueft): {q(p.change, 400)}", f"  Nutzen (ungeprueft): {q(p.benefit, 300)}"] + [f"  Risiko (ungeprueft): {q(r, 200)}" for r in p.risks]
+            out += ["  Betrifft (Hinweis): " + q(", ".join(p.affected), 300), "  Tests (Hinweis): " + q(", ".join(p.suggested_tests), 300)]
+            out += [f"  {t.at:%H:%M:%S} {(t.old.value if t.old else '-')} -> {t.new.value} ({q(t.actor, 20)})" for t in p.history]
             if p.reason:
-                out.append(f"  Grund: {p.reason}")
-            out += [f"  {t.at:%H:%M:%S} {(t.old.value if t.old else '-')} -> {t.new.value} ({t.actor})" for t in p.history]
+                out.append(f"  Grund: {q(p.reason, 300)}")
             return "\n".join(out)
+        if word in ("prepare", "test", "submit", "approve", "activate", "rollback") and not mgr.describe()["code_execution"]:
+            return ("Nicht moeglich: Vorgeschlagener Code wird in dieser Version nicht vorbereitet, importiert, getestet oder aktiviert - die Ausfuehrungs-Isolation ist nicht "
+                    f"nachgewiesen ({mgr.describe()['execution_note']}). Es gibt nur Vorschlaege: /improve analyze | list | show | propose | reject.")
         if word == "propose":
             if len(rest) < 2:
                 return 'Verwendung: /improve propose "<Titel>" "<Problem>"'

@@ -1,7 +1,7 @@
 """Optional language-model help for proposals. The model is an untrusted writer: it may (1) improve the wording of a proposal from observations that were
 already derived from real data and (2) draft text edits for files it is shown. Everything it returns is parsed as strict JSON and re-validated by the same
 rules as a manual edit; its text is never executed, never used as a command and never changes status. It cannot add evidence, approve or activate anything.
-The provider is used only through `complete_text(system, user, ...)`; this module knows no concrete provider."""
+Drafting edits is part of PREPARING a change and is therefore disabled together with it (the manager refuses before this module is reached). The provider is used only through `complete_text(system, user, ...)`; this module knows no concrete provider."""
 from __future__ import annotations
 
 import json
@@ -87,7 +87,7 @@ class LLMImprovementWriter:
                 fields["risks"] = tuple(P.clean_text(self._detector.redact(r), 300) for r in it["risks"][:P.MAX_LIST] if isinstance(r, str) and r.strip())
             if isinstance(it.get("tests"), list):
                 fields["suggested_tests"] = tuple(t for t in it["tests"][:P.MAX_TESTS] if isinstance(t, str) and P.TEST_ID_RE.match(t) and ".." not in t)
-            if fields and P.scan_added(" ".join(str(v) for v in fields.values() if isinstance(v, str))) is None:
+            if fields:
                 out[it["key"]] = fields
         return out
 

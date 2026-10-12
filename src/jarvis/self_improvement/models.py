@@ -2,6 +2,7 @@
 appears in a repr. Proposals serialise to JSON (to_dict/from_dict) and are validated again when loaded."""
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -12,6 +13,10 @@ from jarvis.self_improvement.errors import InvalidProposalError
 from jarvis.self_improvement.state import ProposalStatus, check_transition
 
 SOURCES = ("analysis", "llm", "user")
+
+
+_SHA_OR_EMPTY = re.compile(r"^([0-9a-f]{40})?\Z")
+_HEX_OR_EMPTY = re.compile(r"^([0-9a-f]{16,64})?\Z")
 
 
 def utcnow() -> datetime:
@@ -101,16 +106,18 @@ class Approval:
     channel: str
     head_commit: str
     diff_digest: str
+    view_digest: str = ""            # digest of the exact review text that was shown to the user
 
     def to_dict(self) -> dict[str, Any]:
-        return {"at": _iso(self.at), "channel": self.channel, "head_commit": self.head_commit, "diff_digest": self.diff_digest}
+        return {"at": _iso(self.at), "channel": self.channel, "head_commit": self.head_commit, "diff_digest": self.diff_digest, "view_digest": self.view_digest}
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "Approval":
         at = _parse_dt(d.get("at"))
         if at is None:
             raise InvalidProposalError("approval without timestamp")
-        return cls(at, P.clip(d.get("channel", ""), 60), str(d.get("head_commit", "")), str(d.get("diff_digest", "")))
+        return cls(at, P.clip(d.get("channel", ""), 60), str(d.get("head_commit", "")), str(d.get("diff_digest", "")),
+                   str(d.get("view_digest", "")))
 
 
 @dataclass(frozen=True)
@@ -161,10 +168,21 @@ class Proposal:
     stages: tuple[StageReport, ...] = ()
     approval: Approval | None = None
     reason: str = field(default="", repr=False)                 # why FAILED / BLOCKED / REJECTED
+    tested_manifest: str = ""                                   # sha256 of the file manifest of the exact exported commit that was reviewed/tested
+    rev: int = 0                                                # compare-and-swap counter of the store (incremented by every save)
 
     def __post_init__(self) -> None:
         if not P.ID_RE.match(self.proposal_id):
             raise InvalidProposalError("bad proposal id")
+        if isinstance(self.rev, bool) or not isinstance(self.rev, int) or self.rev < 0:
+            raise InvalidProposalError("bad revision counter")
+        for name, rx in (("base_commit", _SHA_OR_EMPTY), ("head_commit", _SHA_OR_EMPTY), ("diff_digest", _HEX_OR_EMPTY), ("tested_manifest", _HEX_OR_EMPTY)):
+            if not rx.match(getattr(self, name)):
+                raise InvalidProposalError(f"{name} is not a valid hash")
+        if self.branch and self.branch != P.BRANCH_PREFIX + self.proposal_id:
+            raise InvalidProposalError("bad branch name")
+        if len(self.changed_files) > P.MAX_FILES or any(not isinstance(f, str) or P.refuse_target(f) for f in self.changed_files):
+            raise InvalidProposalError("changed file outside the allow-list")
         if not isinstance(self.status, ProposalStatus):
             raise InvalidProposalError("status must be a ProposalStatus")
         if self.source not in SOURCES:
@@ -218,7 +236,8 @@ class Proposal:
             "created_at": _iso(self.created_at), "updated_at": _iso(self.updated_at), "history": [t.to_dict() for t in self.history],
             "branch": self.branch, "base_commit": self.base_commit, "head_commit": self.head_commit, "diff_digest": self.diff_digest,
             "diff_stat": self.diff_stat, "changed_files": list(self.changed_files), "stages": [s.to_dict() for s in self.stages],
-            "approval": self.approval.to_dict() if self.approval else None, "reason": self.reason, "edit_count": len(self.edits)}
+            "approval": self.approval.to_dict() if self.approval else None, "reason": self.reason, "edit_count": len(self.edits),
+            "tested_manifest": self.tested_manifest, "rev": self.rev}
         if with_edits:
             d["edits"] = [dict(e) for e in self.edits]
         return d
@@ -235,7 +254,8 @@ class Proposal:
                 edits=tuple(dict(e) for e in d.get("edits", ())), branch=str(d.get("branch", "")), base_commit=str(d.get("base_commit", "")),
                 head_commit=str(d.get("head_commit", "")), diff_digest=str(d.get("diff_digest", "")), diff_stat=str(d.get("diff_stat", "")),
                 changed_files=tuple(str(f) for f in d.get("changed_files", ())), stages=tuple(StageReport.from_dict(s) for s in d.get("stages", ())),
-                approval=Approval.from_dict(d["approval"]) if d.get("approval") else None, reason=str(d.get("reason", "")))
+                approval=Approval.from_dict(d["approval"]) if d.get("approval") else None, reason=str(d.get("reason", "")),
+                tested_manifest=str(d.get("tested_manifest", "")), rev=int(d.get("rev", 0)))
         except InvalidProposalError:
             raise
         except (KeyError, TypeError, ValueError, AttributeError) as exc:

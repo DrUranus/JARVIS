@@ -25,3 +25,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "detection_only: checks a detection heuristic or a static filter (AST scan, allow-list, prompt rendering). It does NOT prove isolation and does not authorise running proposed code.",
+]

@@ -144,21 +144,23 @@ class SelfRepairSettings:
 
 @dataclass(frozen=True)
 class SelfImprovementSettings:
-    """Self-improvement (Phase 15). Everything is OFF/conservative by default. It analyses real run data, proposes improvements and (only if allowed) prepares them in an
-    isolated git branch; it can never approve or activate anything without the user's explicit confirmation, and never changes security code."""
+    """Self-improvement (Phase 15) - a DISABLED PROPOSAL WORKFLOW. With enabled = true it only analyses recorded run data, stores proposals (HMAC-signed) and keeps
+    their status; it never prepares, tests, imports, runs, merges or activates code. allow_prepare, allow_activation and repo_path exist as reserved keys: any
+    value other than the default is rejected at startup because execution isolation has not been proven (see src/jarvis/self_improvement/isolation.py)."""
     enabled: bool = False
-    use_llm: bool = False                  # wording of proposals / drafted edits by the LLM provider (sends redacted observations and file contents to it)
-    repo_path: str = ""                    # git checkout of JARVIS itself; "" = no preparation/testing possible
-    data_dir: str = "data/improvements"    # proposals.json and the isolated worktrees (keep it outside security.allowed_roots)
-    allow_prepare: bool = False            # prepare changes in a separate branch/worktree (needs repo_path)
-    allow_activation: bool = False         # allow the user-approved merge into the ACTIVE branch (needs repo_path)
+    use_llm: bool = False                  # the LLM provider may reword proposals (sends redacted observations to it)
+    repo_path: str = ""                    # RESERVED - must stay empty
+    data_dir: str = "data/improvements"    # must lie OUTSIDE security.allowed_roots and coding.workspace_roots (checked at startup, fail closed)
+    key_path: str = ""                     # HMAC key file for proposals.json ("" = ~/.jarvis/self_improvement.store.key); outside data_dir and every allowed root
+    allow_prepare: bool = False            # RESERVED - must stay false
+    allow_activation: bool = False         # RESERVED - must stay false
     max_proposals: int = 200
     min_occurrences: int = 2               # a problem must be recorded this often before it becomes a proposal
-    max_edits: int = 5                     # text replacements per change (hard limit 10)
-    max_diff_bytes: int = 100_000
-    prepare_timeout_seconds: float = 60.0  # per git command
-    test_timeout_seconds: float = 600.0    # per test command
-    regression_paths: tuple[str, ...] = ("tests",)
+    max_edits: int = 5                     # reserved for a later, isolated version
+    max_diff_bytes: int = 100_000          # reserved
+    prepare_timeout_seconds: float = 60.0  # reserved
+    test_timeout_seconds: float = 600.0    # reserved
+    regression_paths: tuple[str, ...] = ("tests",)   # reserved
 
 
 @dataclass(frozen=True)
@@ -368,10 +370,9 @@ class Settings:
         if not 1 <= si.max_proposals <= 2000 or not 1 <= si.min_occurrences <= 50 or not 1 <= si.max_edits <= 10 or not 1000 <= si.max_diff_bytes <= 500_000 \
                 or not 0 < si.prepare_timeout_seconds <= 600 or not 0 < si.test_timeout_seconds <= 3600:
             raise ConfigError("self_improvement.max_proposals 1..2000, min_occurrences 1..50, max_edits 1..10, max_diff_bytes 1000..500000, prepare_timeout_seconds 0..600, test_timeout_seconds 0..3600 (positive)")
-        if (si.allow_prepare or si.allow_activation) and not si.repo_path.strip():
-            raise ConfigError("self_improvement.allow_prepare/allow_activation need self_improvement.repo_path")
-        if si.allow_activation and not si.allow_prepare:
-            raise ConfigError("self_improvement.allow_activation needs allow_prepare")
+        if si.allow_prepare or si.allow_activation or si.repo_path.strip():
+            raise ConfigError("self_improvement.allow_prepare, allow_activation and repo_path are not available in this version: proposed code is never prepared, tested or "
+                              "activated until execution isolation is proven (see src/jarvis/self_improvement/isolation.py)")
         if not si.data_dir.strip() or not si.regression_paths or any(not r.strip() or r.startswith(("/", "\\")) or ".." in r for r in si.regression_paths):
             raise ConfigError("self_improvement.data_dir must not be empty; regression_paths must be relative paths inside the repository")
         sr = self.self_repair

@@ -152,23 +152,23 @@ max_active_repairs = 1
 max_history = 50
 
 [self_improvement]
-# Controlled self-improvement (Phase 15) is OFF by default. It reads what actually happened (finished goals, repair runs, audit log), writes IMPROVEMENT PROPOSALS and -
-# only if you allow it - prepares a change in a separate git branch + worktree and tests it there. It never overwrites the running code on its own: a change is
-# activated only after YOU approved it (confirmation prompt) and only if allow_activation = true. Permissions, policies, secrets, configuration, wiring and this
-# feature itself can never be changed by it (such a change is BLOCKED and needs a manual review). Proposals are saved in data_dir/proposals.json.
+# Phase 15 is a DISABLED PROPOSAL WORKFLOW. With enabled = true JARVIS only analyses what was recorded (finished goals, repair runs, audit log), stores proposals in a signed
+# file and tracks their status. It NEVER prepares, imports, tests, runs, merges or activates code: that needs a proven sandbox, which does not exist (see
+# src/jarvis/self_improvement/isolation.py and the README). allow_prepare, allow_activation and repo_path are reserved: any other value is rejected at startup.
 enabled = false
-use_llm = false                 # true: the LLM provider may word proposals / draft edits (redacted observations and the named files are sent to it)
-repo_path = ""                  # your JARVIS git checkout, e.g. "C:/Users/you/JARVIS"; "" = proposals only, nothing can be prepared or tested
-data_dir = "data/improvements"  # keep this OUTSIDE security.allowed_roots so the coding tools cannot write to it
-allow_prepare = false           # prepare changes in a separate branch/worktree (needs repo_path)
-allow_activation = false        # let YOU merge an approved, tested change into the active branch (needs allow_prepare)
+use_llm = false                 # true: the LLM provider may reword proposals (redacted observations are sent to it)
+repo_path = ""                  # RESERVED - must stay empty
+allow_prepare = false           # RESERVED - must stay false
+allow_activation = false        # RESERVED - must stay false
+data_dir = "data/improvements"  # proposals.json lives here; must be OUTSIDE security.allowed_roots, coding.workspace_roots, the workspace and the log directory
+key_path = ""                   # HMAC key for proposals.json; "" = ~/.jarvis/self_improvement.store.key (created owner-only). Or set JARVIS_SELF_IMPROVEMENT_STORE_KEY (hex, 32+ bytes)
 max_proposals = 200
 min_occurrences = 2             # a problem must have been recorded at least this often
-max_edits = 5                   # text replacements per change (hard limit 10)
-max_diff_bytes = 100000
-prepare_timeout_seconds = 60    # per git command
-test_timeout_seconds = 600      # per test command
-regression_paths = ["tests"]
+max_edits = 5                   # reserved for a later, isolated version
+max_diff_bytes = 100000         # reserved
+prepare_timeout_seconds = 60    # reserved
+test_timeout_seconds = 600      # reserved
+regression_paths = ["tests"]    # reserved
 
 [research]
 # Research agent: reads public web pages THROUGH the permission-checked browser tool (every navigation is still judged by the browser rules and asked
