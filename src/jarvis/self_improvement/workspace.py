@@ -27,6 +27,7 @@ from typing import Mapping, Protocol, Sequence
 
 from jarvis.self_improvement import policy as P
 from jarvis.self_improvement.errors import ChangeBlocked, PreparationError
+from jarvis.self_improvement.isolation import ExecutionGuard
 from jarvis.self_improvement.review import RawEntry, ReviewedChange, review_entries
 
 log = logging.getLogger("jarvis.self_improvement")
@@ -70,7 +71,10 @@ def scrubbed_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
     """Allow-list, not block-list. This removes secrets from the ENVIRONMENT only; it does not stop a process from reading files, the home directory or
     the network. It is not isolation."""
     env = {k: v for k, v in os.environ.items() if k.upper() in _ENV_KEEP}
-    env.update({"GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8", "GIT_CONFIG_NOSYSTEM": "1"})
+    # GIT_CONFIG_NOSYSTEM is deliberately NOT set: it hides the machine's system git config, and Git for Windows keeps `core.autocrlf=true` there - without it a CRLF
+    # working tree looks "modified" to `git status` (tracked_changes). It is not needed for safety: hooks and fsmonitor are overridden per command (GitWorkspace._pre),
+    # external diff/textconv are switched off, and decisions use object-database reads (cat-file/ls-tree/diff-tree), which no config can turn into code execution.
+    env.update({"GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"})
     env.update(extra or {})
     return env
 
@@ -222,7 +226,10 @@ def _export_path_ok(path: str) -> bool:
 
 class GitWorkspace:
     def __init__(self, repo: str | os.PathLike[str], data_dir: str | os.PathLike[str], runner: CommandRunner | None = None, *, timeout: float = 60.0,
-                 max_diff_bytes: int = 100_000, max_file_bytes: int = P.MAX_FILE_BYTES) -> None:
+                 max_diff_bytes: int = 100_000, max_file_bytes: int = P.MAX_FILE_BYTES, guard: ExecutionGuard | None = None) -> None:
+        # The methods that CHANGE the repository (create_worktree, apply_and_commit, discard, fast_forward, revert) ask this guard themselves, first thing, so that a
+        # direct call cannot bypass the manager's lock. Default: locked (fail closed). Read-only methods (review, export_commit, tracked_changes, ...) are not guarded.
+        self._guard = guard or ExecutionGuard.locked()
         self._repo = Path(repo).expanduser()
         self._data = Path(data_dir).expanduser()
         self._runner = runner or SubprocessRunner()
@@ -404,6 +411,7 @@ class GitWorkspace:
 
     # ---- preparation (reachable only while the ExecutionGuard allows; never in this version) -------------------------------------------------
     def create_worktree(self, proposal_id: str, cancel: threading.Event | None = None) -> Worktree:
+        self._guard.require("creating a worktree")
         if not P.ID_RE.match(proposal_id):
             raise PreparationError("bad proposal id")
         root = self.root()
@@ -443,6 +451,7 @@ class GitWorkspace:
             raise PreparationError(f"{rel}: not valid UTF-8 text") from None
 
     def apply_and_commit(self, wt: Worktree, edits: Sequence[Mapping[str, str]], message: str, cancel: threading.Event | None = None) -> ReviewedChange:
+        self._guard.require("applying and committing a change")
         new_content: dict[str, bytes] = {}
         for e in edits:
             if cancel is not None and cancel.is_set():
@@ -483,6 +492,7 @@ class GitWorkspace:
         return valid_sha(self._need(self._git(["rev-parse", f"refs/heads/{branch}"], self.root()), "git rev-parse branch").strip())
 
     def discard(self, proposal_id: str, branch: str = "") -> None:
+        self._guard.require("discarding a prepared working copy")
         if not P.ID_RE.match(proposal_id):
             return
         path = (self.worktrees_dir / proposal_id).resolve()
@@ -499,6 +509,7 @@ class GitWorkspace:
 
     # ---- activation / rollback (also locked) -----------------------------------------------------------------------------------------------
     def fast_forward(self, branch: str, expected_base: str, expected_head: str) -> str:
+        self._guard.require("merging a change")
         root = self.root()
         expected_base, expected_head = valid_sha(expected_base), valid_sha(expected_head)
         if not self.current_branch():
@@ -514,6 +525,7 @@ class GitWorkspace:
         return self.head()
 
     def revert(self, commit: str) -> str:
+        self._guard.require("reverting a change")
         root = self.root()
         commit = valid_sha(commit)
         if self.tracked_changes():

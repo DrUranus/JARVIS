@@ -155,6 +155,10 @@ class FakeSandbox:
         self.calls.append((list(argv), export_dir))
         return self.results.pop(0) if self.results else CommandResult(0, "ok", 0.0)
 
+    def import_check(self, modules, export_dir, timeout, cancel=None):
+        self.calls.append((["import_check", *modules], export_dir))
+        return self.results.pop(0) if self.results else CommandResult(0, "ok", 0.0)
+
 
 class Rig:
     def __init__(self, mgr, ws, sink, confirm, sandbox, store):

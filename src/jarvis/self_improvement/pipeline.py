@@ -29,6 +29,9 @@ class SandboxRunner(Protocol):
 
     def run(self, argv: Sequence[str], export_dir: Path, timeout: float, cancel: threading.Event | None = None) -> CommandResult: ...
 
+    def import_check(self, modules: Sequence[str], export_dir: Path, timeout: float, cancel: threading.Event | None = None) -> CommandResult:
+        """Check, INSIDE the sandbox and on the export, that the changed modules can be imported. How is the backend's business; this package contains no such code."""
+
 
 @dataclass
 class PipelineResult:
@@ -97,13 +100,13 @@ class ValidationPipeline:
         sb, d = self._sandbox, export.path
         res.manifest = export.manifest_sha256
 
-        def one(name: str, argv: Sequence[str], timeout: float) -> bool:
+        def one(name: str, call: Callable[[], CommandResult]) -> bool:
             if cancel is not None and cancel.is_set():
                 res.cancelled = True
                 self._skip(res, STAGES.index(name), "cancelled")
                 return False
             t = self._clock()
-            r = sb.run(argv, d, timeout, cancel)
+            r = call()
             res.stages.append(self._report(name, r.ok, (r.output or "") + ("\ntimed out" if r.timed_out else "\ncancelled" if r.cancelled else ""), t,
                                            exit_status=r.exit_status, timed_out=r.timed_out))
             if r.cancelled:
@@ -114,22 +117,23 @@ class ValidationPipeline:
             return True
 
         mods = [f[:-3].removeprefix("src/").replace("/", ".") for f in change.changed_files]
-        code = "import importlib,sys\n[importlib.import_module(m) for m in sys.argv[1:]]\nprint('imported', len(sys.argv)-1)\n"
         have = {path for path, _ in export.manifest}                       # the manifest, not the filesystem, says what exists in the exported commit
         ids = [i for i in tests if P.TEST_ID_RE.match(i) and ".." not in i and i.split("::", 1)[0] in have]
-        steps = [("import", [self._python, "-c", code, *mods], min(self._timeout, 120.0))]
-        if ids:
-            steps.append(("targeted_tests", [self._python, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-x", *ids], self._timeout))
-        else:
-            steps.append(("targeted_tests", [], 0))
         reg = [p for p in self._regression if P.TEST_ID_RE.match(p + "/x.py") and any(h.startswith(p + "/") for h in have)]
-        steps.append(("regression_tests", [self._python, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-x", *reg] if reg else [], self._timeout))
-        for name, argv, timeout in steps:
-            if not argv:
+
+        def pytest_call(targets: list[str]) -> Callable[[], CommandResult]:
+            return lambda: sb.run([self._python, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-x", *targets], d, self._timeout, cancel)
+
+        steps: list[tuple[str, Callable[[], CommandResult] | None]] = [
+            ("import", lambda: sb.import_check(mods, d, min(self._timeout, 120.0), cancel)),
+            ("targeted_tests", pytest_call(ids) if ids else None),
+            ("regression_tests", pytest_call(reg) if reg else None)]
+        for name, call in steps:
+            if call is None:
                 res.stages.append(StageReport(name, False, False, "no matching test exists in the export: nothing was executed"))
                 self._skip(res, STAGES.index(name) + 1, f"not executed: {name} did not pass")
                 break
-            if not one(name, argv, timeout):
+            if not one(name, call):
                 break
         # the tested copy must still be exactly the exported commit; without a verifier (or on any difference) the execution results are discarded
         try:

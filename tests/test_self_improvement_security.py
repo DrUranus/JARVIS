@@ -83,6 +83,23 @@ def test_every_code_touching_method_asks_the_guard_before_anything_else():
         assert isinstance(first, ast.Expr) and "_guard.require" in ast.unparse(first), name
 
 
+def test_every_mutating_workspace_method_asks_the_guard_before_anything_else():
+    tree = ast.parse((PKG / "workspace.py").read_text(encoding="utf-8"))
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "GitWorkspace")
+    for name in ("create_worktree", "apply_and_commit", "discard", "fast_forward", "revert"):
+        fn = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == name)
+        body = [b for b in fn.body if not (isinstance(b, ast.Expr) and isinstance(b.value, ast.Constant))]
+        assert isinstance(body[0], ast.Expr) and "self._guard.require" in ast.unparse(body[0]), name
+    init = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "__init__")
+    assert "ExecutionGuard.locked()" in ast.unparse(init)                 # the default is locked
+
+
+def test_the_pipeline_contains_no_embedded_code_to_run():
+    tree = ast.parse((PKG / "pipeline.py").read_text(encoding="utf-8"))
+    strings = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+    assert not [x for x in strings if "import_module" in x or "importlib" in x or "sys.argv" in x]
+
+
 def test_production_code_never_builds_an_isolation_attestation():
     for f in SRC.rglob("*.py"):
         if f.name == "isolation.py" and f.parent == PKG:

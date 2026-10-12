@@ -13,8 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from jarvis.self_improvement import ChangeBlocked, GitWorkspace, PreparationError, SubprocessRunner, policy as P
-from jarvis.self_improvement.workspace import Export, manifest_digest, valid_sha
+from jarvis.self_improvement import ChangeBlocked, ExecutionDisabled, ExecutionGuard, GitWorkspace, PreparationError, SubprocessRunner, policy as P
+from jarvis.self_improvement.isolation import REQUIRED_PROPERTIES
+from jarvis.self_improvement.workspace import Export, manifest_digest, scrubbed_env, valid_sha
+from si_util import full_attestation
 
 PLANNER = "src/jarvis/goals/planner.py"
 FILES = {"src/jarvis/__init__.py": "", PLANNER: "def add(a, b):\n    return a - b\n", "src/jarvis/goals/evaluator.py": "X = 1\n", "tests/test_x.py": "def test_x():\n    assert True\n"}
@@ -61,12 +63,17 @@ def ws(tmp_path, repo) -> GitWorkspace:
     return GitWorkspace(repo, tmp_path / "data", timeout=30)
 
 
+def ws_unlocked(tmp_path, repo) -> GitWorkspace:
+    """A workspace whose guard is a TEST DOUBLE claiming proven isolation. It sandboxes nothing; it only lets the git-only primitives run in a temporary repository."""
+    return GitWorkspace(repo, tmp_path / "data", timeout=30, guard=ExecutionGuard(full_attestation()))
+
+
 # ---- valid git arguments ---------------------------------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("bad", ["--output=/tmp/x", "HEAD", "main", "g" * 40, "a" * 39, "a" * 41, "A" * 40, "", None, 5, "a" * 40 + " --stat", "a" * 40 + "\n"])
 def test_only_full_hex_object_ids_reach_git(tmp_path, bad):
     with pytest.raises(PreparationError):
         valid_sha(bad)
-    w = ws(tmp_path, make_repo(tmp_path))
+    w = ws_unlocked(tmp_path, make_repo(tmp_path))                       # unlocked only so that the argument check behind the guard is reached
     with pytest.raises(PreparationError):
         w.changed_entries(bad, "a" * 40)
     with pytest.raises(PreparationError):
@@ -232,6 +239,101 @@ def test_export_removal_only_touches_export_directories(tmp_path):
     (victim / "f").write_text("keep")
     GitWorkspace.remove_export(victim)
     assert (victim / "f").exists()
+
+
+# ---- the workspace refuses to change the repository on its own (direct calls cannot bypass the manager's lock) ------------------------------------------------
+MUTATORS = {
+    "create_worktree": lambda w: w.create_worktree("imp-000000000001"),
+    "apply_and_commit": lambda w: w.apply_and_commit(None, [{"path": PLANNER, "old_text": "a", "new_text": "b"}], "m"),
+    "discard": lambda w: w.discard("imp-000000000001", P.BRANCH_PREFIX + "imp-000000000001"),
+    "fast_forward": lambda w: w.fast_forward(P.BRANCH_PREFIX + "imp-000000000001", "a" * 40, "b" * 40),
+    "revert": lambda w: w.revert("a" * 40),
+}
+
+
+@pytest.mark.parametrize("name", list(MUTATORS))
+def test_direct_calls_to_mutating_methods_are_refused_by_default(tmp_path, monkeypatch, name):
+    repo = make_repo(tmp_path)
+    head, branches = git(repo, "rev-parse", "HEAD"), git(repo, "branch", "--list")
+    def boom(*a, **k):
+        raise AssertionError("a process was started")
+    monkeypatch.setattr(subprocess, "Popen", boom)
+    with pytest.raises(ExecutionDisabled, match="isolation"):
+        MUTATORS[name](ws(tmp_path, repo))                                  # the guard is asked BEFORE any validation, path work or process
+    monkeypatch.undo()
+    assert git(repo, "rev-parse", "HEAD") == head and git(repo, "branch", "--list") == branches and not (tmp_path / "data").exists()
+
+
+@pytest.mark.parametrize("missing", REQUIRED_PROPERTIES)
+def test_a_partial_attestation_does_not_unlock_the_workspace(tmp_path, missing):
+    w = GitWorkspace(make_repo(tmp_path), tmp_path / "data", timeout=30, guard=ExecutionGuard(full_attestation(**{missing: False})))
+    for call in MUTATORS.values():
+        with pytest.raises(ExecutionDisabled, match=missing):
+            call(w)
+
+
+def test_the_guard_is_the_only_barrier_and_read_only_methods_stay_available(tmp_path):
+    """With the test-double attestation the git-only primitives run; locked, review/export/status still work (they cannot change the repository)."""
+    repo = make_repo(tmp_path)
+    locked, base = ws(tmp_path, repo), git(repo, "rev-parse", "HEAD")
+    assert locked.tracked_changes() == "" and locked.head() == base and locked.changed_entries(base, base) == []
+    exp = locked.export_commit(base)
+    locked.remove_export(exp.path)
+    opened = ws_unlocked(tmp_path, repo)
+    wt = opened.create_worktree("imp-000000000001")
+    assert wt.path.is_dir() and "jarvis/improve-imp-000000000001" in git(repo, "branch", "--list")
+    opened.discard("imp-000000000001", wt.branch)
+    assert not wt.path.exists() and "jarvis/improve" not in git(repo, "branch", "--list")
+
+
+# ---- GIT_CONFIG_NOSYSTEM must not be set (Windows: system-level core.autocrlf=true) --------------------------------------------------------------
+class SystemConfigRunner(SubprocessRunner):
+    """Simulates a machine whose SYSTEM git config sets core.autocrlf=true (the Git for Windows default): the file is handed to git exactly like a real system config
+    would be found, i.e. outside the scrubbed environment's control, while GIT_CONFIG_NOSYSTEM stays whatever the code under test decides."""
+
+    def __init__(self, sysfile: Path) -> None:
+        super().__init__()
+        self._sys = str(sysfile)
+
+    def _spawn(self, argv, cwd, env_extra, out, err):
+        return super()._spawn(argv, cwd, {**(env_extra or {}), "GIT_CONFIG_SYSTEM": self._sys, "GIT_CONFIG_GLOBAL": os.devnull}, out, err)
+
+
+def _git_supports_system_override() -> bool:
+    out = subprocess.run(["git", "--version"], capture_output=True, text=True).stdout.split()[-1].split(".")
+    return tuple(int(x) for x in out[:2] if x.isdigit()) >= (2, 32)
+
+
+def test_the_scrubbed_environment_does_not_hide_the_system_git_config():
+    assert "GIT_CONFIG_NOSYSTEM" not in scrubbed_env() and scrubbed_env({"X": "1"})["X"] == "1"
+
+
+@pytest.mark.skipif(not _git_supports_system_override(), reason="needs git >= 2.32 (GIT_CONFIG_SYSTEM) to simulate a system-level autocrlf setting")
+def test_crlf_working_tree_is_clean_under_a_system_level_autocrlf_config(tmp_path, monkeypatch):
+    sysfile = tmp_path / "system.gitconfig"
+    sysfile.write_text("[core]\n\tautocrlf = true\n")
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(sysfile))
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    for rel, text in FILES.items():
+        f = repo / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        with open(f, "w", encoding="utf-8", newline="\r\n") as fh:                  # a Windows checkout: CRLF in the working tree ...
+            fh.write(text)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "init")                                            # ... LF in the blobs (autocrlf=true)
+    assert b"\r\n" not in subprocess.run(["git", "cat-file", "blob", "HEAD:" + PLANNER], cwd=repo, capture_output=True).stdout
+    w = GitWorkspace(repo, tmp_path / "data", SystemConfigRunner(sysfile), timeout=30)
+    assert w.tracked_changes() == ""                                                     # clean: the system config is honoured
+    (repo / PLANNER).write_bytes(b"def add(a, b):\r\n    return 'really changed'\r\n")
+    assert PLANNER in w.tracked_changes()                                                # a real change is still detected
+    # control: this is what GIT_CONFIG_NOSYSTEM=1 did - the same CRLF file is reported as modified, so the assertion above is not vacuous
+    (repo / PLANNER).write_bytes(FILES[PLANNER].replace("\n", "\r\n").encode())
+    env = {**os.environ, "GIT_CONFIG_SYSTEM": str(sysfile), "GIT_CONFIG_GLOBAL": os.devnull}
+    assert subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=repo, env=env, capture_output=True, text=True).stdout.strip() == ""
+    assert PLANNER in subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=repo, env={**env, "GIT_CONFIG_NOSYSTEM": "1"}, capture_output=True, text=True).stdout
 
 
 # ---- active tree checks (git primitive used by a future activation; fixtures only) -------------------------------------------------------------
