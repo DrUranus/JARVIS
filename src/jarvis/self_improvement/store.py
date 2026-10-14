@@ -10,6 +10,7 @@ Limits: the HMAC proves that the file was written by someone holding the key; it
 OLDER validly signed file after a restart (within one process a falling sequence number is detected)."""
 from __future__ import annotations
 
+import errno
 import hashlib
 import hmac
 import json
@@ -26,6 +27,7 @@ from typing import Mapping
 
 from jarvis.self_improvement.errors import ConcurrentUpdateError, ImprovementError, IntegrityError, UnknownProposalError
 from jarvis.self_improvement.models import Proposal
+from jarvis.self_improvement.winsec import WindowsAcl
 
 log = logging.getLogger("jarvis.self_improvement")
 FORMAT = 2
@@ -81,9 +83,59 @@ class MemoryProposalStore(ProposalStore):
 
 
 # ---- key handling ------------------------------------------------------------------------------------------------------------------------------
-def load_key(env: Mapping[str, str], key_path: str | os.PathLike[str]) -> bytes:
+def _default_windows_acl() -> "WindowsAcl":
+    """The real Windows ACL helper: fixed absolute system executables, started through the package's one process runner with a scrubbed environment."""
+    from jarvis.self_improvement.workspace import SubprocessRunner
+    runner = SubprocessRunner(max_output=20_000, max_total=1_000_000)
+    cwd = Path(os.environ.get("SystemRoot") or os.environ.get("windir") or "C:\\Windows")
+
+    def run(argv):
+        res = runner.run(argv, cwd, 60.0)
+        return res.exit_status, res.output
+    return WindowsAcl(run)
+
+
+def _create_key_file(path: Path, acl: "WindowsAcl | None") -> None:
+    """Create the key file so that the secret never exists in a file with a broader ACL than intended, and so that no other process can ever see a half-written key:
+    1. an EMPTY temp file is created exclusively;  2. (Windows) its inheritance is removed and only the current user, SYSTEM and Administrators get access, and the
+    result is verified;  3. only then is the key written;  4. the finished file is published with a hard link, which fails if the key file already exists
+    (another process was first - its key is used)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+    os.close(fd)
+    try:
+        if acl is not None:
+            try:
+                acl.restrict(str(tmp))
+            except (OSError, ValueError) as exc:
+                raise IntegrityError(f"the new store key file could not be restricted to the current user ({exc}); no key was written") from None
+            problems = acl.review(str(tmp))
+            if problems:
+                raise IntegrityError("the new store key file still has an unacceptable ACL (" + "; ".join(problems[:3]) + "); no key was written")
+        with open(tmp, "wb") as fh:
+            fh.write((secrets.token_hex(MIN_KEY_BYTES) + "\n").encode("ascii"))
+            fh.flush()
+            os.fsync(fh.fileno())
+        try:
+            os.link(tmp, path)
+        except FileExistsError:
+            pass
+        except OSError as exc:
+            raise IntegrityError(f"the store key file could not be published atomically ({type(exc).__name__}); it needs a file system with hard links (NTFS, ext4, ...)") from None
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def load_key(env: Mapping[str, str], key_path: str | os.PathLike[str], *, acl: "WindowsAcl | None" = None) -> bytes:
     """The HMAC key: JARVIS_SELF_IMPROVEMENT_STORE_KEY (hex, >= 32 bytes) or a key file that is created (owner-only) on first use. The caller has already
-    checked that the file lies outside the data directory and outside every root the coding tools may write to."""
+    checked that the file lies outside the data directory and outside every root the coding tools may write to.
+
+    The key file's permissions are checked on every load: POSIX group/other bits, and on Windows the EFFECTIVE ACL (see winsec.py). A file that anybody else could
+    read makes this raise IntegrityError (fail closed). An EXISTING file is never modified automatically. `acl` is for tests; on Windows the real helper is used."""
     raw = env.get("JARVIS_SELF_IMPROVEMENT_STORE_KEY", "").strip()
     if raw:
         try:
@@ -94,18 +146,19 @@ def load_key(env: Mapping[str, str], key_path: str | os.PathLike[str]) -> bytes:
             raise IntegrityError("the store key must be at least 32 bytes")
         return key
     path = Path(key_path).expanduser()
+    if acl is None and sys.platform.startswith("win"):
+        acl = _default_windows_acl()
     if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
-        except FileExistsError:
-            pass
-        else:
-            with os.fdopen(fd, "w", encoding="ascii") as f:
-                f.write(secrets.token_hex(MIN_KEY_BYTES) + "\n")
+        _create_key_file(path, acl)
     try:
         if os.name == "posix" and path.stat().st_mode & 0o077:
             raise IntegrityError("the store key file must not be readable by group/others (chmod 600)")
+        if acl is not None:
+            problems = acl.review(str(path))
+            if problems:
+                raise IntegrityError("the store key file's ACL is not acceptable: " + "; ".join(problems[:3])
+                                     + ". Fix it yourself (for example: icacls <file> /inheritance:r /grant:r \"%USERNAME%:F\" SYSTEM:F Administrators:F) or choose another key_path; "
+                                       "an existing key file is never changed automatically.")
         key = bytes.fromhex(path.read_text(encoding="ascii").strip())
     except (OSError, ValueError):
         raise IntegrityError("the store key file is unreadable or malformed") from None
@@ -115,6 +168,16 @@ def load_key(env: Mapping[str, str], key_path: str | os.PathLike[str]) -> bytes:
 
 
 # ---- inter-process lock ------------------------------------------------------------------------------------------------------------------------
+# What 'somebody else holds the lock' looks like: POSIX flock(LOCK_NB) raises BlockingIOError (EAGAIN/EWOULDBLOCK, on some file systems EACCES); Windows
+# msvcrt.locking(LK_NBLCK) raises PermissionError (EACCES, "Locking violation"); the Win32 codes are ACCESS_DENIED 5, SHARING_VIOLATION 32, LOCK_VIOLATION 33.
+# Everything else is reported immediately with its real cause instead of being retried until the timeout.
+_CONTENTION_ERRNOS = {errno.EAGAIN, errno.EWOULDBLOCK, errno.EACCES, errno.EDEADLK, getattr(errno, "EDEADLOCK", errno.EDEADLK)}
+
+
+def _is_contention(exc: OSError) -> bool:
+    return isinstance(exc, (BlockingIOError, PermissionError)) or exc.errno in _CONTENTION_ERRNOS or getattr(exc, "winerror", None) in (5, 32, 33)
+
+
 class _FileLock:
     def __init__(self, path: Path, timeout: float = 10.0) -> None:
         self._path, self._timeout, self._fh = path, timeout, None
@@ -133,7 +196,10 @@ class _FileLock:
                     import fcntl
                     fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 return self
-            except OSError:
+            except OSError as exc:
+                if not _is_contention(exc):                     # EBADF, ENOLCK, EINVAL, ...: a real problem, not 'somebody else holds the lock'
+                    self._fh.close()
+                    raise ImprovementError(f"the proposal store could not be locked ({type(exc).__name__}: {exc.strerror or exc})") from exc
                 if time.monotonic() > deadline:
                     self._fh.close()
                     raise ImprovementError("the proposal store is locked by another process") from None

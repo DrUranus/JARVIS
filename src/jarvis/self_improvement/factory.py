@@ -25,6 +25,7 @@ class SelfImprovementSubsystem:
     reason: str = ""
     manager: ImprovementManager | None = None
     warning: str = ""
+    data_dir: str = ""                             # the ABSOLUTE directory actually used (a relative config value is resolved against the working directory)
 
     @property
     def available(self) -> bool:
@@ -32,6 +33,8 @@ class SelfImprovementSubsystem:
 
     def describe(self) -> dict[str, Any]:
         info: dict[str, Any] = {"status": self.status, "reason": self.reason}
+        if self.data_dir:
+            info["data_dir"] = self.data_dir
         if self.warning:
             info["warning"] = self.warning
         if self.manager is not None:
@@ -45,6 +48,22 @@ def _inside(child: Path, parent: Path) -> bool:
         return True
     except (ValueError, OSError):
         return False
+
+
+def cloud_sync_warning(path: Path, env: Mapping[str, str]) -> str:
+    """A note (never an error) when `path` lies in a folder that a sync client such as OneDrive watches: the client can hold files open (a refused replace of
+    proposals.json) and uploads their content (proposals, and the key if it lives there)."""
+    try:
+        real = path.resolve()
+    except OSError:
+        return ""
+    roots = [Path(v) for k in ("OneDrive", "OneDriveConsumer", "OneDriveCommercial") if (v := env.get(k))]
+    for r in roots:
+        if _inside(real, r):
+            return f"{real} is inside the OneDrive folder {r}: sync can lock the file and uploads it; prefer a folder outside OneDrive"
+    if any(part.casefold().startswith("onedrive") for part in real.parts):
+        return f"{real} looks like it is inside a OneDrive folder: sync can lock the file and uploads it; prefer a folder outside OneDrive"
+    return ""
 
 
 def _forbidden_zone(path: Path, roots: Sequence[str]) -> str:
@@ -87,4 +106,7 @@ def build_self_improvement(settings: Settings, *, goals: Any = None, repairs: An
         log.warning("self-improvement unavailable: %s", type(exc).__name__)
         return SelfImprovementSubsystem("disabled", f"could not be built ({type(exc).__name__}: {str(exc)[:120]})")
     log.info("self-improvement enabled as PROPOSAL WORKFLOW only (no code preparation, test or activation)")
-    return SelfImprovementSubsystem("enabled", "", manager, store.load_warning)
+    notes = [w for w in (store.load_warning, cloud_sync_warning(data, env), cloud_sync_warning(key_path, env)) if w]
+    if not Path(cfg.data_dir).expanduser().is_absolute():
+        notes.append(f"data_dir is relative and was resolved against the working directory: {data.resolve()}")
+    return SelfImprovementSubsystem("enabled", "", manager, "; ".join(notes), str(data.resolve()))

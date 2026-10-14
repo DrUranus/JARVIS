@@ -160,7 +160,7 @@ use_llm = false                 # true: the LLM provider may reword proposals (r
 repo_path = ""                  # RESERVED - must stay empty
 allow_prepare = false           # RESERVED - must stay false
 allow_activation = false        # RESERVED - must stay false
-data_dir = "data/improvements"  # proposals.json lives here; must be OUTSIDE security.allowed_roots, coding.workspace_roots, the workspace and the log directory
+data_dir = "data/improvements"  # RELATIVE to the working directory (not to this file); an absolute path outside OneDrive is safer. proposals.json lives here; must be OUTSIDE security.allowed_roots, coding.workspace_roots, the workspace and the log directory
 key_path = ""                   # HMAC key for proposals.json; "" = ~/.jarvis/self_improvement.store.key (created owner-only). Or set JARVIS_SELF_IMPROVEMENT_STORE_KEY (hex, 32+ bytes)
 max_proposals = 200
 min_occurrences = 2             # a problem must have been recorded at least this often

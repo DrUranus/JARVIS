@@ -488,6 +488,9 @@ def test_subprocess_and_ctypes_live_only_in_their_providers():
     assert any(isinstance(k, ast.Constant) or True for k in popens[0].keywords)
 
 
+CTYPES_FOR_JOB_OBJECTS = {"ctypes"}
+
+
 def test_automation_libraries_are_only_imported_lazily_inside_providers():
     libs = {"pyautogui", "mss", "Xlib", "pynput", "keyboard", "mouse", "win32api", "win32gui", "pywinauto", "ctypes", "pyperclip"}
     for f, tree in modules(SRC):
@@ -496,7 +499,10 @@ def test_automation_libraries_are_only_imported_lazily_inside_providers():
         top_level |= {n.module.split(".")[0] for n in tree.body if isinstance(n, ast.ImportFrom) and n.module}
         assert not (top_level & libs), f"{rel} imports an automation library at module level"
         if not rel.startswith("computer/providers/"):
-            assert not (imported(tree) & libs), f"{rel} touches an automation library outside the providers"
+            # Phase 15: kernel32 Job Object bindings for process containment are the one non-UI use of ctypes outside the providers. Still lazy (the module-level rule above applies to
+            # it as well), still only ctypes and only this file; every other library and file stays forbidden.
+            allowed = CTYPES_FOR_JOB_OBJECTS if rel == "self_improvement/winjob.py" else set()
+            assert not ((imported(tree) & libs) - allowed), f"{rel} touches an automation library outside the providers"
 
 
 def test_only_bootstrap_imports_the_computer_package():

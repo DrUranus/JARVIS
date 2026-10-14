@@ -58,18 +58,35 @@ def test_only_the_workspace_starts_processes_and_only_the_store_writes_its_own_f
     for f, tree in trees():
         if f.name == "workspace.py":
             continue
-        assert not imports(tree) & {"subprocess", "shutil", "tempfile", "socket", "ctypes", "pickle", "marshal", "importlib", "multiprocessing", "http", "urllib", "signal"}, f.name
+        banned = {"subprocess", "shutil", "tempfile", "socket", "ctypes", "pickle", "marshal", "importlib", "multiprocessing", "http", "urllib", "signal"}
+        banned -= {"ctypes"} if f.name == "winjob.py" else set()                      # winjob.py = the Win32 Job Object bindings; it imports no process API itself
+        assert not imports(tree) & banned, f.name
         assert not builtin_calls(tree) & {"eval", "exec", "compile", "__import__", "open"} - ({"open"} if f.name in ("store.py",) else set()), f.name
         assert not calls(tree) & {"Popen", "system", "popen", "rmtree", "chmod", "execv", "spawn"}, f.name
         unlinks = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "unlink"]
-        # the only deletion outside workspace.py: the store removing ITS OWN temp file (the variable `tmp`) after a refused replace
-        assert all(f.name == "store.py" and isinstance(u.func.value, ast.Name) and u.func.value.id == "tmp" for u in unlinks), f.name
+        # the only deletions outside workspace.py: the store removing ITS OWN temp file - `tmp.unlink()` / `os.unlink(tmp)` on the variable `tmp`
+        def own_tmp(u: ast.Call) -> bool:
+            return (isinstance(u.func.value, ast.Name) and u.func.value.id == "tmp") or (u.args and isinstance(u.args[0], ast.Name) and u.args[0].id == "tmp")
+        assert all(f.name == "store.py" and own_tmp(u) for u in unlinks), f.name
+        # os.link publishes the finished key file; allowed only inside store._create_key_file
+        links = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "link"]
+        if links:
+            fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_create_key_file")
+            assert f.name == "store.py" and all(any(c is l for c in ast.walk(fn)) for l in links), f.name
         assert f.name == "store.py" or not calls(tree) & {"write_bytes", "write_text", "mkdir", "replace", "fsync"} - {"replace"}, f.name      # only the store writes its own files
 
 
 def test_nothing_in_the_production_wiring_can_prepare_run_or_merge():
-    for name in ("factory.py", "manager.py", "pipeline.py", "review.py", "policy.py", "analysis.py", "llm.py", "approval.py", "models.py", "store.py", "isolation.py"):
-        assert "SubprocessRunner" not in names(ast.parse((PKG / name).read_text(encoding="utf-8"))), name
+    for name in ("factory.py", "manager.py", "pipeline.py", "review.py", "policy.py", "analysis.py", "llm.py", "approval.py", "models.py", "store.py", "isolation.py", "winsec.py", "winjob.py"):
+        tree = ast.parse((PKG / name).read_text(encoding="utf-8"))
+        if name == "store.py":
+            # the key-file ACL helper (Windows) runs fixed system executables through the package's one runner - only inside _default_windows_acl
+            fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_default_windows_acl")
+            inside = {id(n) for n in ast.walk(fn)}
+            outside = [n for n in ast.walk(tree) if id(n) not in inside and ((isinstance(n, ast.Name) and n.id == "SubprocessRunner") or (isinstance(n, ast.ImportFrom) and any(a.name == "SubprocessRunner" for a in n.names)))]
+            assert not outside, name
+        else:
+            assert "SubprocessRunner" not in names(tree), name
     fac = (PKG / "factory.py").read_text(encoding="utf-8")
     assert "GitWorkspace" not in fac and "workspace=None" in fac and "ExecutionGuard.locked()" in fac and "IsolationAttestation" not in fac
     pipe = ast.parse((PKG / "pipeline.py").read_text(encoding="utf-8"))
@@ -173,8 +190,11 @@ def test_the_test_suite_for_this_phase_never_execs_or_imports_samples():
     for f in sorted(TESTS.glob("test_self_improvement_*.py")) + [TESTS / "si_util.py"]:
         tree = ast.parse(f.read_text(encoding="utf-8"))
         assert not builtin_calls(tree) & {"eval", "exec", "compile", "__import__"} and not calls(tree) & {"import_module", "run_path", "run_module"}, f.name
-        if f.name not in ("test_self_improvement_workspace.py", "test_self_improvement_store.py"):
-            assert "subprocess" not in {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} or f.name in ("test_self_improvement_workflow.py", "test_self_improvement_security.py"), f.name
+        # processes are started only by these files, and only for: git on temporary repositories, test-owned helper scripts, and (Windows) icacls/PowerShell on files in tmp_path
+        uses_subprocess = "subprocess" in {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+        assert not uses_subprocess or f.name in {"test_self_improvement_workspace.py", "test_self_improvement_store.py", "test_self_improvement_keyfile.py",
+                                                 "test_self_improvement_lock.py", "test_self_improvement_process_tree.py", "test_self_improvement_workflow.py",
+                                                 "test_self_improvement_security.py"}, f.name
     assert "detection_only" in (TESTS.parent / "pyproject.toml").read_text(encoding="utf-8")
 
 

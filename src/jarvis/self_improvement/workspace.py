@@ -23,9 +23,10 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, Protocol, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from jarvis.self_improvement import policy as P
+from jarvis.self_improvement import winjob
 from jarvis.self_improvement.errors import ChangeBlocked, PreparationError
 from jarvis.self_improvement.isolation import ExecutionGuard
 from jarvis.self_improvement.review import RawEntry, ReviewedChange, review_entries
@@ -104,8 +105,10 @@ def _descendants(pid: int) -> list[int]:
 class SubprocessRunner:
     """Runs fixed argument lists. Output is capped: more than `max_total` bytes written ends the process (a command cannot fill the disk through its output)."""
 
-    def __init__(self, max_output: int = 200_000, poll: float = 0.1, max_total: int = 5_000_000) -> None:
+    def __init__(self, max_output: int = 200_000, poll: float = 0.1, max_total: int = 5_000_000, job_factory: Callable[[int], Any] | None = None) -> None:
         self._max, self._poll, self._total = max_output, poll, max_total
+        # Windows: every started process is put into a kill-on-close Job Object (winjob.attach -> JobObject | None). `job_factory` is for tests; None = platform default.
+        self._job_factory = job_factory if job_factory is not None else (winjob.attach if sys.platform.startswith("win") else None)
 
     def _spawn(self, argv: Sequence[str], cwd: Path, env_extra: Mapping[str, str] | None, out, err) -> subprocess.Popen:
         kw: dict = {}
@@ -114,9 +117,11 @@ class SubprocessRunner:
         elif hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
             kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
         try:
-            return subprocess.Popen([str(a) for a in argv], cwd=str(cwd), env=scrubbed_env(env_extra), stdin=subprocess.DEVNULL, stdout=out, stderr=err, shell=False, **kw)
+            proc = subprocess.Popen([str(a) for a in argv], cwd=str(cwd), env=scrubbed_env(env_extra), stdin=subprocess.DEVNULL, stdout=out, stderr=err, shell=False, **kw)
         except (OSError, ValueError) as exc:
             raise PreparationError(f"cannot start {str(argv[0])!r} ({type(exc).__name__})") from None
+        proc.jarvis_job = self._job_factory(proc.pid) if self._job_factory is not None else None       # type: ignore[attr-defined]
+        return proc
 
     def _supervise(self, proc: subprocess.Popen, out, timeout: float, cancel: threading.Event | None, cap: int) -> tuple[bool, bool, bool]:
         started = time.monotonic()
@@ -146,7 +151,10 @@ class SubprocessRunner:
         started = time.monotonic()
         with tempfile.TemporaryFile() as out:
             proc = self._spawn(argv, cwd, env_extra, out, subprocess.STDOUT)
-            timed_out, cancelled, limit = self._supervise(proc, out, timeout, cancel, self._total)
+            try:
+                timed_out, cancelled, limit = self._supervise(proc, out, timeout, cancel, self._total)
+            finally:
+                self._release(proc)
             size = out.seek(0, os.SEEK_END)
             out.seek(max(0, size - self._max))
             text = out.read().decode("utf-8", "replace")
@@ -157,7 +165,10 @@ class SubprocessRunner:
         """stdout only, complete (never truncated): more than max_bytes, a timeout, a cancel or a non-zero exit is an error."""
         with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
             proc = self._spawn(argv, cwd, None, out, err)
-            timed_out, cancelled, limit = self._supervise(proc, out, timeout, cancel, max_bytes)
+            try:
+                timed_out, cancelled, limit = self._supervise(proc, out, timeout, cancel, max_bytes)
+            finally:
+                self._release(proc)
             size = out.seek(0, os.SEEK_END)
             limit = limit or size > max_bytes                    # a process that finished between two polls must not slip past the cap
             if timed_out or cancelled or limit or proc.returncode != 0:
@@ -166,24 +177,21 @@ class SubprocessRunner:
             return out.read()
 
     @staticmethod
-    def _kill(proc: subprocess.Popen) -> None:
-        """Kill the process group AND every descendant found beforehand (also detached ones). Not a guarantee: a process that daemonises quickly enough or a
-        platform without /proc can escape - one of the reasons proposed code is not run at all."""
+    def _release(proc: subprocess.Popen) -> None:
+        """Close the process's Job Object (Windows). With kill-on-close this ends anything the process left running - also after a NORMAL exit."""
+        job = getattr(proc, "jarvis_job", None)
+        if job is not None:
+            job.close()
+            proc.jarvis_job = None                                                                  # type: ignore[attr-defined]
+
+    def _kill(self, proc: subprocess.Popen) -> None:
+        """Stop the process and its descendants. Linux: process group + descendants found beforehand (also detached ones). Windows: Job Object, falling back to
+        `taskkill /T`. Neither is a guarantee for a process that escapes; both are one reason proposed code is not run at all."""
         try:
             if os.name == "posix":
-                kids = _descendants(proc.pid)
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except OSError:
-                    pass
-                for k in kids:
-                    try:
-                        os.kill(k, signal.SIGKILL)
-                    except OSError:
-                        pass
+                self._kill_posix(proc)
             else:
-                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=10, check=False)
-                proc.kill()
+                self._kill_windows(proc)
         except (OSError, subprocess.SubprocessError):
             try:
                 proc.kill()
@@ -193,6 +201,33 @@ class SubprocessRunner:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             pass
+
+    @staticmethod
+    def _kill_posix(proc: subprocess.Popen) -> None:
+        kids = _descendants(proc.pid)
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        for k in kids:
+            try:
+                os.kill(k, signal.SIGKILL)
+            except OSError:
+                pass
+
+    @staticmethod
+    def _kill_windows(proc: subprocess.Popen) -> None:
+        job = getattr(proc, "jarvis_job", None)
+        if job is not None and job.terminate():
+            return                                                                                  # every process of the job is gone (the job handle is closed by _release)
+        if job is None:
+            log.warning("no Job Object for pid %s: falling back to taskkill /T, which can not reach grandchildren whose parent already exited", proc.pid)
+        # absolute path: a bare "taskkill" would also be searched in the current directory of this process
+        exe = os.path.join(os.environ.get("SystemRoot") or os.environ.get("windir") or r"C:\Windows", "System32", "taskkill.exe")
+        res = subprocess.run([exe, "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=10, check=False)
+        if res.returncode not in (0, 128):                                                          # 128 = the process no longer exists
+            log.warning("taskkill for pid %s failed (exit %s): descendants may still be running", proc.pid, res.returncode)
+        proc.kill()
 
 
 @dataclass(frozen=True)
