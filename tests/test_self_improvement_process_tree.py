@@ -99,6 +99,9 @@ class FakeApi:
         if self.fail_at == "close":
             raise OSError(6, "invalid handle (fake)")
 
+    def resume(self, pid):
+        self._step("resume")
+
 
 def test_attach_creates_limits_assigns_and_releases_the_process_handle():
     api = FakeApi()
@@ -237,7 +240,7 @@ def test_a_missing_job_does_not_break_the_runner(tmp_path):
 
 # ---- REAL PROCESSES, any platform: does the tree really die? -------------------------------------------------------------------------------------------
 def write_chain(tmp_path: Path) -> None:
-    (tmp_path / "leaf.py").write_text("import os, sys, time\nopen(sys.argv[1], 'w').write(str(os.getpid()))\ntime.sleep(25)\n")
+    (tmp_path / "leaf.py").write_text("import os, sys, time\nwith open(sys.argv[1], 'w') as fh:\n    fh.write(str(os.getpid()))\ntime.sleep(25)\n")
     (tmp_path / "mid.py").write_text(textwrap.dedent("""
         import subprocess, sys, time
         # argv: leaf.py pidfile mode ; 'stay' keeps this process (the leaf's parent) running, 'exit' lets it end at once (the leaf becomes an ORPHAN)
@@ -339,10 +342,25 @@ def test_win_processes_left_running_after_a_normal_exit_are_ended_when_the_runne
     they would survive (no equivalent) - that asymmetry is known and not claimed to be isolation."""
     write_chain(tmp_path)
     pidfile = tmp_path / "leaf-straggler.pid"
-    (tmp_path / "quick.py").write_text(f"import subprocess, sys; subprocess.Popen([sys.executable, r'{tmp_path / 'leaf.py'}', r'{pidfile}'])\n")
+    # quick.py exits NORMALLY, but only after the straggler proved that it runs: its pid file exists AND holds the complete pid (leaf.py writes it inside a `with` block, so
+    # it is closed before the leaf sleeps; the file is created empty first, hence the content check). Without this, kill-on-close could end the straggler before it wrote
+    # the file. If the file does not show up in time, quick.py fails with a clear message and the test fails as a SETUP error, not as a containment result.
+    (tmp_path / "quick.py").write_text(
+        "import os, subprocess, sys, time\n"
+        f"pidfile = r'{pidfile}'\n"
+        f"subprocess.Popen([sys.executable, r'{tmp_path / 'leaf.py'}', pidfile])\n"
+        "end = time.monotonic() + 15\n"
+        "while time.monotonic() < end:\n"
+        "    try:\n"
+        "        with open(pidfile) as fh:\n"
+        "            if fh.read().strip().isdigit():\n"
+        "                sys.exit(0)\n"
+        "    except OSError:\n"
+        "        pass\n"
+        "    time.sleep(0.05)\n"
+        "sys.exit('SETUP ERROR: the straggler did not write its pid file within 15 s')\n")
     res = SubprocessRunner().run([sys.executable, str(tmp_path / "quick.py")], tmp_path, 30)
-    assert res.ok and not res.timed_out
-    assert wait_file(pidfile)
+    assert res.ok and not res.timed_out, f"setup failed before the containment check: {res.output}"
     assert wait_dead(int(pidfile.read_text()), 10), "a straggler survived the runner"
 
 
@@ -355,3 +373,225 @@ def test_win_taskkill_fallback_still_works_for_a_live_tree(tmp_path):
         [sys.executable, str(tmp_path / "root.py"), str(tmp_path / "mid.py"), str(tmp_path / "leaf.py"), str(pidfile), "stay"], tmp_path, 4.0)
     assert res.timed_out and wait_file(pidfile)
     assert wait_dead(int(pidfile.read_text()), 10), "taskkill /T did not end a tree whose parents were alive"
+
+
+# ---- PLATFORM-NEUTRAL: suspended start -> job -> resume (order, failures, resources) ---------------------------------------------------------------------
+def test_winjob_resume_delegates_to_the_api_and_reports_failure():
+    api = FakeApi()
+    winjob.resume(4242, api)
+    assert api.calls == ["resume"]
+    with pytest.raises(OSError):
+        winjob.resume(4242, FakeApi(fail_at="resume"))
+
+
+def test_suspended_start_attaches_the_job_before_the_process_may_run(tmp_path):
+    events: list[tuple[str, int]] = []
+    jobs: list[FakeJob] = []
+
+    def factory(pid):
+        events.append(("job", pid))
+        jobs.append(FakeJob())
+        return jobs[-1]
+    r = SubprocessRunner(job_factory=factory, resume=lambda pid: events.append(("resume", pid)))
+    assert r.run([sys.executable, "-c", "print(1)"], tmp_path, 20).ok
+    assert [e[0] for e in events] == ["job", "resume"] and events[0][1] == events[1][1]       # job first, same process, resume last
+    assert jobs[0].closed == 1 and jobs[0].terminated == 0
+
+
+def test_suspended_start_without_a_job_still_resumes_the_process(tmp_path):
+    """No job = the documented taskkill fallback; the process must nevertheless run (and not stay frozen)."""
+    resumed: list[int] = []
+    r = SubprocessRunner(job_factory=lambda pid: None, resume=resumed.append)
+    assert r.run([sys.executable, "-c", "print(1)"], tmp_path, 20).ok and len(resumed) == 1
+
+
+def test_a_failing_resume_ends_the_process_and_releases_the_job(tmp_path):
+    seen: dict = {}
+    job = FakeJob()
+
+    def factory(pid):
+        seen["pid"] = pid
+        return job
+
+    def broken_resume(pid):
+        raise OSError(5, "access denied (fake)")
+    r = SubprocessRunner(job_factory=factory, resume=broken_resume)
+    with pytest.raises(ws_mod.PreparationError, match="could not be contained and resumed"):
+        r.run([sys.executable, "-c", "import time; time.sleep(30)"], tmp_path, 20)
+    assert wait_dead(seen["pid"], 10), "the process of a failed start was left behind"
+    assert job.terminated == 1 and job.closed == 1
+
+
+def test_a_failing_job_factory_ends_the_process_and_never_resumes_it(tmp_path):
+    seen: dict = {}
+    resumed: list[int] = []
+
+    def factory(pid):
+        seen["pid"] = pid
+        raise RuntimeError("factory broke")
+    r = SubprocessRunner(job_factory=factory, resume=resumed.append)
+    with pytest.raises(ws_mod.PreparationError):
+        r.capture([sys.executable, "-c", "import time; time.sleep(30)"], tmp_path, 20, 1000)
+    assert resumed == [] and wait_dead(seen["pid"], 10)
+
+
+def test_an_interrupt_during_the_start_still_ends_the_process_and_is_not_swallowed(tmp_path):
+    seen: dict = {}
+
+    def interrupted(pid):
+        seen["pid"] = pid
+        raise KeyboardInterrupt
+    r = SubprocessRunner(job_factory=lambda pid: None, resume=interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        r.run([sys.executable, "-c", "import time; time.sleep(30)"], tmp_path, 20)
+    assert wait_dead(seen["pid"], 10)
+
+
+def test_the_default_runner_starts_suspended_only_on_windows():
+    r = SubprocessRunner()
+    assert (r._resume is winjob.resume) is WIN and (r._job_factory is winjob.attach) is WIN
+    assert SubprocessRunner(job_factory=lambda pid: None)._resume is None                       # an injected factory alone keeps the plain start
+
+
+# ---- WINDOWS ONLY: the real suspended start -------------------------------------------------------------------------------------------------------------
+@windows_only
+def test_win_a_process_started_suspended_does_not_run_until_it_is_resumed(tmp_path):
+    marker = tmp_path / "ran.txt"
+    script = tmp_path / "s.py"
+    script.write_text(f"open(r'{marker}', 'w').write('x')\n")
+    p = subprocess.Popen([sys.executable, str(script)], creationflags=winjob.CREATE_SUSPENDED)
+    try:
+        time.sleep(1.5)
+        assert not marker.exists(), "a CREATE_SUSPENDED process ran before it was resumed"
+        winjob.resume(p.pid)
+        assert p.wait(20) == 0 and marker.exists()
+    finally:
+        if p.poll() is None:
+            p.kill()
+
+
+@windows_only
+def test_win_a_child_created_at_the_very_first_instant_is_inside_the_job(tmp_path):
+    """The old window: the root creates its child immediately. With the suspended start the job exists before the root executes anything, so the child is contained
+    and dies with the timeout although its parent never waits for it (an orphan-to-be)."""
+    pidfile = tmp_path / "first-instant.pid"
+    (tmp_path / "leaf.py").write_text("import os, sys, time\nwith open(sys.argv[1], 'w') as fh:\n    fh.write(str(os.getpid()))\ntime.sleep(25)\n")
+    (tmp_path / "root.py").write_text("import subprocess, sys\nsubprocess.Popen([sys.executable, sys.argv[1], sys.argv[2]])\n")      # starts the child, then exits at once
+    res = SubprocessRunner().run([sys.executable, str(tmp_path / "root.py"), str(tmp_path / "leaf.py"), str(pidfile)], tmp_path, 30)
+    assert res.ok
+    # The runner returned and closed the job: kill-on-close must have reached the child, whether or not it had written its pid file yet. A survivor would write the
+    # file within a moment, and its pid would be alive.
+    time.sleep(3.0)
+    if pidfile.exists() and pidfile.read_text().strip().isdigit():
+        assert wait_dead(int(pidfile.read_text()), 10), "the first-instant child survived the runner"
+
+
+@windows_only
+def test_win_a_resume_failure_leaves_no_frozen_process(tmp_path):
+    seen: dict = {}
+
+    def failing_resume(pid):
+        seen["pid"] = pid
+        raise OSError(5, "access denied (simulated)")
+    r = SubprocessRunner(job_factory=winjob.attach, resume=failing_resume)
+    with pytest.raises(ws_mod.PreparationError):
+        r.run([sys.executable, "-c", "import time; time.sleep(30)"], tmp_path, 20)
+    assert wait_dead(seen["pid"], 10), "a suspended process was left behind"
+
+
+# ---- PLATFORM-NEUTRAL: the complete CREATE_SUSPENDED -> job -> resume sequence against ONE fake Win32 layer ---------------------------------------------
+# These tests do NOT touch Windows: the Win32 calls are a fake that records them. They prove order, error paths and handle release of OUR code; whether the real
+# kernel32/ntdll calls behave that way is shown only by the win_ tests on a Windows machine.
+class RecordingApi(FakeApi):
+    def resume(self, pid):
+        self._step("resume")
+
+
+def sequence_runner(api: RecordingApi) -> SubprocessRunner:
+    return SubprocessRunner(job_factory=lambda pid: winjob.attach(pid, api), resume=lambda pid: winjob.resume(pid, api))
+
+
+def test_full_sequence_job_is_complete_before_the_resume_and_all_handles_are_released(tmp_path):
+    api = RecordingApi()
+    assert sequence_runner(api).run([sys.executable, "-c", "print(1)"], tmp_path, 20).ok
+    assert api.calls == ["create_job", "set_kill_on_close", "open_process", "assign", "close:200", "resume", "close:100"]   # resume last of the setup; job closed by the runner
+
+
+@pytest.mark.parametrize("step", ["create_job", "set_kill_on_close", "open_process", "assign"])
+def test_a_job_failure_before_the_resume_runs_the_process_uncontained_and_never_leaves_it_suspended(tmp_path, step, caplog):
+    """The documented fallback: no job -> the process is nevertheless resumed (it runs, taskkill is the fallback), the failure is logged and no handle leaks."""
+    api = RecordingApi(fail_at=step)
+    with caplog.at_level(logging.WARNING, logger="jarvis.self_improvement"):
+        res = sequence_runner(api).run([sys.executable, "-c", "print(1)"], tmp_path, 20)
+    assert res.ok and "resume" in api.calls and api.calls.index("resume") > api.calls.index(step)
+    opened = {"create_job": "100", "open_process": "200"}
+    for handle in [h for s, h in opened.items() if s in api.calls and s != step]:
+        assert f"close:{handle}" in api.calls, (step, api.calls)                        # every handle that was opened was closed
+    assert any("containment unavailable" in r.message for r in caplog.records)
+
+
+def test_a_resume_failure_after_a_complete_job_ends_the_process_and_closes_every_handle(tmp_path):
+    api = RecordingApi(fail_at="resume")
+    pids: list[int] = []
+    r = SubprocessRunner(job_factory=lambda pid: (pids.append(pid), winjob.attach(pid, api))[1], resume=lambda pid: winjob.resume(pid, api))
+    with pytest.raises(ws_mod.PreparationError, match="could not be contained and resumed"):
+        r.run([sys.executable, "-c", "import time; time.sleep(30)"], tmp_path, 20)
+    assert wait_dead(pids[0], 10), "a process of a failed start was left behind"
+    assert api.calls[-3:] == ["resume", "terminate", "close:100"], api.calls                    # the job is terminated and its handle closed
+    assert api.calls.count("close:200") == 1 and api.calls.count("close:100") == 1             # no handle twice, none missing
+
+
+# ---- PLATFORM-NEUTRAL: Win32Api.resume with stubbed kernel32 / ntdll objects (handle release on every path) ----------------------------------------------
+class _Fn:
+    def __init__(self, result=None, exc=None) -> None:
+        self.result, self.exc, self.argtypes, self.restype, self.args = result, exc, None, None, None
+
+    def __call__(self, *args):
+        self.args = args
+        if self.exc:
+            raise self.exc
+        return self.result
+
+
+def stub_api(*, handle=77, nt_status=0, nt_missing=False):
+    closed: list = []
+    kernel = type("K", (), {})()
+    kernel.OpenProcess = _Fn(handle)
+    kernel.CloseHandle = lambda h: closed.append(h)
+    nt_fn = _Fn(nt_status)
+    nt = type("NT", (), {})()
+    if not nt_missing:
+        nt.NtResumeProcess = nt_fn
+    ct = type("CT", (), {"c_void_p": object, "c_long": object, "WinError": staticmethod(lambda code=None: OSError(5, "access denied (stub)")),
+                         "get_last_error": staticmethod(lambda: 5), "WinDLL": staticmethod(lambda name: nt)})()
+    api = winjob.Win32Api.__new__(winjob.Win32Api)
+    api._k, api._ct = kernel, ct
+    return api, closed, kernel, nt_fn
+
+
+def test_win32_resume_opens_with_the_resume_right_calls_nt_resume_and_closes_the_handle():
+    api, closed, kernel, nt_fn = stub_api()
+    api.resume(4242)
+    assert kernel.OpenProcess.args == (winjob.PROCESS_SUSPEND_RESUME, False, 4242) and nt_fn.args == (77,) and closed == [77]
+
+
+def test_win32_resume_failure_of_openprocess_raises_and_closes_nothing():
+    api, closed, *_ = stub_api(handle=0)
+    with pytest.raises(OSError):
+        api.resume(4242)
+    assert closed == []
+
+
+@pytest.mark.parametrize("status", [-1073741823, -1073741790])                                   # NTSTATUS failures are negative
+def test_win32_resume_ntstatus_failure_raises_and_still_closes_the_handle(status):
+    api, closed, *_ = stub_api(nt_status=status)
+    with pytest.raises(OSError, match="NtResumeProcess failed"):
+        api.resume(4242)
+    assert closed == [77]
+
+
+def test_win32_resume_missing_ntdll_export_raises_and_still_closes_the_handle():
+    api, closed, *_ = stub_api(nt_missing=True)
+    with pytest.raises(OSError, match="not available"):
+        api.resume(4242)
+    assert closed == [77]

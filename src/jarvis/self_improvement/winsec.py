@@ -179,6 +179,9 @@ class WindowsAcl:
 
     def _powershell(self, script: str) -> str:
         exe = os.path.join(_system32(), "WindowsPowerShell", "v1.0", "powershell.exe")
+        # UTF-8 output, so that the runner's utf-8 decoding is exact (the default is the OEM code page). Only ASCII is ever PARSED (SID, SDDL); anything else in the output
+        # is diagnostics, and a replacement character can not satisfy the strict patterns in `read`.
+        script = "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); " + script
         encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")        # -EncodedCommand: no quoting problems with any path
         status, out = self._run([exe, "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded])
         if status != 0:

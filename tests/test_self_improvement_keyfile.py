@@ -223,13 +223,24 @@ def system32() -> str:
     return os.path.join(os.environ.get("SystemRoot") or r"C:\Windows", "System32")
 
 
+def run_bytes(argv, timeout) -> "subprocess.CompletedProcess":
+    """Run a Windows tool and keep the raw bytes: no implicit locale decoding (cp1252 reader threads raised UnicodeDecodeError on OEM-codepage output)."""
+    return subprocess.run(argv, capture_output=True, timeout=timeout)
+
+
+def diag(raw: bytes) -> str:
+    """Diagnostics only (assertion messages). Never used for a decision: replacement characters can not turn a failure into a pass."""
+    return raw.decode("utf-8", "replace")
+
+
 def ps(script: str) -> str:
-    """Independent of the production code: run a PowerShell snippet and return stdout."""
+    """Independent of the production code: run a PowerShell snippet and return stdout. Output is forced to UTF-8 and decoded STRICTLY: a byte that is not UTF-8 raises."""
+    script = "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); " + script
     enc = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     exe = os.path.join(system32(), "WindowsPowerShell", "v1.0", "powershell.exe")
-    r = subprocess.run([exe, "-NoProfile", "-NonInteractive", "-EncodedCommand", enc], capture_output=True, text=True, timeout=120)
-    assert r.returncode == 0, r.stderr
-    return r.stdout
+    r = run_bytes([exe, "-NoProfile", "-NonInteractive", "-EncodedCommand", enc], 120)
+    assert r.returncode == 0, diag(r.stderr)
+    return r.stdout.decode("utf-8")
 
 
 def acl_facts(path: Path) -> dict:
@@ -249,8 +260,8 @@ def current_user_sid() -> str:
 
 
 def icacls(*args: str) -> None:
-    r = subprocess.run([os.path.join(system32(), "icacls.exe"), *args], capture_output=True, text=True, timeout=60)
-    assert r.returncode == 0, r.stdout + r.stderr
+    r = run_bytes([os.path.join(system32(), "icacls.exe"), *args], 60)
+    assert r.returncode == 0, diag(r.stdout) + diag(r.stderr)
 
 
 BROAD = {"S-1-1-0", "S-1-5-32-545", "S-1-5-11", "S-1-5-4", "S-1-5-2"}          # Everyone, Users, Authenticated Users, Interactive, Network

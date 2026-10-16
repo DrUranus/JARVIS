@@ -6,7 +6,9 @@ termination call fails or JARVIS itself dies.
 
 Honest limits (not hidden):
 * A Job Object is containment, not a sandbox: it does not restrict files, network or privileges (see isolation.py).
-* The process is assigned to the job right AFTER it was started (Popen can not start it suspended). Children it creates in that first instant are not covered.
+* The runner starts the process SUSPENDED (CREATE_SUSPENDED), assigns it to the job and only then resumes it (`resume`), so no child can exist before the assignment.
+  What stays open: if JARVIS itself dies between the start and the assignment, a suspended process remains (it is in no job yet); and a process started WITHOUT the
+  suspended start (a caller that injects only a job factory) still has the old window between Popen and the assignment.
 * Assignment can fail (for example when JARVIS itself runs inside a job that forbids nesting or breakaway). Then `attach` returns None, a warning is logged and the
   runner falls back to `taskkill /T`, which is NOT a guarantee for orphaned grandchildren.
 * Nothing here could be executed where it was written (Linux). The Win32 layer is exercised only by the Windows tests; the error handling around it is tested with a
@@ -25,6 +27,8 @@ JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
 JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS = 9
 PROCESS_SET_QUOTA = 0x0100
 PROCESS_TERMINATE = 0x0001
+PROCESS_SUSPEND_RESUME = 0x0800
+CREATE_SUSPENDED = 0x00000004          # CreateProcess flag: the primary thread starts suspended, nothing of the program has run yet
 
 
 @functools.lru_cache(maxsize=1)
@@ -57,6 +61,7 @@ class JobApi(Protocol):
     def assign(self, job: int, process: int) -> None: ...
     def terminate(self, job: int, exit_code: int) -> None: ...
     def close(self, handle: int) -> None: ...
+    def resume(self, pid: int) -> None: ...
 
 
 class Win32Api:
@@ -106,6 +111,23 @@ class Win32Api:
 
     def close(self, handle: int) -> None:
         self._k.CloseHandle(handle)
+
+    def resume(self, pid: int) -> None:
+        """Resume a process that was started with CREATE_SUSPENDED. NtResumeProcess (ntdll) is looked up only here, so a missing export can not affect the job calls."""
+        h = self._k.OpenProcess(PROCESS_SUSPEND_RESUME, False, pid)
+        if not h:
+            raise self._fail()
+        try:
+            try:
+                fn = self._ct.WinDLL("ntdll").NtResumeProcess            # type: ignore[attr-defined]
+            except (OSError, AttributeError) as exc:
+                raise OSError(f"NtResumeProcess is not available ({exc})") from None
+            fn.argtypes, fn.restype = [self._ct.c_void_p], self._ct.c_long
+            status = fn(h)
+            if status < 0:                                               # NTSTATUS: negative = error
+                raise OSError(f"NtResumeProcess failed (NTSTATUS 0x{status & 0xFFFFFFFF:08X})")
+        finally:
+            self._k.CloseHandle(h)
 
 
 class JobObject:
@@ -163,3 +185,8 @@ def attach(pid: int, api: JobApi | None = None) -> JobObject | None:
             pass
         return None
     return JobObject(api, job)
+
+
+def resume(pid: int, api: JobApi | None = None) -> None:
+    """Let a process that was started suspended run. Raises OSError when that is not possible - the caller must then end the process (it would stay frozen)."""
+    (api or Win32Api()).resume(pid)

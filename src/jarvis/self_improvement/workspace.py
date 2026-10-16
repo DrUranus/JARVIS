@@ -105,23 +105,55 @@ def _descendants(pid: int) -> list[int]:
 class SubprocessRunner:
     """Runs fixed argument lists. Output is capped: more than `max_total` bytes written ends the process (a command cannot fill the disk through its output)."""
 
-    def __init__(self, max_output: int = 200_000, poll: float = 0.1, max_total: int = 5_000_000, job_factory: Callable[[int], Any] | None = None) -> None:
+    def __init__(self, max_output: int = 200_000, poll: float = 0.1, max_total: int = 5_000_000, job_factory: Callable[[int], Any] | None = None,
+                 resume: Callable[[int], None] | None = None) -> None:
         self._max, self._poll, self._total = max_output, poll, max_total
         # Windows: every started process is put into a kill-on-close Job Object (winjob.attach -> JobObject | None). `job_factory` is for tests; None = platform default.
-        self._job_factory = job_factory if job_factory is not None else (winjob.attach if sys.platform.startswith("win") else None)
+        win = sys.platform.startswith("win")
+        self._job_factory = job_factory if job_factory is not None else (winjob.attach if win else None)
+        # `resume` set = the process is started SUSPENDED, put into the job, and only then resumed (no child can exist before the assignment). Platform default on Windows
+        # only when no custom job factory is injected; a test that injects just a factory keeps the plain start.
+        self._resume = resume if resume is not None else (winjob.resume if win and job_factory is None else None)
 
     def _spawn(self, argv: Sequence[str], cwd: Path, env_extra: Mapping[str, str] | None, out, err) -> subprocess.Popen:
         kw: dict = {}
         if os.name == "posix":
             kw["start_new_session"] = True
         elif hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
-            kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | (winjob.CREATE_SUSPENDED if self._resume is not None else 0)
         try:
             proc = subprocess.Popen([str(a) for a in argv], cwd=str(cwd), env=scrubbed_env(env_extra), stdin=subprocess.DEVNULL, stdout=out, stderr=err, shell=False, **kw)
         except (OSError, ValueError) as exc:
             raise PreparationError(f"cannot start {str(argv[0])!r} ({type(exc).__name__})") from None
-        proc.jarvis_job = self._job_factory(proc.pid) if self._job_factory is not None else None       # type: ignore[attr-defined]
+        if self._resume is None:
+            proc.jarvis_job = self._job_factory(proc.pid) if self._job_factory is not None else None   # type: ignore[attr-defined]
+        else:
+            self._contain_and_resume(proc, argv)
         return proc
+
+    def _contain_and_resume(self, proc: subprocess.Popen, argv: Sequence[str]) -> None:
+        """The process was started suspended: put it into its job (a missing job is the documented taskkill fallback), then let it run. If anything fails, the process
+        is ended - it must never stay behind frozen - and the job handle is released."""
+        job = None
+        try:
+            job = self._job_factory(proc.pid) if self._job_factory is not None else None
+            self._resume(proc.pid)                                                                  # type: ignore[misc]
+        except BaseException as exc:
+            try:
+                proc.kill()                                                                         # first: whatever else fails, the frozen process is gone
+            except OSError:
+                pass
+            if job is not None:
+                job.terminate()
+                job.close()
+            try:
+                proc.wait(timeout=5)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+            if isinstance(exc, Exception):
+                raise PreparationError(f"cannot start {str(argv[0])!r} ({type(exc).__name__}: it could not be contained and resumed)") from None
+            raise
+        proc.jarvis_job = job                                                                       # type: ignore[attr-defined]
 
     def _supervise(self, proc: subprocess.Popen, out, timeout: float, cancel: threading.Event | None, cap: int) -> tuple[bool, bool, bool]:
         started = time.monotonic()

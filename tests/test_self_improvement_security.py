@@ -240,6 +240,10 @@ def enabled_core(tmp_path, monkeypatch):
     def boom(*a, **k):
         raise AssertionError("a process was started")
     monkeypatch.setattr(subprocess, "Popen", boom)
+    # bootstrap hands os.environ to the factory, so the test key goes there. Without it, load_key would create/inspect a key FILE, which on Windows starts powershell.exe and
+    # icacls.exe (the ACL check) - fixed system programs, not proposed code, but still processes. The real key-file and ACL behaviour is covered by
+    # test_self_improvement_keyfile.py (including the Windows-only tests); this fixture only keeps the "no process while building" guarantee for everything else.
+    monkeypatch.setenv("JARVIS_SELF_IMPROVEMENT_STORE_KEY", "ab" * 32)
     env = env_for(tmp_path, JARVIS_SELF_IMPROVEMENT_ENABLED="true", JARVIS_SELF_IMPROVEMENT_DATA_DIR=tmp_path / "imp", JARVIS_SELF_IMPROVEMENT_KEY_PATH=tmp_path / "keys" / "k")
     return build_core(load_settings(env=env))
 
