@@ -37,7 +37,7 @@ jobs:
     name: phase 15 gezielt (windows-latest, py3.13)
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'phase15' || inputs.scope == 'all' }}
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -87,7 +87,7 @@ jobs:
       - name: Phase-15-Windows-Tests
         run: |
           mkdir -p reports
-          python -m pytest -p no:cacheprovider -rfEs -W error::pytest.PytestUnhandledThreadExceptionWarning \
+          python -m pytest -p no:cacheprovider -rfEs --durations=15 -W error::pytest.PytestUnhandledThreadExceptionWarning \
             --junitxml=reports/junit-phase15-windows.xml \
             tests/test_self_improvement_keyfile.py tests/test_self_improvement_lock.py tests/test_self_improvement_process_tree.py \
             tests/test_self_improvement_security.py tests/test_security_paths_windows.py

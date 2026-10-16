@@ -222,7 +222,7 @@ def test_concurrent_first_starts_in_real_processes_agree_on_one_key(tmp_path):
     """))
     target = tmp_path / "keys" / "k"
     procs = [subprocess.Popen([sys.executable, str(script), str(target)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(4)]
-    outs = [p.communicate(timeout=120) for p in procs]
+    outs = [p.communicate(timeout=300) for p in procs]       # each start runs PowerShell/icacls several times; four at once are slow on a loaded runner
     assert [p.returncode for p in procs] == [0, 0, 0, 0], [o[1][-300:] for o in outs]
     keys = {o[0].strip() for o in outs}
     assert len(keys) == 1 and len(next(iter(keys))) == 64
@@ -298,9 +298,12 @@ def test_win_created_key_is_restricted_to_user_system_and_administrators(tmp_pat
     facts, me = acl_facts(k), current_user_sid()
     allow = {sid for kind, _, sid in facts["aces"] if kind == "Allow"}
     assert len(key) == 32 and facts["protected"], facts              # inheritance removed
-    assert allow and allow <= {me, SYSTEM_SID, ADMINISTRATORS_SID}, facts
-    assert not any(inherited for _, inherited, _ in facts["aces"]), facts
     assert facts["owner"] in {me, ADMINISTRATORS_SID}, facts
+    # On the GitHub runner the new file carries an explicit OWNER RIGHTS entry (S-1-3-4) from the process's default DACL. It only describes the owner, so it is accepted
+    # exactly as the production rule does (winsec.acl_problems): only while the owner is the current user, SYSTEM or Administrators. Any other principal still fails.
+    owner_rights = {"S-1-3-4"} if facts["owner"] in {me, SYSTEM_SID, ADMINISTRATORS_SID} else set()
+    assert allow and allow <= {me, SYSTEM_SID, ADMINISTRATORS_SID} | owner_rights, facts
+    assert not any(inherited for _, inherited, _ in facts["aces"]), facts
     assert me in allow or ADMINISTRATORS_SID in allow                # legitimate access is not locked out
     assert load_key({}, k) == key                                    # reading it back (second start) works and passes the review
     assert strays(k.parent) == []
