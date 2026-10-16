@@ -3,7 +3,7 @@
 Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer Agent, dem man ein Ziel nennt und der selbstständig
 **denkt → plant → recherchiert → programmiert → handelt → testet → repariert → lernt → neue Fähigkeiten entwickelt**.
 
-**Status: Phase 1 (Core MVP), Phase 2 (Voice), Phase 3 (Memory), Phase 13 (Permissions & Security, vorgezogen), Phase 4 (Computer Control), Phase 5 (Browser Agent v1), Phase 6 (Coding Agent v1) und Phase 7 (Multi-Agent-Orchestrierung v1), Phase 8 (Goal Engine v1) und Phase 9 (Self-Testing/Self-Repair v1) abgeschlossen (Linux + Windows validiert); Phase 10 (Business/Research/Finance v1) ist implementiert und auf Linux getestet – die Windows-Validierung steht noch aus.** JARVIS plant und überwacht Ziele nur über die vorhandenen Agenten; es verändert weder sich selbst noch installiert es Fähigkeiten.
+**Status: Phase 1 (Core MVP), Phase 2 (Voice), Phase 3 (Memory), Phase 13 (Permissions & Security, vorgezogen), Phase 4 (Computer Control), Phase 5 (Browser Agent v1), Phase 6 (Coding Agent v1) und Phase 7 (Multi-Agent-Orchestrierung v1), Phase 8 (Goal Engine v1) und Phase 9 (Self-Testing/Self-Repair v1) abgeschlossen (Linux + Windows validiert); Phase 10 (Business/Research/Finance v1) ist implementiert; die volle Testsuite lief zuletzt auf einem GitHub-Windows-Runner und auf Ubuntu grün (siehe `docs/TESTING.md`; Mikrofon, Lautsprecher, GUI und echter Browser bleiben manuell).** JARVIS plant und überwacht Ziele nur über die vorhandenen Agenten; es verändert weder sich selbst noch installiert es Fähigkeiten.
 
 ## Was bisher funktioniert (Phase 1–10, 13)
 
