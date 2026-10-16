@@ -1,0 +1,216 @@
+# Tests (Windows + Linux). Liest nur (contents: read): keine Secrets, kein Schreibzugriff, kein automatischer Commit/Push.
+# Trigger: push auf den Arbeitsbranch (damit der erste Lauf nicht davon abhaengt, dass die Datei auf main liegt) und manuell (workflow_dispatch).
+#   push            -> gezielte Phase-15-Windows-Tests (guenstig, 5 Wiederholungen des Prozessbaum-Tests)
+#   workflow_dispatch -> scope: phase15 | full | all, repeat: 1-50
+# Actions sind auf Commit-SHAs gepinnt (Tag im Kommentar); bei Aktualisierung SHA gegen den offiziellen Tag pruefen.
+name: tests
+
+on:
+  push:
+    branches: ["claude/inspiring-ritchie-8ljinw"]
+    paths: ["src/**", "tests/**", "pyproject.toml", ".github/workflows/tests.yml"]
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "Umfang: phase15 = nur gezielte Windows-Tests, full = volle Suite (Windows + Linux), all = beides"
+        type: choice
+        options: [phase15, full, all]
+        default: phase15
+      repeat:
+        description: "Wiederholungen des Prozessbaum-Tests (1-50)"
+        type: string
+        default: "20"
+
+permissions:
+  contents: read                           # minimal: kein Schreibzugriff, keine Secrets, kein GITHUB_TOKEN-Einsatz im Code
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash                            # Git Bash auch unter Windows; bash laeuft mit -e -o pipefail
+
+jobs:
+  phase15-windows:
+    name: phase 15 gezielt (windows-latest, py3.13)
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'phase15' || inputs.scope == 'all' }}
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false         # Token bleibt nicht in .git/config zurueck
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: "Stand pruefen (Phase-15-Stand von Patch v4 muss im Checkout enthalten sein)"
+        run: |
+          mkdir -p reports
+          sha="$(git rev-parse HEAD)"; echo "Geprueft wird Commit $sha"
+          { echo "Commit: $sha"; echo "Ref: $GITHUB_REF"; } | tee reports/commit.txt >> "$GITHUB_STEP_SUMMARY"
+          missing=0
+          chk() { grep -q -- "$2" "$1" || { echo "::error::Marker fehlt in $1: $2"; missing=1; }; }
+          chk src/jarvis/self_improvement/workspace.py "_contain_and_resume"
+          chk src/jarvis/self_improvement/winjob.py "def resume"
+          chk src/jarvis/self_improvement/winsec.py "OutputEncoding"
+          chk tests/test_self_improvement_process_tree.py "test_win_a_resume_failure_leaves_no_frozen_process"
+          chk tests/test_self_improvement_keyfile.py "def run_bytes"
+          chk tests/test_self_improvement_security.py "JARVIS_SELF_IMPROVEMENT_STORE_KEY"
+          if (( missing )); then
+            echo "::error::Dieser Checkout enthaelt den Phase-15-Stand (Patch v4) NICHT - der Lauf gilt nicht als Phase-15-Nachweis."
+            echo "**KEIN Phase-15-Nachweis: Marker des Patch-v4-Stands fehlen in $sha.**" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - name: Installieren (dev)
+        run: python -m pip install --disable-pip-version-check -e ".[dev]"
+      - name: "Diagnose (nur Information): laeuft dieser Prozess selbst in einem Job Object?"
+        continue-on-error: true               # darf den Lauf nie scheitern lassen
+        run: |
+          python - <<'PY'
+          import ctypes, ctypes.wintypes as w
+          from jarvis.self_improvement import winjob
+          k = ctypes.WinDLL("kernel32", use_last_error=True)
+          k.GetCurrentProcess.restype = w.HANDLE
+          k.IsProcessInJob.argtypes = [w.HANDLE, w.HANDLE, ctypes.POINTER(w.BOOL)]
+          inside = w.BOOL()
+          ok = k.IsProcessInJob(k.GetCurrentProcess(), None, ctypes.byref(inside))
+          print("IsProcessInJob aufgerufen:", bool(ok), "| Prozess in einem Job:", bool(inside.value))
+          if inside.value:
+              _, ext = winjob.structs()
+              info = ext()
+              k.QueryInformationJobObject.argtypes = [w.HANDLE, ctypes.c_int, ctypes.c_void_p, w.DWORD, ctypes.c_void_p]
+              got = k.QueryInformationJobObject(None, 9, ctypes.byref(info), ctypes.sizeof(info), None)
+              print("LimitFlags des Jobs:", hex(info.BasicLimitInformation.LimitFlags) if got else "nicht lesbar")
+          PY
+      - name: Phase-15-Windows-Tests
+        run: |
+          mkdir -p reports
+          python -m pytest -p no:cacheprovider -rfEs -W error::pytest.PytestUnhandledThreadExceptionWarning \
+            --junitxml=reports/junit-phase15-windows.xml \
+            tests/test_self_improvement_keyfile.py tests/test_self_improvement_lock.py tests/test_self_improvement_process_tree.py \
+            tests/test_self_improvement_security.py tests/test_security_paths_windows.py
+      - name: "Prozessbaum-Test wiederholen (Straggler)"
+        if: ${{ !cancelled() }}               # laeuft auch nach einem Fehler des vorigen Schritts; der Job bleibt dann trotzdem rot
+        env:
+          REPEAT: ${{ inputs.repeat || '5' }}   # ueber env, nie direkt in das Skript interpoliert; push-Laeufe: 5
+        run: |
+          [[ "$REPEAT" =~ ^[0-9]+$ ]] && (( REPEAT >= 1 && REPEAT <= 50 )) || { echo "::error::repeat muss 1-50 sein"; exit 1; }
+          fails=0
+          for i in $(seq 1 "$REPEAT"); do
+            python -m pytest -p no:cacheprovider -q tests/test_self_improvement_process_tree.py -k "left_running_after_a_normal_exit" \
+              || { fails=$((fails+1)); echo "::warning::Lauf $i von $REPEAT fehlgeschlagen"; }
+          done
+          echo "Wiederholungen: $REPEAT, fehlgeschlagen: $fails"
+          mkdir -p reports && echo "repeat=$REPEAT fails=$fails" > reports/straggler-repeat.txt
+          (( fails == 0 ))
+      - name: "Zusammenfassung und Pflichtpruefung (kein Windows-Test darf unbemerkt komplett uebersprungen sein)"
+        if: ${{ !cancelled() }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          python - reports/junit-phase15-windows.xml >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import os, sys, collections, xml.etree.ElementTree as ET
+          path = sys.argv[1]
+          print(f"### Phase 15 / Windows - Jobstatus bis hierher: **{os.environ.get('JOB_STATUS')}**\n")
+          if not os.path.exists(path):
+              print("**Kein Testbericht vorhanden - der Lauf ist NICHT als bestanden zu werten.**"); sys.exit(1)
+          cases = list(ET.parse(path).getroot().iter("testcase"))
+          n = collections.Counter(); skipped = []; passed = []
+          for c in cases:
+              ident = f"{c.get('classname')}::{c.get('name')}"
+              if c.find("failure") is not None or c.find("error") is not None: n["FAILED/ERROR"] += 1; print(f"- FAILED/ERROR: {ident}")
+              elif c.find("skipped") is not None: n["SKIPPED"] += 1; skipped.append((ident, (c.find("skipped").get("message") or "")[:100]))
+              else: n["PASSED"] += 1; passed.append(c)
+          print(f"\n| PASSED | FAILED/ERROR | SKIPPED |\n|---|---|---|\n| {n['PASSED']} | {n['FAILED/ERROR']} | {n['SKIPPED']} |\n")
+          for ident, why in skipped: print(f"- SKIPPED: {ident} - {why}")
+          required = [("tests.test_self_improvement_process_tree", "test_win_"), ("tests.test_self_improvement_keyfile", "test_win_"), ("tests.test_security_paths_windows", "")]
+          missing = [f"{cls}::{pre}*" for cls, pre in required if not any(c.get("classname") == cls and c.get("name").startswith(pre) for c in passed)]
+          if n["PASSED"] == 0 or missing:
+              print(f"\n**Pflichtpruefung FEHLGESCHLAGEN: kein bestandener Windows-Test in: {missing or 'gesamter Lauf'}**"); sys.exit(1)
+          PY
+      - name: Berichte hochladen (auch bei Fehlschlag)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reports-phase15-windows
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 14
+
+  suite:
+    name: suite (${{ matrix.os }}, py${{ matrix.python }})
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.scope == 'full' || inputs.scope == 'all') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, python: "3.13" }   # Zielsystem
+          - { os: ubuntu-latest,  python: "3.13" }
+          - { os: ubuntu-latest,  python: "3.11" }   # requires-python >=3.11; Laufzeit unter 3.11 bisher NICHT getestet
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: "Stand pruefen (Phase-15-Stand von Patch v4 muss im Checkout enthalten sein)"
+        run: |
+          mkdir -p reports
+          sha="$(git rev-parse HEAD)"; echo "Geprueft wird Commit $sha"
+          { echo "Commit: $sha"; echo "Ref: $GITHUB_REF"; } | tee reports/commit.txt >> "$GITHUB_STEP_SUMMARY"
+          missing=0
+          chk() { grep -q -- "$2" "$1" || { echo "::error::Marker fehlt in $1: $2"; missing=1; }; }
+          chk src/jarvis/self_improvement/workspace.py "_contain_and_resume"
+          chk src/jarvis/self_improvement/winjob.py "def resume"
+          chk src/jarvis/self_improvement/winsec.py "OutputEncoding"
+          chk tests/test_self_improvement_process_tree.py "test_win_a_resume_failure_leaves_no_frozen_process"
+          chk tests/test_self_improvement_keyfile.py "def run_bytes"
+          chk tests/test_self_improvement_security.py "JARVIS_SELF_IMPROVEMENT_STORE_KEY"
+          if (( missing )); then
+            echo "::error::Dieser Checkout enthaelt den Phase-15-Stand (Patch v4) NICHT - der Lauf gilt nicht als Phase-15-Nachweis."
+            echo "**KEIN Phase-15-Nachweis: Marker des Patch-v4-Stands fehlen in $sha.**" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - name: Installieren (dev)
+        run: python -m pip install --disable-pip-version-check -e ".[dev]"
+      - name: "Tests (volle Suite; GUI-Test ausgeschlossen)"
+        run: |
+          mkdir -p reports
+          # AUSSCHLUSS: tests/test_gui_confirmation.py - dort fehlte tkinter (bestaetigt nur im Entwicklungs-Container).
+          # Unter Windows ist tkinter meist vorhanden; nach dem ersten Lauf pruefen und den Ausschluss dort aufheben.
+          python -m pytest -p no:cacheprovider -rfEs --ignore=tests/test_gui_confirmation.py \
+            --junitxml="reports/junit-${{ matrix.os }}-py${{ matrix.python }}.xml"
+      - name: Zusammenfassung (PASSED / FAILED / SKIPPED)
+        if: ${{ !cancelled() }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+          REPORT: reports/junit-${{ matrix.os }}-py${{ matrix.python }}.xml
+        run: |
+          python - "$REPORT" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import os, sys, collections, xml.etree.ElementTree as ET
+          path = sys.argv[1]
+          print(f"### {path} - Jobstatus bis hierher: **{os.environ.get('JOB_STATUS')}**\n")
+          if not os.path.exists(path):
+              print("**Kein Testbericht vorhanden - der Lauf ist NICHT als bestanden zu werten.**"); sys.exit(1)
+          n = collections.Counter(); reasons = collections.Counter()
+          for c in ET.parse(path).getroot().iter("testcase"):
+              if c.find("failure") is not None or c.find("error") is not None: n["FAILED/ERROR"] += 1; print(f"- FAILED/ERROR: {c.get('classname')}::{c.get('name')}")
+              elif c.find("skipped") is not None: n["SKIPPED"] += 1; reasons[(c.find("skipped").get("message") or "")[:100]] += 1
+              else: n["PASSED"] += 1
+          print(f"\n| PASSED | FAILED/ERROR | SKIPPED |\n|---|---|---|\n| {n['PASSED']} | {n['FAILED/ERROR']} | {n['SKIPPED']} |\n")
+          for r, k in reasons.most_common(): print(f"- {k}x skipped: {r}")
+          if n["PASSED"] == 0: sys.exit(1)
+          PY
+      - name: Berichte hochladen (auch bei Fehlschlag)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reports-${{ matrix.os }}-py${{ matrix.python }}
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 14
