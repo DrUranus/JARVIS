@@ -1,7 +1,8 @@
 # Tests (Windows + Linux). Liest nur (contents: read): keine Secrets, kein Schreibzugriff, kein automatischer Commit/Push.
 # Trigger: push auf den Arbeitsbranch (damit der erste Lauf nicht davon abhaengt, dass die Datei auf main liegt) und manuell (workflow_dispatch).
 #   push            -> gezielte Phase-15-Windows-Tests (guenstig, 5 Wiederholungen des Prozessbaum-Tests)
-#   workflow_dispatch -> scope: phase15 | full | all, repeat: 1-50
+#   push mit "[ci-full]" in der Commit-Nachricht des letzten Commits -> zusaetzlich die volle Suite (Windows + Linux)
+#   workflow_dispatch -> scope: phase15 | full | all, repeat: 1-50 (nur nutzbar, wenn die Datei auf dem Standard-Branch liegt)
 # Actions sind auf Commit-SHAs gepinnt (Tag im Kommentar); bei Aktualisierung SHA gegen den offiziellen Tag pruefen.
 name: tests
 
@@ -141,9 +142,9 @@ jobs:
 
   suite:
     name: suite (${{ matrix.os }}, py${{ matrix.python }})
-    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.scope == 'full' || inputs.scope == 'all') }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && (inputs.scope == 'full' || inputs.scope == 'all')) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[ci-full]')) }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
