@@ -72,6 +72,30 @@ def test_unknown_current_user_is_a_problem_not_a_pass():
     assert acl_problems(ACCEPT["only-user"], "") and acl_problems(ACCEPT["only-user"], "not-a-sid")
 
 
+RID500 = "S-1-5-21-111-222-333-500"          # the account the GitHub Windows runner uses: Get-Acl writes it as the alias LA
+LA_SDDL = "O:LAG:LAD:PAI(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;LA)"
+
+
+def test_the_alias_LA_is_the_current_user_only_when_the_users_rid_is_500():
+    """Found by the first run on a real Windows runner: the file is owned by (and granted to) the user, but SDDL spells that user as LA."""
+    assert acl_problems(LA_SDDL, RID500) == []
+    assert parse_sddl(LA_SDDL, RID500).owner == RID500
+
+
+@pytest.mark.parametrize("user", ["S-1-5-21-111-222-333-1001", "S-1-5-18", "S-1-5-5-0-12345"], ids=["other-account", "system-user", "no-domain-sid"])
+def test_LA_stays_a_foreign_principal_for_every_other_user(user):
+    problems = acl_problems(LA_SDDL, user)
+    assert any("owner" in p for p in problems) and any("access is granted to" in p for p in problems), problems
+
+
+def test_LA_is_not_resolved_without_a_user_sid():
+    assert parse_sddl(LA_SDDL).owner == "LA"                       # unknown -> refused by acl_problems
+
+
+def test_an_owner_rights_entry_is_fine_when_the_owner_is_LA_and_the_user():
+    assert acl_problems("O:LAG:LAD:PAI(A;;FA;;;OW)(A;;FA;;;SY)(A;;FA;;;LA)", RID500) == []
+
+
 def test_parse_sddl_exposes_owner_protection_and_entries():
     a = parse_sddl(ACCEPT["protected-user-system-admins"])
     assert a.owner == USER and a.protected and [x.sid for x in a.aces] == [USER, SYSTEM_SID, ADMINISTRATORS_SID]

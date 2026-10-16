@@ -90,7 +90,7 @@ def _default_windows_acl() -> "WindowsAcl":
     cwd = Path(os.environ.get("SystemRoot") or os.environ.get("windir") or "C:\\Windows")
 
     def run(argv):
-        res = runner.run(argv, cwd, 60.0)
+        res = runner.run(argv, cwd, 180.0)       # cold PowerShell starts can be slow under load; the limit only bounds a hang
         return res.exit_status, res.output
     return WindowsAcl(run)
 

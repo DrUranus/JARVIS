@@ -375,6 +375,13 @@ def test_win_taskkill_fallback_still_works_for_a_live_tree(tmp_path):
     assert wait_dead(int(pidfile.read_text()), 10), "taskkill /T did not end a tree whose parents were alive"
 
 
+def real_resume(pid: int) -> None:
+    """On Windows the runner starts a process SUSPENDED whenever a resume callback is injected, so a fake callback must also really resume it (first run on a real
+    runner: the processes stayed frozen until the timeout). Elsewhere nothing is suspended."""
+    if WIN:
+        winjob.resume(pid)
+
+
 # ---- PLATFORM-NEUTRAL: suspended start -> job -> resume (order, failures, resources) ---------------------------------------------------------------------
 def test_winjob_resume_delegates_to_the_api_and_reports_failure():
     api = FakeApi()
@@ -392,7 +399,10 @@ def test_suspended_start_attaches_the_job_before_the_process_may_run(tmp_path):
         events.append(("job", pid))
         jobs.append(FakeJob())
         return jobs[-1]
-    r = SubprocessRunner(job_factory=factory, resume=lambda pid: events.append(("resume", pid)))
+    def record_resume(pid):
+        events.append(("resume", pid))
+        real_resume(pid)
+    r = SubprocessRunner(job_factory=factory, resume=record_resume)
     assert r.run([sys.executable, "-c", "print(1)"], tmp_path, 20).ok
     assert [e[0] for e in events] == ["job", "resume"] and events[0][1] == events[1][1]       # job first, same process, resume last
     assert jobs[0].closed == 1 and jobs[0].terminated == 0
@@ -401,7 +411,10 @@ def test_suspended_start_attaches_the_job_before_the_process_may_run(tmp_path):
 def test_suspended_start_without_a_job_still_resumes_the_process(tmp_path):
     """No job = the documented taskkill fallback; the process must nevertheless run (and not stay frozen)."""
     resumed: list[int] = []
-    r = SubprocessRunner(job_factory=lambda pid: None, resume=resumed.append)
+    def record_resume(pid):
+        resumed.append(pid)
+        real_resume(pid)
+    r = SubprocessRunner(job_factory=lambda pid: None, resume=record_resume)
     assert r.run([sys.executable, "-c", "print(1)"], tmp_path, 20).ok and len(resumed) == 1
 
 
@@ -508,7 +521,10 @@ class RecordingApi(FakeApi):
 
 
 def sequence_runner(api: RecordingApi) -> SubprocessRunner:
-    return SubprocessRunner(job_factory=lambda pid: winjob.attach(pid, api), resume=lambda pid: winjob.resume(pid, api))
+    def resume(pid):
+        winjob.resume(pid, api)                 # the fake layer: records the call (and fails when asked to)
+        real_resume(pid)
+    return SubprocessRunner(job_factory=lambda pid: winjob.attach(pid, api), resume=resume)
 
 
 def test_full_sequence_job_is_complete_before_the_resume_and_all_handles_are_released(tmp_path):

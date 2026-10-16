@@ -23,7 +23,10 @@ from typing import Callable, Sequence
 SYSTEM_SID = "S-1-5-18"
 ADMINISTRATORS_SID = "S-1-5-32-544"
 
-# two-letter SDDL aliases that map to a fixed SID; domain-relative aliases (DA, DU, DG, LA, ...) are intentionally absent: they stay unknown and are therefore refused
+# two-letter SDDL aliases that map to a fixed SID; domain-relative aliases (DA, DU, DG, ...) are intentionally absent: they stay unknown and are therefore refused.
+# The one exception is "LA" (the built-in Administrator account, RID 500): Get-Acl writes it for a user whose own SID ends in -500 (observed on the GitHub Windows
+# runner, where the runner account is that account). It is resolved ONLY relative to the current user's own machine/domain SID, so it matches the current user if and
+# only if the user's RID is 500; for every other user "LA" stays a foreign principal and is refused.
 _ALIASES = {
     "SY": "S-1-5-18", "BA": "S-1-5-32-544", "WD": "S-1-1-0", "BU": "S-1-5-32-545", "AU": "S-1-5-11", "IU": "S-1-5-4", "NU": "S-1-5-2", "AN": "S-1-5-7",
     "LS": "S-1-5-19", "NS": "S-1-5-20", "BG": "S-1-5-32-546", "PU": "S-1-5-32-547", "AO": "S-1-5-32-548", "SO": "S-1-5-32-549", "PO": "S-1-5-32-550",
@@ -58,13 +61,21 @@ class Acl:
         return self.dacl_flags.startswith("P")
 
 
-def _principal(token: str) -> str:
+_DOMAIN_SID_RE = re.compile(r"(S-1-5-21-\d+-\d+-\d+)-\d+")
+
+
+def _principal(token: str, domain: str | None = None) -> str:
     token = token.strip()
+    if token == "LA" and domain:
+        return f"{domain}-500"
     return _ALIASES.get(token, token)
 
 
-def parse_sddl(sddl: str) -> Acl:
-    """Parse the owner and the DACL of an SDDL string. Raises ValueError for text that is not SDDL (the caller fails closed)."""
+def parse_sddl(sddl: str, user_sid: str | None = None) -> Acl:
+    """Parse the owner and the DACL of an SDDL string. Raises ValueError for text that is not SDDL (the caller fails closed).
+    `user_sid` (the current user) is only used to resolve the domain-relative alias LA, see _ALIASES."""
+    m0 = _DOMAIN_SID_RE.fullmatch(user_sid or "")
+    domain = m0.group(1) if m0 else None
     s = sddl.strip()
     if not s or not re.match(r"^[OGDS]:", s):
         raise ValueError("not an SDDL string")
@@ -82,7 +93,7 @@ def parse_sddl(sddl: str) -> Acl:
                 raise ValueError("bad owner/group token")
             token = m.group(0)
             if section == "O":
-                owner = _principal(token)
+                owner = _principal(token, domain)
             i += len(token)
             continue
         m = re.match(r"[A-Z_]*", s[i:])             # flags such as PAI, PAR, NO_ACCESS_CONTROL
@@ -107,7 +118,7 @@ def parse_sddl(sddl: str) -> Acl:
                 f = body.split(";")
                 if len(f) < 6:
                     raise ValueError("malformed ACE")
-                aces.append(Ace(f[0], f[1], f[2], _principal(f[5])))
+                aces.append(Ace(f[0], f[1], f[2], _principal(f[5], domain)))
     return Acl(owner, dacl_present, dacl_flags, tuple(aces))
 
 
@@ -118,7 +129,7 @@ def acl_problems(sddl: str, user_sid: str) -> list[str]:
         return ["the current user's SID could not be determined"]
     allowed = {user_sid, SYSTEM_SID, ADMINISTRATORS_SID}
     try:
-        acl = parse_sddl(sddl)
+        acl = parse_sddl(sddl, user_sid)
     except ValueError as exc:
         return [f"the security descriptor could not be parsed ({exc})"]
     problems: list[str] = []
@@ -185,7 +196,8 @@ class WindowsAcl:
         encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")        # -EncodedCommand: no quoting problems with any path
         status, out = self._run([exe, "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded])
         if status != 0:
-            raise OSError(f"PowerShell failed (exit {status}): {out.strip()[-200:]}")
+            why = "did not finish (timeout, cancel or output limit)" if status is None else f"failed (exit {status})"
+            raise OSError(f"PowerShell {why}: {out.strip()[-200:]}")
         return out
 
     def read(self, path: str) -> "tuple[str, str]":
@@ -215,4 +227,5 @@ class WindowsAcl:
         argv = [os.path.join(_system32(), "icacls.exe"), path, "/inheritance:r", "/grant:r", f"*{user}:(F)", f"*{SYSTEM_SID}:(F)", f"*{ADMINISTRATORS_SID}:(F)"]
         status, out = self._run(argv)
         if status != 0:
-            raise OSError(f"icacls failed (exit {status}): {out.strip()[-200:]}")
+            why = "did not finish (timeout, cancel or output limit)" if status is None else f"failed (exit {status})"
+            raise OSError(f"icacls {why}: {out.strip()[-200:]}")
