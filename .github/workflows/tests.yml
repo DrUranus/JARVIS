@@ -177,8 +177,10 @@ jobs:
             echo "**KEIN Phase-15-Nachweis: Marker des Patch-v4-Stands fehlen in $sha.**" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-      - name: Installieren (dev)
-        run: python -m pip install --disable-pip-version-check -e ".[dev]"
+      - name: "Installieren (dev; unter Windows zusaetzlich das Extra voice: test_voice braucht sounddevice + numpy)"
+        env:
+          EXTRAS: ${{ runner.os == 'Windows' && 'dev,voice' || 'dev' }}
+        run: python -m pip install --disable-pip-version-check -e ".[$EXTRAS]"
       - name: "Tests (volle Suite; GUI-Test ausgeschlossen)"
         run: |
           mkdir -p reports
