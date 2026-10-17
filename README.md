@@ -25,6 +25,7 @@ Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer A
 - **Permissions & Security (Phase 13):** Jede Tool-Ausführung läuft durch eine Berechtigungs-Engine (GREEN/YELLOW/RED, Regeln, Bestätigung, Pfad-Sicherheit, Audit-Log, Secret-Schutz) und schlägt im Zweifel fehl (fail closed)
 - **Memory (Phase 3):** persistentes lokales Langzeitgedächtnis (SQLite) hinter der Schnittstelle `MemoryStore`, mit Secret-Schutz; gemerkt wird nur auf ausdrücklichen Wunsch
 - **Voice (Phase 2):** Speech-to-Text → `JarvisCore.handle` → Text-to-Speech als zusätzliche Oberfläche, mit Wake-Word, Exit-Phrasen und Fallback bei fehlender Hardware
+- **GUI (Phase 11):** Tkinter-Fenster um denselben Core: Text und Sprache, sichtbare Zustände, schreibgeschützter Status, sichere Bestätigungsdialoge (Abschnitt „Grafische Oberfläche“)
 
 ## Installation
 
@@ -852,6 +853,58 @@ Nichts wird dauerhaft gespeichert: weder Recherche-, Finanz-, Trading- noch Busi
 - Marketing-/Lead-Funktionen bereiten vor; es wird nichts versendet oder veröffentlicht.
 - Nicht enthalten (ausdrücklich): Echtgeld-Trading, Broker-Login, Überweisungen/Abhebungen, automatische Verträge/Kaltakquise, Self-Modification, Credential-Verwaltung, persistente Finanzdaten.
 
+## Grafische Oberfläche (Phase 11)
+
+Ein Tkinter-Fenster um denselben Core wie die CLI (kein zweiter Core, keine zweite Berechtigungslogik): Gespräch per Text oder Sprache, sichtbare Zustände, ein
+schreibgeschützter Statusbereich und die Bestätigungsdialoge der Berechtigungs-Engine.
+
+```
+pip install -e ".[voice]"            # nur für den Sprachmodus (sounddevice + numpy); die Texteingabe braucht es nicht
+jarvis-gui                           # oder: python -m jarvis.interface.gui [-c jarvis.local.toml]
+```
+`tkinter` ist nötig (unter Windows im Python-Installer und bei `actions/setup-python` enthalten; unter Linux `python3-tk`). Die Konfiguration wird wie bei der CLI
+gelesen (`jarvis.local.toml`, sonst `config/jarvis.toml`).
+
+**Bedienung.** Reiter *Gespräch*: Eingabe + Enter oder „Senden“. Der Verlauf gilt nur für die laufende Sitzung (nicht gespeichert; Erinnerungen laufen weiter über
+Memory). Zeilen mit `/` sind dieselben Befehle wie in der CLI (`/help`, `/tasks`, `/run …`; sie laufen durch dieselbe Berechtigungsprüfung); `/voice` startet den
+GUI-Sprachmodus, `/exit` schließt das Fenster. Reiter *Status*: „Aktualisieren“ liest **nur lesend** Subsystemstatus, `/tasks`, `/goals` und `/permissions`; ein
+Abschnitt, der sich nicht lesen lässt, sagt das, statt zu fehlen. Es gibt keine neue autonome Ausführung und keine zusätzlichen Rechte.
+
+**Zustände** (oben rechts; angezeigt nur, wenn die Komponente ihn meldet – nichts ist animiert oder erfunden):
+
+| Zustand | Wann |
+|---|---|
+| Bereit | nichts läuft |
+| Zuhören | der Sprachmodus wartet auf / nimmt eine Äußerung auf (Mikrofon aktiv) |
+| Verarbeiten | eine Anfrage läuft (Text oder Sprache) |
+| Sprechen | die Sprachausgabe läuft |
+| Wartet auf Bestätigung | ein Bestätigungsdialog ist offen (höchste Priorität) |
+| Fehler | ein unerwarteter Fehler bei einer Anfrage oder ein Sprachfehler; der Grund steht unter dem Eingabefeld, bis zur nächsten Aktion |
+
+Die Farben/Zustände stehen in `STATE_STYLE` (`gui.py`) und `UiState` (`gui_model.py`); weitere Zustände oder Animationen kommen dort hinzu.
+
+**Sprachmodus.** Nur auf ausdrücklichen Klick auf „Sprache starten“ (oder `/voice`), nie automatisch; das Mikrofon ist nur solange aktiv. Benutzt wird die vorhandene
+`VoiceSession` (Mikrofon → STT → Core → TTS); Wake-Word, Sprache und Provider kommen aus `[voice]`. Voraussetzungen: `voice.stt_provider` **nicht** `console`
+(z. B. `openai` mit `OPENAI_API_KEY`/`JARVIS_VOICE_API_KEY`), ein Mikrofon samt PortAudio (`sounddevice`), ein Ausgabeweg (`tts_provider`). Fehlt etwas, steht der Grund im
+Gespräch und die Texteingabe bleibt voll nutzbar. Während des Sprachmodus ist das Tippen gesperrt (ein Gespräch gleichzeitig). „Sprache beenden“ (oder das Wort „exit“)
+beendet ihn nach der laufenden Aufnahme (höchstens `voice.max_record_seconds`).
+
+**Bestätigungen.** Der Dialog (einmal / Sitzung / ablehnen, Timeout 120 s) lehnt bei jedem Fehler, Timeout, beim Schließen und bei einer geschlossenen GUI ab. Eine
+ausdrückliche `security.confirmation = "deny"` wird nicht überschrieben.
+
+**Schließen.** Läuft noch eine Anfrage oder der Sprachmodus, fragt das Fenster nach. Beim Schließen starten keine neuen Aktionen, offene Bestätigungen werden abgelehnt,
+Subsysteme mit Notaus (`halt`) werden angehalten, das Ergebnis einer noch laufenden Anfrage wird verworfen. Eine bereits laufende `core.handle`-Anfrage selbst lässt sich
+nicht unterbrechen; ihr (Daemon-)Thread endet mit dem Prozess.
+
+**Threads.** Hintergrundthreads (Anfrage, Sprache, Status, Bestätigung) fassen keine Widgets an: sie legen Ereignisse in eine Queue, die der GUI-Thread alle 50 ms abholt.
+
+**Tests.** `tests/test_gui_model.py` (alle Plattformen, ohne Tk), `tests/test_gui_view.py` und `tests/test_gui_confirmation.py` (echtes Tk-Fenster; ohne tkinter/Anzeige
+übersprungen), `tests/test_voice_state.py`. Windows: CI-Job `gui-windows` (siehe `docs/TESTING.md`). **Nur manuell prüfbar:** Aussehen/Skalierung des Fensters, echtes Mikrofon,
+echte Lautsprecher, Bedienung mit der Maus.
+
+**Grenzen.** Kein Streaming der Antworten, kein Unterbrechen der Sprachausgabe (barge-in), keine Animationen, kein persistenter Verlauf, keine Barrierefreiheitsprüfung,
+Mehrmonitor-/DPI-Verhalten nicht gesondert behandelt.
+
 ## Tests & Entwicklungsworkflow
 
 ```bash
@@ -941,12 +994,12 @@ Abhängigkeiten zeigen nach innen: Core kennt nur Interfaces (`LLMProvider`, `To
 | 5–6 Browser/Coding | neue `ProtectedTool`-Klassen mit `describe_action` (Host/Pfad/Command als Ressource); Policy-Regeln pro Tool; Vision über `ImageObserver` |
 | 7 Multi-Agent ✅ · 8 Goal Engine ✅ | `jarvis/agents/`, `jarvis/goals/`; Goal Engine nutzt nur die `AgentOrchestrator`-Schnittstelle |
 | 9 Self-Repair ✅ | `jarvis/self_repair/`; nutzt nur Coding-Agent-Tasks über den Orchestrator; Proposer-Schnittstelle für spätere intelligentere Reparaturvorschläge |
-| 13 Security ✅ | `jarvis/permissions/` + `ToolRegistry.execute` als einzige Kontrollstelle. Offen: OS-Sandbox/Subprozess-Isolation, Hash-verkettetes Audit-Log, Voice/GUI-Bestätigung, Netzwerk-/Geld-Policies |
-| 10 Business/Research/Finance ✅ (Linux) | `jarvis/research|business|finance/`; Echtgeld-Schicht (Broker) fehlt bewusst: müsste YELLOW + ausdrückliche Bestätigung nutzen |
+| 13 Security ✅ | `jarvis/permissions/` + `ToolRegistry.execute` als einzige Kontrollstelle. GUI-Bestätigung ✅ (`GUIConfirmationProvider`). Offen: OS-Sandbox/Subprozess-Isolation, Hash-verkettetes Audit-Log, Voice-Bestätigung, Netzwerk-/Geld-Policies |
+| 10 Business/Research/Finance ✅ | `jarvis/research|business|finance/`; Echtgeld-Schicht (Broker) fehlt bewusst: müsste YELLOW + ausdrückliche Bestätigung nutzen |
 | 15 Self-Improvement | Provider-/Tool-Registry erlauben Austausch und Rollback von Komponenten |
 
 ## Zukünftige Phasen
 
 1 Core ✅ · 2 Voice ✅ · 3 Memory ✅ · 4 Computer Control ✅ · 5 Browser/Internet ✅ · 6 Coding Agent ✅ · 7 Multi-Agent ✅ · 8 Goal Engine ✅ ·
-9 Self-Testing/Repair ✅ · 10 Business/Research/Finance (Windows-Validierung offen) · 11 GUI · 12 Smartphone · 13 Permissions/Security ✅ (vorgezogen) · 14 Maximum Autonomy · 15 Self-Improvement.
+9 Self-Testing/Repair ✅ · 10 Business/Research/Finance ✅ (volle Suite auf Windows- und Linux-Runner grün) · 11 GUI (siehe Abschnitt „Grafische Oberfläche“) · 12 Smartphone · 13 Permissions/Security ✅ (vorgezogen) · 14 Maximum Autonomy · 15 Self-Improvement.
 Phase 13 wurde vor Phase 4 vorgezogen (Begründung: Computersteuerung ohne belastbares Rechtesystem ist riskant).
