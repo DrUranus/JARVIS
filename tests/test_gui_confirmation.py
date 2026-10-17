@@ -3,7 +3,9 @@ import threading
 
 import pytest
 
-from jarvis.interface.gui import GUIConfirmationProvider
+pytest.importorskip("tkinter")                  # without Tk (some Linux Pythons) the module is skipped instead of failing to import
+
+from jarvis.interface.gui import GUIConfirmationProvider  # noqa: E402
 from jarvis.permissions.confirmation import (
     ConfirmationChoice,
     ConfirmationRequest,

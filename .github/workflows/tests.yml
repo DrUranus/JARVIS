@@ -1,8 +1,9 @@
 # Tests (Windows + Linux). Liest nur (contents: read): keine Secrets, kein Schreibzugriff, kein automatischer Commit/Push.
 # Trigger: push auf den Arbeitsbranch (damit der erste Lauf nicht davon abhaengt, dass die Datei auf main liegt) und manuell (workflow_dispatch).
-#   push            -> gezielte Phase-15-Windows-Tests (guenstig, 5 Wiederholungen des Prozessbaum-Tests)
-#   push mit "[ci-full]" in der Commit-Nachricht des letzten Commits -> zusaetzlich die volle Suite (Windows + Linux)
-#   workflow_dispatch -> scope: phase15 | full | all, repeat: 1-50 (nur nutzbar, wenn die Datei auf dem Standard-Branch liegt)
+#   push                          -> gui-windows (schnell: GUI- und Voice-Tests unter Windows)
+#   push mit "[ci-phase15]"       -> zusaetzlich phase15-windows (ACL-/Job-Object-/Junction-Tests, langsam: PowerShell ist auf dem Runner traege)
+#   push mit "[ci-full]"          -> zusaetzlich die volle Suite (Windows + Linux)
+#   workflow_dispatch             -> scope: gui | phase15 | full | all, repeat: 1-50 (nur nutzbar, wenn die Datei auf dem Standard-Branch liegt)
 # Actions sind auf Commit-SHAs gepinnt (Tag im Kommentar); bei Aktualisierung SHA gegen den offiziellen Tag pruefen.
 name: tests
 
@@ -13,10 +14,10 @@ on:
   workflow_dispatch:
     inputs:
       scope:
-        description: "Umfang: phase15 = nur gezielte Windows-Tests, full = volle Suite (Windows + Linux), all = beides"
+        description: "Umfang: gui = GUI/Voice unter Windows, phase15 = gezielte Windows-Tests, full = volle Suite (Windows + Linux), all = alles"
         type: choice
-        options: [phase15, full, all]
-        default: phase15
+        options: [gui, phase15, full, all]
+        default: gui
       repeat:
         description: "Wiederholungen des Prozessbaum-Tests (1-50)"
         type: string
@@ -34,9 +35,80 @@ defaults:
     shell: bash                            # Git Bash auch unter Windows; bash laeuft mit -e -o pipefail
 
 jobs:
+  gui-windows:
+    name: gui + voice (windows-latest, py3.13)
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.scope == 'gui' || inputs.scope == 'all')) }}
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: "Stand pruefen (GUI-Dateien muessen im Checkout enthalten sein)"
+        run: |
+          mkdir -p reports
+          sha="$(git rev-parse HEAD)"; echo "Geprueft wird Commit $sha"
+          { echo "Commit: $sha"; echo "Ref: $GITHUB_REF"; } | tee reports/commit.txt >> "$GITHUB_STEP_SUMMARY"
+          for f in src/jarvis/interface/gui_model.py tests/test_gui_view.py tests/test_gui_model.py tests/test_voice_state.py; do
+            [ -f "$f" ] || { echo "::error::$f fehlt - der Lauf gilt nicht als GUI-Nachweis."; exit 1; }
+          done
+      - name: "Installieren (dev + voice: sounddevice/numpy fuer test_voice)"
+        run: python -m pip install --disable-pip-version-check -e ".[dev,voice]"
+      - name: "Diagnose (nur Information): Python, tkinter, Anzeige"
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import sys, tkinter
+          print(sys.version)
+          print("Tk", tkinter.TkVersion)
+          root = tkinter.Tk()
+          print("Tk-Fenster moeglich; Bildschirm:", root.winfo_screenwidth(), "x", root.winfo_screenheight())
+          root.destroy()
+          PY
+      - name: GUI- und Voice-Tests
+        run: |
+          python -m pytest -p no:cacheprovider -rfEs --durations=10 --junitxml=reports/junit-gui-windows.xml \
+            tests/test_gui_model.py tests/test_gui_view.py tests/test_gui_confirmation.py tests/test_voice_state.py tests/test_voice.py tests/test_voice_cli.py
+      - name: "Zusammenfassung und Pflichtpruefung (GUI-Tests muessen wirklich gelaufen sein, nicht uebersprungen)"
+        if: ${{ !cancelled() }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          python - reports/junit-gui-windows.xml >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import os, sys, collections, xml.etree.ElementTree as ET
+          path = sys.argv[1]
+          print(f"### GUI + Voice / Windows - Jobstatus bis hierher: **{os.environ.get('JOB_STATUS')}**\n")
+          if not os.path.exists(path):
+              print("**Kein Testbericht vorhanden - der Lauf ist NICHT als bestanden zu werten.**"); sys.exit(1)
+          cases = list(ET.parse(path).getroot().iter("testcase"))
+          n = collections.Counter(); skipped = []; passed = []
+          for c in cases:
+              ident = f"{c.get('classname')}::{c.get('name')}"
+              if c.find("failure") is not None or c.find("error") is not None: n["FAILED/ERROR"] += 1; print(f"- FAILED/ERROR: {ident}")
+              elif c.find("skipped") is not None: n["SKIPPED"] += 1; skipped.append((ident, (c.find("skipped").get("message") or "")[:100]))
+              else: n["PASSED"] += 1; passed.append(c)
+          print(f"\n| PASSED | FAILED/ERROR | SKIPPED |\n|---|---|---|\n| {n['PASSED']} | {n['FAILED/ERROR']} | {n['SKIPPED']} |\n")
+          for ident, why in skipped: print(f"- SKIPPED: {ident} - {why}")
+          required = ["tests.test_gui_view", "tests.test_gui_model", "tests.test_gui_confirmation", "tests.test_voice_state"]
+          missing = [cls for cls in required if not any(c.get("classname") == cls for c in passed)]
+          if n["PASSED"] == 0 or missing:
+              print(f"\n**Pflichtpruefung FEHLGESCHLAGEN: kein bestandener Test in: {missing or 'gesamter Lauf'}** (uebersprungene Fenstertests zaehlen nicht)"); sys.exit(1)
+          PY
+      - name: Berichte hochladen (auch bei Fehlschlag)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reports-gui-windows
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 14
+
   phase15-windows:
     name: phase 15 gezielt (windows-latest, py3.13)
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'phase15' || inputs.scope == 'all' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && (inputs.scope == 'phase15' || inputs.scope == 'all')) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[ci-phase15]')) }}
     runs-on: windows-latest
     timeout-minutes: 35
     steps:
@@ -181,12 +253,11 @@ jobs:
         env:
           EXTRAS: ${{ runner.os == 'Windows' && 'dev,voice' || 'dev' }}
         run: python -m pip install --disable-pip-version-check -e ".[$EXTRAS]"
-      - name: "Tests (volle Suite; GUI-Test ausgeschlossen)"
+      - name: "Tests (volle Suite)"
         run: |
           mkdir -p reports
-          # AUSSCHLUSS: tests/test_gui_confirmation.py - dort fehlte tkinter (bestaetigt nur im Entwicklungs-Container).
-          # Unter Windows ist tkinter meist vorhanden; nach dem ersten Lauf pruefen und den Ausschluss dort aufheben.
-          python -m pytest -p no:cacheprovider -rfEs --ignore=tests/test_gui_confirmation.py \
+          # GUI-Tests: ohne tkinter/Anzeige ueberspringen sie sich selbst (Linux-Runner); unter Windows laufen sie.
+          python -m pytest -p no:cacheprovider -rfEs \
             --junitxml="reports/junit-${{ matrix.os }}-py${{ matrix.python }}.xml"
       - name: Zusammenfassung (PASSED / FAILED / SKIPPED)
         if: ${{ !cancelled() }}

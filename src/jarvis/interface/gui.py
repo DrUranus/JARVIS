@@ -1,15 +1,24 @@
 
-"""Grafische Oberfläche für JARVIS mit sicheren GUI-Bestätigungen."""
+"""Grafische Oberfläche für JARVIS (Phase 11): Gespräch per Text oder Sprache, sichtbare Zustände, Status, sichere GUI-Bestätigungen.
+
+Alle Logik (Zustände, Hintergrundarbeit, Voice, Status) liegt toolkitfrei in `gui_model.py`; diese Datei zeichnet nur. Hintergrundthreads fassen
+keine Widgets an: sie melden Ereignisse, die der GUI-Thread in `_poll` abholt.
+"""
 from __future__ import annotations
 
+import argparse
 import logging
+import sys
 import threading
 import tkinter as tk
-from tkinter import ttk
-from typing import Any
+from tkinter import messagebox, ttk
+from typing import Any, Callable, Sequence
 
 from jarvis.bootstrap import build_core
 from jarvis.config import load_settings
+from jarvis.errors import JarvisError
+from jarvis.interface.gui_model import (CallEvent, ChatEvent, CloseEvent, GuiController, InputEvent, StateEvent, StatusEvent, SubmitResult,
+                                        UiState)
 from jarvis.permissions.confirmation import (
     ConfirmationChoice,
     ConfirmationProvider,
@@ -22,12 +31,32 @@ log = logging.getLogger("jarvis.interface.gui")
 class GUIConfirmationProvider(ConfirmationProvider):
     """Zeigt Bestätigungen im GUI-Hauptthread an. Fehler bedeuten DENY."""
 
-    def __init__(self, root: tk.Tk, timeout: float = 120.0) -> None:
+    def __init__(self, root: tk.Tk, timeout: float = 120.0, *, dispatch: Callable[..., None] | None = None,
+                 on_wait: Callable[[bool], None] | None = None) -> None:
+        """`dispatch(fn, *args)` must run fn on the GUI thread and be callable from any thread (the GUI passes its event queue; the default is Tk's `after`).
+        `on_wait(True/False)` reports that a question is open / answered, so that the state "wartet auf Bestätigung" is real."""
         self.root = root
         self.timeout = timeout
+        self._dispatch_fn = dispatch
+        self._on_wait = on_wait
         self._lock = threading.Lock()
         self._pending: dict[int, dict[str, Any]] = {}
         self._closing = False
+
+    def _dispatch(self, fn: Callable[..., None], *args: Any) -> None:
+        dispatch = getattr(self, "_dispatch_fn", None)
+        if dispatch is not None:
+            dispatch(fn, *args)
+        else:
+            self.root.after(0, fn, *args)
+
+    def _waiting(self, waiting: bool) -> None:
+        notify = getattr(self, "_on_wait", None)
+        if notify is not None:
+            try:
+                notify(waiting)
+            except Exception:
+                log.exception("Statusmeldung der Bestätigung fehlgeschlagen.")
 
     def confirm(self, request: ConfirmationRequest) -> ConfirmationChoice:
         record: dict[str, Any] = {
@@ -42,7 +71,7 @@ class GUIConfirmationProvider(ConfirmationProvider):
             self._pending[id(record)] = record
 
         try:
-            self.root.after(0, self._show_dialog, request, record)
+            self._dispatch(self._show_dialog, request, record)
         except Exception:
             log.exception("GUI-Bestätigung konnte nicht geöffnet werden.")
             self._resolve(record, ConfirmationChoice.DENY)
@@ -50,15 +79,18 @@ class GUIConfirmationProvider(ConfirmationProvider):
                 self._pending.pop(id(record), None)
             return ConfirmationChoice.DENY
 
-        if not record["event"].wait(self.timeout):
-            self._resolve(record, ConfirmationChoice.DENY)
-            try:
-                self.root.after(0, self._close_dialog, record)
-            except Exception:
-                pass
-
-        with self._lock:
-            self._pending.pop(id(record), None)
+        self._waiting(True)
+        try:
+            if not record["event"].wait(self.timeout):
+                self._resolve(record, ConfirmationChoice.DENY)
+                try:
+                    self._dispatch(self._close_dialog, record)
+                except Exception:
+                    pass
+        finally:
+            self._waiting(False)
+            with self._lock:
+                self._pending.pop(id(record), None)
 
         return record["choice"]
 
@@ -168,169 +200,209 @@ class GUIConfirmationProvider(ConfirmationProvider):
             self._close_dialog(record)
 
 
+STATE_STYLE: dict[UiState, str] = {            # Farbe des Zustandspunkts; weitere Zustände/Animationen kommen hier und in _apply_state dazu
+    UiState.READY: "#2e7d32", UiState.LISTENING: "#1565c0", UiState.PROCESSING: "#ef6c00", UiState.SPEAKING: "#6a1b9a",
+    UiState.AWAITING_CONFIRMATION: "#c62828", UiState.ERROR: "#b71c1c",
+}
+POLL_MS = 50
+
+
+def _ask_close() -> bool:
+    return messagebox.askyesno("JARVIS beenden", "Eine Anfrage oder der Sprachmodus läuft noch.\nTrotzdem schließen? Laufende Aktionen werden angehalten.")
+
+
 class JarvisGUI:
-    def __init__(self, root: tk.Tk, core) -> None:
-        self.core = core
-        self._busy = False
-        self._worker: threading.Thread | None = None
+    """Das Fenster. `controller` und `confirm_close` sind für Tests austauschbar."""
+
+    def __init__(self, root: tk.Tk, core: Any, settings: Any = None, *, controller: GuiController | None = None,
+                 confirm_close: Callable[[], bool] | None = None) -> None:
         self.root = root
-        self.confirmation_provider = GUIConfirmationProvider(root)
+        self.core = core
+        self.controller = controller or GuiController(core, settings)
+        self._confirm_close = confirm_close or _ask_close
+        self._closing = False
+        self._after_id: str | None = None
+        self.confirmation_provider = GUIConfirmationProvider(root, dispatch=self.controller.call_in_gui, on_wait=self.controller.confirmation_waiting)
         self.root.title("JARVIS – Personal AI Assistant")
         self.root.geometry("1000x700")
         self.root.minsize(760, 520)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-
         self._build_ui()
+        self.controller.say("JARVIS", "Die GUI ist verbunden. Schreibe eine Nachricht" + (" oder starte den Sprachmodus." if settings is not None else "."))
+        self._apply_state(UiState.READY, "")
+        self._after_id = self.root.after(POLL_MS, self._poll)
 
+    # -- Aufbau -------------------------------------------------------------------------------------------------------
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=1)
 
-        header = ttk.Frame(self.root, padding=16)
+        header = ttk.Frame(self.root, padding=(16, 12))
         header.grid(row=0, column=0, sticky="ew")
-        header.columnconfigure(0, weight=1)
+        header.columnconfigure(1, weight=1)
+        ttk.Label(header, text="JARVIS", font=("Segoe UI", 20, "bold")).grid(row=0, column=0, sticky="w")
+        status = ttk.Frame(header)
+        status.grid(row=0, column=2, sticky="e")
+        self.state_dot = tk.Canvas(status, width=16, height=16, highlightthickness=0)
+        self.state_dot.grid(row=0, column=0, padx=(0, 6))
+        self._dot = self.state_dot.create_oval(2, 2, 14, 14, fill=STATE_STYLE[UiState.READY], outline="")
+        self.state_label = ttk.Label(status, text=UiState.READY.label, font=("Segoe UI", 11, "bold"))
+        self.state_label.grid(row=0, column=1)
 
-        ttk.Label(
-            header,
-            text="JARVIS",
-            font=("Segoe UI", 20, "bold"),
-        ).grid(row=0, column=0, sticky="w")
+        self.tabs = ttk.Notebook(self.root)
+        self.tabs.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 16))
 
-        ttk.Label(
-            header,
-            text="Bereit – GUI verbunden",
-        ).grid(row=0, column=1, sticky="e")
-
-        main = ttk.Frame(self.root, padding=16)
-        main.grid(row=1, column=0, sticky="nsew")
-        main.columnconfigure(0, weight=1)
-        main.rowconfigure(0, weight=1)
-
-        self.output = tk.Text(
-            main,
-            wrap="word",
-            state="disabled",
-            font=("Segoe UI", 11),
-            padx=12,
-            pady=12,
-        )
+        chat = ttk.Frame(self.tabs, padding=8)
+        self.tabs.add(chat, text="Gespräch")
+        chat.columnconfigure(0, weight=1)
+        chat.rowconfigure(0, weight=1)
+        self.output = tk.Text(chat, wrap="word", state="disabled", font=("Segoe UI", 11), padx=12, pady=12)
         self.output.grid(row=0, column=0, sticky="nsew")
-
-        scrollbar = ttk.Scrollbar(
-            main,
-            orient="vertical",
-            command=self.output.yview,
-        )
+        scrollbar = ttk.Scrollbar(chat, orient="vertical", command=self.output.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.output.configure(yscrollcommand=scrollbar.set)
+        self.output.tag_configure("sender", font=("Segoe UI", 10, "bold"))
+        self.output.tag_configure("system", foreground="#555555")
+        self.output.tag_configure("error", foreground="#b71c1c")
 
-        input_frame = ttk.Frame(main)
-        input_frame.grid(
-            row=1, column=0, columnspan=2,
-            sticky="ew", pady=(12, 0),
-        )
+        input_frame = ttk.Frame(chat)
+        input_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(12, 0))
         input_frame.columnconfigure(0, weight=1)
-
         self.input_field = ttk.Entry(input_frame, font=("Segoe UI", 11))
-        self.input_field.grid(
-            row=0, column=0, sticky="ew", padx=(0, 8),
-        )
-        self.input_field.bind(
-            "<Return>",
-            lambda _event: self._send_message(),
-        )
+        self.input_field.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self.input_field.bind("<Return>", lambda _event: self._send_message())
+        self.send_button = ttk.Button(input_frame, text="Senden", command=self._send_message)
+        self.send_button.grid(row=0, column=1, padx=(0, 8))
+        self.voice_button = ttk.Button(input_frame, text="Sprache starten", command=self._toggle_voice)
+        self.voice_button.grid(row=0, column=2)
+        self.hint = ttk.Label(chat, text="", foreground="#555555")
+        self.hint.grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
-        self.send_button = ttk.Button(
-            input_frame,
-            text="Senden",
-            command=self._send_message,
-        )
-        self.send_button.grid(row=0, column=1)
+        status_tab = ttk.Frame(self.tabs, padding=8)
+        self.tabs.add(status_tab, text="Status")
+        status_tab.columnconfigure(0, weight=1)
+        status_tab.rowconfigure(1, weight=1)
+        ttk.Button(status_tab, text="Aktualisieren", command=self._refresh_status).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        self.status_text = tk.Text(status_tab, wrap="word", state="disabled", font=("Consolas", 10), padx=8, pady=8)
+        self.status_text.grid(row=1, column=0, sticky="nsew")
+        self._set_status_text("Noch nicht abgerufen. „Aktualisieren“ liest Subsysteme, Aufgaben, Ziele und Berechtigungen (nur lesend).")
+        self.tabs.bind("<<NotebookTabChanged>>", lambda _e: self._refresh_status() if self.tabs.index("current") == 1 else None)
 
-        self._append_message(
-            "JARVIS",
-            "Die GUI ist verbunden. Schreibe eine Nachricht.",
-        )
-
-    def _send_message(self) -> None:
-        if self._busy:
+    # -- Ereignisse (nur der GUI-Thread) ----------------------------------------------------------------------------
+    def _poll(self) -> None:
+        self._after_id = None
+        if self._closing:
             return
-
-        message = self.input_field.get().strip()
-        if not message:
-            return
-
-        self.input_field.delete(0, "end")
-        self._append_message("Du", message)
-
-        self._busy = True
-        self.send_button.configure(state="disabled")
-        self._append_message("JARVIS", "Einen Moment bitte …")
-
-        self._worker = threading.Thread(
-            target=self._process_message,
-            args=(message,),
-            daemon=True,
-        )
-        self._worker.start()
-
-    def _process_message(self, message: str) -> None:
         try:
-            result = self.core.handle(message)
-            response = getattr(result, "text", str(result))
-        except Exception:
-            log.exception("Fehler bei der Verarbeitung einer GUI-Nachricht.")
-            response = (
-                "Bei der Verarbeitung ist ein Fehler aufgetreten. "
-                "Weitere Details stehen im Anwendungsprotokoll."
-            )
+            for event in self.controller.drain():
+                try:
+                    self._handle(event)
+                except Exception:
+                    log.exception("GUI-Ereignis konnte nicht verarbeitet werden: %r", type(event).__name__)
+        finally:
+            if not self._closing:
+                self._after_id = self.root.after(POLL_MS, self._poll)
 
-        try:
-            self.root.after(0, self._finish_message, response)
-        except tk.TclError:
-            log.debug("GUI wurde vor Abschluss der Antwort geschlossen.")
+    def _handle(self, event: Any) -> None:
+        if isinstance(event, ChatEvent):
+            self._append_entry(event.entry.sender, event.entry.text)
+        elif isinstance(event, StateEvent):
+            self._apply_state(event.state, event.detail)
+        elif isinstance(event, InputEvent):
+            self._apply_input(event)
+        elif isinstance(event, StatusEvent):
+            self._set_status_text("\n\n".join(f"== {title} ==\n{body}" for title, body in event.sections))
+        elif isinstance(event, CallEvent):
+            event.fn(*event.args)
+        elif isinstance(event, CloseEvent):
+            self._on_close()
 
-    def _finish_message(self, response: str) -> None:
+    def _apply_state(self, state: UiState, detail: str) -> None:
+        self.state_dot.itemconfigure(self._dot, fill=STATE_STYLE[state])
+        self.state_label.configure(text=state.label)
+        self.hint.configure(text=detail if state is UiState.ERROR else "")
+
+    def _apply_input(self, event: InputEvent) -> None:
+        state = "normal" if event.enabled else "disabled"
+        self.input_field.configure(state=state)
+        self.send_button.configure(state=state)
+        self.voice_button.configure(text="Sprache beenden" if event.voice_active else "Sprache starten",
+                                    state="disabled" if (not event.enabled and not event.voice_active) else "normal")
+        if event.enabled:
+            self.input_field.focus_set()
+            if not self.hint.cget("text"):
+                self.hint.configure(text="")
+        elif event.reason and self.state_label.cget("text") == UiState.READY.label:
+            self.hint.configure(text=event.reason)
+
+    def _append_entry(self, sender: str, message: str) -> None:
         self.output.configure(state="normal")
-        content = self.output.get("1.0", "end-1c")
-        placeholder = "JARVIS\nEinen Moment bitte …\n\n"
-
-        if placeholder in content:
-            content = content.rsplit(placeholder, 1)[0]
-            self.output.delete("1.0", "end")
-            self.output.insert("1.0", content)
-
-        self.output.configure(state="disabled")
-        self._append_message("JARVIS", response)
-        self._busy = False
-        self._worker = None
-        self.send_button.configure(state="normal")
-        self.input_field.focus_set()
-
-    def _append_message(self, sender: str, message: str) -> None:
-        self.output.configure(state="normal")
-        self.output.insert("end", f"{sender}\n{message}\n\n")
+        self.output.insert("end", f"{sender}\n", ("sender", "system") if sender == "System" else ("sender",))
+        self.output.insert("end", f"{message}\n\n", ("system",) if sender == "System" else ())
         self.output.configure(state="disabled")
         self.output.see("end")
 
+    def _set_status_text(self, text: str) -> None:
+        self.status_text.configure(state="normal")
+        self.status_text.delete("1.0", "end")
+        self.status_text.insert("1.0", text)
+        self.status_text.configure(state="disabled")
+
+    # -- Aktionen --------------------------------------------------------------------------------------------------------
+    def _send_message(self) -> None:
+        text = self.input_field.get()
+        result = self.controller.submit(text)
+        if result in (SubmitResult.STARTED, SubmitResult.HANDLED):
+            self.input_field.delete(0, "end")
+
+    def _toggle_voice(self) -> None:
+        if self.controller.voice_active:
+            self.controller.stop_voice()
+            return
+        reason = self.controller.start_voice()
+        if reason:
+            self.controller.say("System", reason)
+
+    def _refresh_status(self) -> None:
+        self.controller.request_status()
+
     def _on_close(self) -> None:
+        if self._closing:
+            return
+        if self.controller.busy and not self._confirm_close():
+            return
+        self._closing = True
+        notes = self.controller.close()
+        if notes:
+            log.info("Beim Schließen: %s", "; ".join(notes))
         self.confirmation_provider.close_pending()
+        if self._after_id is not None:
+            try:
+                self.root.after_cancel(self._after_id)
+            except tk.TclError:
+                pass
         self.root.destroy()
 
 
-def main() -> int:
-    settings = load_settings()
-    core = build_core(settings)
+def main(argv: Sequence[str] | None = None) -> int:
+    from jarvis.interface.cli import _default_config
+
+    parser = argparse.ArgumentParser(prog="jarvis-gui", description="JARVIS graphical interface")
+    parser.add_argument("-c", "--config", help="path to a TOML config file")
+    args = parser.parse_args(argv)
+    try:
+        settings = load_settings(args.config or _default_config())
+        core = build_core(settings)
+    except JarvisError as exc:
+        print(f"Startfehler: {exc}", file=sys.stderr)
+        return 2
 
     root = tk.Tk()
-    gui = JarvisGUI(root, core)
+    gui = JarvisGUI(root, core, settings)
 
     # Eine explizite DENY-Konfiguration darf nicht überschrieben werden.
     if settings.security.confirmation != "deny":
-        core.tools.permissions.set_confirmation_provider(
-            gui.confirmation_provider,
-            source="gui",
-        )
+        core.tools.permissions.set_confirmation_provider(gui.confirmation_provider, source="gui")
 
     root.mainloop()
     return 0

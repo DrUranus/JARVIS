@@ -18,6 +18,7 @@ voice = ["sounddevice>=0.4", "numpy>=1.24"]   # microphone capture (needs the Po
 
 [project.scripts]
 jarvis = "jarvis.interface.cli:main"
+jarvis-gui = "jarvis.interface.gui:main"   # needs tkinter (bundled with the python.org / setup-python builds on Windows)
 
 [tool.setuptools.packages.find]
 where = ["src"]

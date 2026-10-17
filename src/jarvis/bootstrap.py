@@ -59,7 +59,7 @@ def build_core(settings: Settings) -> JarvisCore:
     return core
 
 
-def build_voice_session(settings: Settings, core: JarvisCore, display=print, input_fn=input):
+def build_voice_session(settings: Settings, core: JarvisCore, display=print, input_fn=input, on_state=None):
     """Assemble the voice front-end around an existing core.
 
     Raises VoiceError subclasses (e.g. VoiceUnavailableError) if the configured engines cannot be created;
@@ -70,4 +70,4 @@ def build_voice_session(settings: Settings, core: JarvisCore, display=print, inp
     v = settings.voice
     return VoiceSession(core, build_listener(v, input_fn), build_speaker(v, display), wake_word=v.wake_word,
                         require_wake_word=v.require_wake_word, speak_responses=v.speak_responses,
-                        display=display)
+                        display=display, on_state=on_state)
