@@ -853,6 +853,15 @@ Nichts wird dauerhaft gespeichert: weder Recherche-, Finanz-, Trading- noch Busi
 - Marketing-/Lead-Funktionen bereiten vor; es wird nichts versendet oder veröffentlicht.
 - Nicht enthalten (ausdrücklich): Echtgeld-Trading, Broker-Login, Überweisungen/Abhebungen, automatische Verträge/Kaltakquise, Self-Modification, Credential-Verwaltung, persistente Finanzdaten.
 
+## Notaus (Phase 14, Teilziel 1)
+
+`/notaus` (CLI) bzw. der rote Knopf **NOTAUS** (GUI) setzt einen zentralen Latch in der Berechtigungs-Engine: ab sofort wird **jede** Anfrage verweigert (auch GREEN), `core.handle`
+und neue Ziele/Reparaturen lehnen ab, und alle Komponenten werden nebenläufig unter einer Frist gestoppt (Halt der Controller, Abbruch von Zielen/Agenten-Tasks/Reparaturläufen,
+GUI: Eingabe gesperrt, offene Bestätigungen abgelehnt, Sprachmodus beendet). Der Bericht nennt jede Komponente ehrlich als *stopped / requested / nothing / failed / timeout*;
+ein Fehler macht den Notaus *unvollständig*. **Nicht rückgängig** gemacht und nicht als beendet gemeldet werden bereits ausgeführte externe Aktionen; eine laufende
+`core.handle`-Anfrage lässt sich nicht unterbrechen. Aufheben nur mit `/notaus reset` bzw. „Notaus aufheben …“ und ausdrücklicher Bestätigung (nur *Einmal erlauben*; mit
+`security.confirmation = "deny"` ist ein Aufheben im laufenden Prozess nicht möglich). Der Notaus ist kein Tool und nicht persistent. Details und Grenzen: `docs/PHASE14_AUTONOMY.md`.
+
 ## Grafische Oberfläche (Phase 11)
 
 Ein Tkinter-Fenster um denselben Core wie die CLI (kein zweiter Core, keine zweite Berechtigungslogik): Gespräch per Text oder Sprache, sichtbare Zustände, ein

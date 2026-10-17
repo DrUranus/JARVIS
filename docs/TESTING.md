@@ -25,7 +25,7 @@ Pro Befund hoechstens drei gezielte Reparaturzyklen. Ein uebersprungener Test gi
 
 | Ausloeser | Lauf |
 |---|---|
-| Push auf `claude/inspiring-ritchie-8ljinw` (nur bei Aenderungen in `src/`, `tests/`, `pyproject.toml`, Workflow) | `gui-windows` (windows-latest, py3.13, ca. 1 min): GUI- und Voice-Tests |
+| Push auf `claude/inspiring-ritchie-8ljinw` (nur bei Aenderungen in `src/`, `tests/`, `pyproject.toml`, Workflow) | `gui-windows` (windows-latest, py3.13, ca. 1-2 min): GUI-, Voice-, Notaus- und Berechtigungs-Tests |
 | Push, dessen letzte Commit-Nachricht das Stichwort in eckigen Klammern `ci-phase15` enthaelt | zusaetzlich `phase15-windows` (ACL/Job-Object/Junction-Tests, Prozessbaum-Test 5x; langsam) |
 | Push, dessen letzte Commit-Nachricht das Stichwort `ci-full` in eckigen Klammern enthaelt | zusaetzlich `suite`: Windows py3.13, Ubuntu py3.13, Ubuntu py3.11 |
 | `workflow_dispatch` (nur nutzbar, wenn die Datei auf dem Standard-Branch liegt) | `scope` = gui / phase15 / full / all, `repeat` 1-50 |
@@ -45,6 +45,7 @@ Nur `contents: read`, keine Secrets; Actions sind auf Commit-SHAs gepinnt. Jeder
 | Volle Suite, Windows, py3.13 | dc2d3d6 | **3473 passed / 38 skipped** |
 | Volle Suite, Ubuntu py3.13 und py3.11 | dc2d3d6 | **je 3437 passed / 74 skipped** |
 | GUI + Voice, Windows, py3.13 (Tk 8.6, Anzeige 1024x768) | dfffaf9 | **105 passed / 0 skipped** (alle Fenstertests liefen wirklich, ca. 6 s) |
+| GUI + Voice + Notaus + Berechtigungs-Regression, Windows, py3.13 | (Lauf 39032720754) | **410 passed / 4 skipped** (POSIX-Symlinks); Fenstertests mit echter Engine liefen wirklich, ca. 8 s |
 | Volle Suite, Windows, py3.13 | dfffaf9 | **3525 passed / 38 skipped** (31 min) |
 | Volle Suite, Ubuntu py3.13 und py3.11 | dfffaf9 | **je 3476 passed / 87 skipped** (GUI-Fenstertests ohne tkinter uebersprungen) |
 | Phase 15, Windows, py3.13 | dfffaf9 | **165 passed / 2 skipped** (19 min) |
@@ -59,6 +60,7 @@ Die 38 Windows-Skips (Stand dc2d3d6, vor Phase 11): POSIX-Symlinks/-Skripte/-Mod
 
 ## Nicht abgedeckt / manuell
 
+- **Manuell (Notaus):** Mit einer laufenden, langen Aktion (z. B. `/run coding action=test` auf einem langsamen Testlauf) im GUI-Fenster NOTAUS druecken: Zustand "NOTAUS", Bericht im Chat; pruefen, dass ein laufender Testprozess wirklich endet (Taskmanager) und dass bereits Ausgefuehrtes bestehen bleibt. Reset ueber den Dialog pruefen.
 - **Manuell (GUI/Voice, nicht automatisierbar):** (1) `jarvis-gui` starten: Fenster erscheint, Skalierung/Lesbarkeit pruefen. (2) Text senden, Zustandspunkt wechselt Bereit -> Verarbeiten -> Bereit. (3) Eine Aktion ausloesen, die Bestaetigung braucht (z. B. `/run` mit einem YELLOW-Tool): Dialog erscheint, Zustand "Wartet auf Bestaetigung", Ablehnen/Erlauben wirkt. (4) Mit echtem Mikrofon und `voice.stt_provider != console`: "Sprache starten", sprechen, Zuhoeren -> Verarbeiten -> Sprechen, Lautsprecher hoerbar, "Sprache beenden". (5) Fenster waehrend einer laufenden Anfrage schliessen: Rueckfrage erscheint.
 - Mikrofon, Lautsprecher, echter Browser (Playwright), X11-Tests unter Windows.
 - Verhalten ausserhalb der Runner-Umgebung (andere Konten, Domaenen, Antivirus).

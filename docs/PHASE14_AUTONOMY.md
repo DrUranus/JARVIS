@@ -1,6 +1,6 @@
 # Phase 14 "Maximum Autonomy": Bestand, Sicherheitsgrenzen und pruefbare Teilziele
 
-Stand: nach Phase 11 (GUI). Dieses Dokument beschreibt, was von Phase 14 heute **wirklich** im Code ist, welche Grenzen die Autonomie schon begrenzen, und schlaegt
+Stand: nach Phase 11 (GUI) und Teilziel 1 (gemeinsamer Notaus). Dieses Dokument beschreibt, was von Phase 14 heute **wirklich** im Code ist, welche Grenzen die Autonomie schon begrenzen, und schlaegt
 **pruefbare Teilziele** vor. Es fuehrt keine neue Autonomie ein; jedes Teilziel braucht vor der Umsetzung eine ausdrueckliche Freigabe.
 
 ## Was von Phase 14 existiert
@@ -21,19 +21,36 @@ implementiert** und nirgends spezifiziert (weder im Repository noch in der lesba
 | Agenten-Limits | `agents.max_concurrent`, `task_timeout_seconds`, `tool_call_limit`, `cancel_grace_seconds` | ein haengender Agent wird als FAILED markiert, nie als gestoppt behauptet |
 | Replanning begrenzt | `goals.replanning`: hoechstens 2 Versuche je Ziel, nur nach wiederholbaren Fehlern, nie nach Berechtigungsablehnung/Abbruch/Timeout; Kandidat darf keine Faehigkeit/Tools/Agenten hinzufuegen und wird wie jeder Plan validiert | das Modell strukturiert nur um |
 | Notaus je Subsystem | `computer`, `browser`, `coding`: `halt()`/`resume()`; Ziele und Agenten: `cancel()` | einzeln erreichbar (CLI `/computer stop`, `/browser halt`, `/coding halt`, `/goal cancel`); das GUI-Fenster ruft `halt` beim Schliessen waehrend laufender Arbeit |
+| **Gemeinsamer Notaus (Teilziel 1, umgesetzt)** | `permissions/emergency.py` (`EmergencyStop`), Latch in `PermissionEngine.emergency`, Verdrahtung `bootstrap.register_emergency_components`, CLI `/notaus`, GUI-Knopf | siehe Abschnitt "Gemeinsamer Notaus" |
 | Selbstaenderung gesperrt | Phase 15 ist ein deaktivierter Vorschlagsworkflow; `ExecutionGuard` ist immer gesperrt | keine Selbstmodifikation, keine Sandbox |
 
 ## Luecken (keine Behauptung von Sicherheit)
 
-- Es gibt **keinen gemeinsamen Notaus**: jedes Subsystem wird einzeln angehalten.
 - Die GUI zeigt keine laufenden Ziele/Agenten-Tasks mit Abbrechen-Knopf (nur schreibgeschuetzten Text).
 - Ein einzelner `core.handle`-Aufruf laesst sich nicht unterbrechen.
 - Kein Gesamtbudget (Aktionen/Zeit/Kosten) ueber mehrere Ziele hinweg.
 - Windows-Prozesskontrolle ist Eindaemmung, keine Isolation (siehe README Phase 15).
 
-## Vorgeschlagene Teilziele (jeweils aus, bis ausdruecklich freigegeben; jeweils mit Abnahmetest)
+## Gemeinsamer Notaus (Teilziel 1) - umgesetzt
 
-1. **Gemeinsamer Notaus.** Eine Funktion `core.halt_all(reason)`, die alle Subsysteme mit `halt`, offene Ziele (`cancel`) und offene Bestaetigungen abbricht; CLI `/halt` und
+Ein Latch in der `PermissionEngine` (der einzigen Kontrollstelle) plus Stopper je Komponente. `engage()` setzt den Latch sofort (kleines Lock, keine E/A, wartet auf keine Komponente - geht auch, wenn eine Anfrage haengt); danach stoppen alle Komponenten nebenlaeufig unter einer harten Frist (Standard 5 s). Solange er aktiv ist, verweigert die Engine **jede** Anfrage (auch GREEN), kein Ausfuehrungs-Scope oeffnet sich (eine kurz vorher erteilte Freigabe ist ungueltig), `JarvisCore.handle`, `create_goal/run_goal/create_repair/run_repair` lehnen ab. Aufheben nur per `reset`: die Engine fragt ueber den `ConfirmationProvider` (nur *Einmal erlauben* gilt, kein Sitzungsrecht); ohne Provider oder mit `security.confirmation = "deny"` ist ein Aufheben im laufenden Prozess nicht moeglich. Das Aufheben ist kein Tool: kein Tool-, Agenten- oder Zielcode kann den Notaus ausloesen oder aufheben (Strukturtest). Der Notaus ist nicht persistent: ein Neustart des Prozesses beginnt ohne ihn.
+
+Bedienung: CLI `/notaus`, `/notaus status`, `/notaus reset`; GUI: roter Knopf *NOTAUS* (kein Rueckfragedialog, der Latch ist sofort gesetzt) und *Notaus aufheben ...* (Bestaetigungsdialog der Engine). Kein Knopf ohne die zentrale Schnittstelle (keine reine Anzeige).
+
+| Komponente | Wirkung | Garantie |
+|---|---|---|
+| Alle Tool-Aufrufe, `core.handle`, neue Ziele/Reparaturen | sofort verweigert | **sofort**, durch den Latch |
+| `computer`, `browser`, `coding` | `halt()`: weitere Schritte werden verweigert; `coding` bricht einen laufenden Testlauf ab (`abort_running`) | sofort fuer weitere Schritte; ein Testprozess wird ueber den Provider beendet (unter Windows beendet der Coding-Provider nur den Wurzelprozess - bekannte Einschraenkung) |
+| Ziele, Agenten-Tasks, Reparaturlaeufe | `cancel` fuer alle nicht beendeten | **kooperativ**: *requested* - der Agent muss den Abbruch bemerken; Agenten ohne Abbruchunterstuetzung werden als *failed* ("nicht abbrechbar") gemeldet |
+| GUI | offene Bestaetigungen abgelehnt, Eingabe gesperrt, Sprachmodus beendet nach der laufenden Aufnahme (hoechstens `voice.max_record_seconds`) | die Wiedergabe laesst sich nicht unterbrechen |
+| Laufende `core.handle`-/LLM-Anfrage | **nicht unterbrechbar**; sie findet nur alle Tool-Aufrufe verweigert vor | nur als *requested* gemeldet |
+| Bereits ausgefuehrte externe Aktionen (Klicks, getippter Text, gestartete Programme, gesendete Anfragen, geschriebene Dateien) | **werden nicht rueckgaengig gemacht und nicht als beendet gemeldet** | keine |
+
+Der Bericht nennt jede Komponente mit *stopped*, *requested*, *nothing*, *failed* oder *timeout*; nur "alle stopped/nothing" heisst *vollstaendig*. Ein Stopper, der einen Fehler wirft oder die Frist ueberschreitet, macht den Notaus *unvollstaendig* (sichtbar im Chat/CLI und im Audit-Log als `emergency_stop`). Der CLI-Sprachmodus blockiert das Terminal und kennt keinen Notaus; er endet mit dem Wort *exit*. Ein Notaus ist keine Sandbox und beweist keine Isolation.
+
+## Weitere vorgeschlagene Teilziele (jeweils aus, bis ausdruecklich freigegeben; jeweils mit Abnahmetest)
+
+1. ~~**Gemeinsamer Notaus.**~~ *(umgesetzt, siehe oben)* Urspruengliche Vorgabe: eine Funktion `core.halt_all(reason)`, die alle Subsysteme mit `halt`, offene Ziele (`cancel`) und offene Bestaetigungen abbricht; CLI `/halt` und
    ein Knopf in der GUI. *Abnahme:* Tests mit Fake-Subsystemen (jedes `halt` genau einmal, ein fehlschlagendes blockiert die anderen nicht, Ergebnis nennt jedes Subsystem,
    danach keine neue Aktion ohne `resume`), GUI-Test, Audit-Eintrag.
 2. **Sichtbarkeit laufender autonomer Arbeit.** Statusbereich der GUI um aktive Ziele/Tasks mit Abbrechen-Knopf (nutzt nur `cancel`). *Abnahme:* Model- und View-Tests; der
