@@ -45,7 +45,7 @@ Nur `contents: read`, keine Secrets; Actions sind auf Commit-SHAs gepinnt. Jeder
 | Volle Suite, Windows, py3.13 | dc2d3d6 | **3473 passed / 38 skipped** |
 | Volle Suite, Ubuntu py3.13 und py3.11 | dc2d3d6 | **je 3437 passed / 74 skipped** |
 | GUI + Voice, Windows, py3.13 (Tk 8.6, Anzeige 1024x768) | dfffaf9 | **105 passed / 0 skipped** (alle Fenstertests liefen wirklich, ca. 6 s) |
-| GUI + Voice + Notaus + Berechtigungs-Regression, Windows, py3.13 | (Lauf 39032720754) | **410 passed / 4 skipped** (POSIX-Symlinks); Fenstertests mit echter Engine liefen wirklich, ca. 8 s |
+| GUI + Voice + Notaus + Berechtigungs-Regression, Windows, py3.13 | 3ef61ac (Lauf 39032720754) | **410 passed / 4 skipped** (POSIX-Symlinks); Fenstertests mit echter Engine liefen wirklich, ca. 8 s |
 | Volle Suite, Windows, py3.13 | dfffaf9 | **3525 passed / 38 skipped** (31 min) |
 | Volle Suite, Ubuntu py3.13 und py3.11 | dfffaf9 | **je 3476 passed / 87 skipped** (GUI-Fenstertests ohne tkinter uebersprungen) |
 | Phase 15, Windows, py3.13 | dfffaf9 | **165 passed / 2 skipped** (19 min) |
