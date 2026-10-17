@@ -45,6 +45,9 @@ Nur `contents: read`, keine Secrets; Actions sind auf Commit-SHAs gepinnt. Jeder
 | Volle Suite, Windows, py3.13 | dc2d3d6 | **3473 passed / 38 skipped** |
 | Volle Suite, Ubuntu py3.13 und py3.11 | dc2d3d6 | **je 3437 passed / 74 skipped** |
 | GUI + Voice, Windows, py3.13 (Tk 8.6, Anzeige 1024x768) | dfffaf9 | **105 passed / 0 skipped** (alle Fenstertests liefen wirklich, ca. 6 s) |
+| Volle Suite, Windows, py3.13 | dfffaf9 | **3525 passed / 38 skipped** (31 min) |
+| Volle Suite, Ubuntu py3.13 und py3.11 | dfffaf9 | **je 3476 passed / 87 skipped** (GUI-Fenstertests ohne tkinter uebersprungen) |
+| Phase 15, Windows, py3.13 | dfffaf9 | **165 passed / 2 skipped** (19 min) |
 
 Die 38 Windows-Skips (Stand dc2d3d6, vor Phase 11): POSIX-Symlinks/-Skripte/-Modusbits, X11/Xvfb, `playwright` nicht installiert (echte Browser-Tests laufen in der CI nicht), Linux-`/proc`-Test.
 
