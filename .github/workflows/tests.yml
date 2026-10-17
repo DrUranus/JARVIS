@@ -36,10 +36,10 @@ defaults:
 
 jobs:
   gui-windows:
-    name: gui + voice (windows-latest, py3.13)
+    name: gui + voice + emergency stop (windows-latest, py3.13)
     if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.scope == 'gui' || inputs.scope == 'all')) }}
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -47,12 +47,12 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-      - name: "Stand pruefen (GUI-Dateien muessen im Checkout enthalten sein)"
+      - name: "Stand pruefen (GUI- und Notaus-Dateien muessen im Checkout enthalten sein)"
         run: |
           mkdir -p reports
           sha="$(git rev-parse HEAD)"; echo "Geprueft wird Commit $sha"
           { echo "Commit: $sha"; echo "Ref: $GITHUB_REF"; } | tee reports/commit.txt >> "$GITHUB_STEP_SUMMARY"
-          for f in src/jarvis/interface/gui_model.py tests/test_gui_view.py tests/test_gui_model.py tests/test_voice_state.py; do
+          for f in src/jarvis/interface/gui_model.py src/jarvis/permissions/emergency.py tests/test_gui_view.py tests/test_gui_model.py tests/test_voice_state.py tests/test_emergency_stop.py; do
             [ -f "$f" ] || { echo "::error::$f fehlt - der Lauf gilt nicht als GUI-Nachweis."; exit 1; }
           done
       - name: "Installieren (dev + voice: sounddevice/numpy fuer test_voice)"
@@ -71,7 +71,8 @@ jobs:
       - name: GUI- und Voice-Tests
         run: |
           python -m pytest -p no:cacheprovider -rfEs --durations=10 --junitxml=reports/junit-gui-windows.xml \
-            tests/test_gui_model.py tests/test_gui_view.py tests/test_gui_confirmation.py tests/test_voice_state.py tests/test_voice.py tests/test_voice_cli.py
+            tests/test_gui_model.py tests/test_gui_view.py tests/test_gui_confirmation.py tests/test_voice_state.py tests/test_voice.py tests/test_voice_cli.py \
+            tests/test_emergency_stop.py tests/test_security_engine.py tests/test_security_bypass.py tests/test_security_config.py tests/test_security_tools.py
       - name: "Zusammenfassung und Pflichtpruefung (GUI-Tests muessen wirklich gelaufen sein, nicht uebersprungen)"
         if: ${{ !cancelled() }}
         env:
@@ -92,7 +93,7 @@ jobs:
               else: n["PASSED"] += 1; passed.append(c)
           print(f"\n| PASSED | FAILED/ERROR | SKIPPED |\n|---|---|---|\n| {n['PASSED']} | {n['FAILED/ERROR']} | {n['SKIPPED']} |\n")
           for ident, why in skipped: print(f"- SKIPPED: {ident} - {why}")
-          required = ["tests.test_gui_view", "tests.test_gui_model", "tests.test_gui_confirmation", "tests.test_voice_state"]
+          required = ["tests.test_gui_view", "tests.test_gui_model", "tests.test_gui_confirmation", "tests.test_voice_state", "tests.test_emergency_stop", "tests.test_security_engine"]
           missing = [cls for cls in required if not any(c.get("classname") == cls for c in passed)]
           if n["PASSED"] == 0 or missing:
               print(f"\n**Pflichtpruefung FEHLGESCHLAGEN: kein bestandener Test in: {missing or 'gesamter Lauf'}** (uebersprungene Fenstertests zaehlen nicht)"); sys.exit(1)
