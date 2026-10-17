@@ -28,6 +28,7 @@ HELP = """Befehle:
   /permissions   Sicherheitsmodus, erlaubte Verzeichnisse, Regeln, Sitzungsfreigaben
   /audit [n]     Letzte Sicherheitsereignisse
   /revoke        Sitzungsfreigaben widerrufen
+  /notaus        NOTAUS: sperrt sofort alle Aktionen/Ziele/Tool-Aufrufe und stoppt Komponenten (reset = aufheben, nur mit ausdrücklicher Bestätigung; status)
   /computer      Status der Computersteuerung (stop = Notaus, resume = fortsetzen)
   /browser       Browser-Agent: Status | start | stop | pages | halt (Notaus) | resume (sonst: /run browser action=...)
   /coding        Coding-Agent: Status | halt (Notaus) | resume | stop (Sitzung beenden) (sonst: /run coding action=...)
@@ -89,6 +90,8 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
         return _describe_permissions(core)
     if cmd == "/audit":
         return _tail_audit(core, arg)
+    if cmd in ("/notaus", "/emergency"):
+        return _emergency(core, arg)
     if cmd == "/revoke":
         return f"{core.permissions.revoke_session_grants('revoked by user')} Sitzungsfreigabe(n) widerrufen."
     if cmd == "/remember":
@@ -592,6 +595,25 @@ def _repair(core: JarvisCore, arg: str) -> str:
         return "Nicht möglich: candidates muss gültiges JSON sein."
     except JarvisError as exc:
         return f"Nicht möglich: {exc}"
+
+
+def _emergency(core: JarvisCore, arg: str) -> str:
+    """`/notaus` engages the central emergency stop; `/notaus status` shows it; `/notaus reset` asks (through the permission engine's confirmation) to lift it."""
+    engine = core.permissions
+    em = getattr(engine, "emergency", None)
+    if em is None:
+        return "Notaus nicht verfügbar."
+    arg = arg.strip().lower()
+    if arg in ("", "stop", "an"):
+        return em.trigger("Notaus per CLI", "cli").summary()
+    if arg == "status":
+        return em.report().summary() if em.engaged else "Notaus nicht aktiv."
+    if arg == "reset":
+        if not em.engaged:
+            return "Notaus nicht aktiv."
+        res = engine.reset_emergency_stop("cli")
+        return res.detail + ("" if not res.problems else "\n  " + "\n  ".join(res.problems))
+    return "Verwendung: /notaus | /notaus status | /notaus reset"
 
 
 def _describe_permissions(core: JarvisCore) -> str:

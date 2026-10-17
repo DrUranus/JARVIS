@@ -107,7 +107,7 @@ def test_tracker_notifies_only_on_change_and_survives_a_broken_observer():
 
 
 def test_every_state_has_a_german_label():
-    assert [s.label for s in UiState] == ["Bereit", "Zuhören", "Verarbeiten", "Sprechen", "Wartet auf Bestätigung", "Fehler"]
+    assert [s.label for s in UiState] == ["Bereit", "Zuhören", "Verarbeiten", "Sprechen", "Wartet auf Bestätigung", "Fehler", "NOTAUS"]
 
 
 # ---- text ------------------------------------------------------------------------------------------------------------------------------------
@@ -376,3 +376,115 @@ def test_call_in_gui_queues_work_for_the_gui_thread():
     c.call_in_gui(print, "a", "b")
     ev = c.drain()
     assert ev == [CallEvent(print, ("a", "b"))]
+
+
+# ---- emergency stop (the GUI triggers and mirrors the engine's latch) ---------------------------------------------------------------------------
+from jarvis.interface.gui_model import EmergencyEvent  # noqa: E402
+from jarvis.permissions import EmergencyStop, ResetResult  # noqa: E402
+
+
+class EmergencyCore(FakeCore):
+    def __init__(self, *a, reset_ok=True, **kw):
+        super().__init__(*a, **kw)
+        self.emergency = EmergencyStop()
+        self.reset_ok, self.reset_calls = reset_ok, []
+        self.permissions = SimpleNamespace(emergency=self.emergency, reset_emergency_stop=self._reset)
+
+    def _reset(self, source="user"):
+        self.reset_calls.append(source)
+        return self.emergency.reset(lambda: self.reset_ok, source)
+
+
+def test_the_emergency_button_flips_the_latch_at_once_even_while_a_request_hangs():
+    gate = threading.Event()
+    core = EmergencyCore(lambda t: (gate.wait(10), SimpleNamespace(text="x"))[1])
+    c = GuiController(core)
+    c.submit("haengt")
+    assert c.busy
+    start = time.monotonic()
+    assert c.emergency_stop() is True
+    assert core.emergency.engaged and time.monotonic() - start < 0.5          # not waiting for the hanging request
+    assert c.tracker.state is UiState.EMERGENCY
+    gate.set()
+
+
+def test_while_the_emergency_stop_is_engaged_nothing_new_starts_and_input_is_locked():
+    core = EmergencyCore()
+    c = GuiController(core, settings())
+    c.emergency_stop()
+    assert c.submit("hallo") is SubmitResult.EMERGENCY and core.threads == set()
+    assert "Notaus aktiv" in c.start_voice()
+    ev = collect(c)
+    inputs = [e for e in ev if isinstance(e, InputEvent)]
+    assert inputs and inputs[-1].enabled is False and "NOTAUS" in inputs[-1].reason
+
+
+def test_the_stop_report_reaches_the_chat_and_is_honest_about_the_gui_parts():
+    core = EmergencyCore()
+    denied = []
+    c = GuiController(core, settings(), voice_factory=lambda st, co, d, i, on_state: FakeVoice(on_state, d))
+    c.set_confirmation_denier(lambda: denied.append(1))
+    assert c.start_voice() == ""
+    assert wait_for(lambda: c.voice_active)
+    c.emergency_stop()
+    assert wait_for(lambda: not c.voice_active)
+    ev = collect(c, lambda e: any(isinstance(x, EmergencyEvent) and "gui: requested" in x.text for x in e))
+    final = [e for e in ev if isinstance(e, EmergencyEvent)][-1]
+    assert final.engaged and "gui: requested" in final.text and "Wiedergabe lässt sich nicht unterbrechen" in final.text and denied == [1]
+    assert any("NOTAUS aktiv" in t for t in texts(ev, "System"))
+
+
+def test_a_running_request_is_reported_as_not_interruptible():
+    gate = threading.Event()
+    core = EmergencyCore(lambda t: (gate.wait(10), SimpleNamespace(text="x"))[1])
+    c = GuiController(core)
+    c.submit("lang")
+    c.emergency_stop()
+    ev = collect(c, lambda e: any(isinstance(x, EmergencyEvent) and "nicht unterbrochen" in x.text for x in e))
+    assert any(isinstance(x, EmergencyEvent) and "nicht unterbrochen werden" in x.text for x in ev)
+    gate.set()
+
+
+def test_a_failing_component_shows_an_incomplete_stop_in_the_gui():
+    core = EmergencyCore()
+    core.emergency.register("computer", lambda r: 1 / 0)
+    c = GuiController(core)
+    c.emergency_stop()
+    ev = collect(c, lambda e: any(isinstance(x, EmergencyEvent) and "computer: failed" in x.text for x in e))
+    final = [x for x in ev if isinstance(x, EmergencyEvent)][-1]
+    assert "UNVOLLSTÄNDIG" in final.text and "computer: failed" in final.text and core.emergency.engaged
+
+
+def test_reset_goes_through_the_engine_and_only_an_authorised_reset_lifts_the_stop():
+    core = EmergencyCore(reset_ok=False)
+    c = GuiController(core)
+    c.emergency_stop()
+    assert c.reset_emergency() is True
+    assert wait_for(lambda: core.reset_calls == ["gui"]) and wait_for(lambda: not c._reset_busy)
+    assert core.emergency.engaged and c.tracker.state is UiState.EMERGENCY
+    assert any("bleibt aktiv" in t for t in texts(collect(c), "System"))
+    core.reset_ok = True
+    c.reset_emergency()
+    assert wait_for(lambda: not core.emergency.engaged)
+    assert wait_for(lambda: c.tracker.state is UiState.READY)               # the listener runs right after the latch is cleared
+    ev = collect(c, lambda e: InputEvent(True) in e)
+    assert InputEvent(True) in ev and c.submit("wieder") is SubmitResult.STARTED
+    assert idle(c)
+
+
+def test_reset_is_refused_when_nothing_is_engaged_and_there_is_no_gui_only_stop():
+    core = EmergencyCore()
+    c = GuiController(core)
+    assert c.reset_emergency() is False and core.reset_calls == []
+    plain = GuiController(FakeCore())                          # a core without the central interface
+    assert not plain.emergency_available and plain.emergency_stop() is False
+    assert any("nicht verfügbar" in t for t in texts(plain.drain(), "System")) and plain.tracker.state is UiState.READY
+
+
+def test_a_new_request_never_lifts_the_emergency_stop():
+    core = EmergencyCore()
+    c = GuiController(core)
+    c.emergency_stop()
+    for _ in range(3):
+        assert c.submit("x") is SubmitResult.EMERGENCY
+    assert core.emergency.engaged

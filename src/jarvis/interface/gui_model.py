@@ -38,6 +38,7 @@ class UiState(str, Enum):
     SPEAKING = "speaking"
     AWAITING_CONFIRMATION = "awaiting_confirmation"
     ERROR = "error"
+    EMERGENCY = "emergency"
 
     @property
     def label(self) -> str:
@@ -45,7 +46,7 @@ class UiState(str, Enum):
 
 
 _LABELS = {UiState.READY: "Bereit", UiState.LISTENING: "Zuhören", UiState.PROCESSING: "Verarbeiten", UiState.SPEAKING: "Sprechen",
-           UiState.AWAITING_CONFIRMATION: "Wartet auf Bestätigung", UiState.ERROR: "Fehler"}
+           UiState.AWAITING_CONFIRMATION: "Wartet auf Bestätigung", UiState.ERROR: "Fehler", UiState.EMERGENCY: "NOTAUS"}
 _VOICE_TO_UI = {"listening": UiState.LISTENING, "processing": UiState.PROCESSING, "speaking": UiState.SPEAKING}
 
 
@@ -53,7 +54,8 @@ class StateTracker:
     """Combines what the components report into the one state that is shown. Thread-safe.
 
     Sources: "text" and "voice" report an activity state (or None = idle); "confirm" counts open confirmation questions; an error stays until the next user action.
-    Priority when several apply: confirmation > speaking > processing > listening > error > ready."""
+    The emergency stop (mirrors the latch in the permission engine) beats everything.
+    Priority when several apply: emergency > confirmation > speaking > processing > listening > error > ready."""
 
     _ORDER = (UiState.AWAITING_CONFIRMATION, UiState.SPEAKING, UiState.PROCESSING, UiState.LISTENING)
 
@@ -61,6 +63,7 @@ class StateTracker:
         self._lock = threading.Lock()
         self._activity: dict[str, UiState | None] = {}
         self._confirmations = 0
+        self._emergency = False
         self._error = ""
         self._on_change = on_change
         self._current = UiState.READY
@@ -76,6 +79,8 @@ class StateTracker:
             return self._error
 
     def _compute(self) -> UiState:
+        if self._emergency:
+            return UiState.EMERGENCY
         active = {s for s in self._activity.values() if s is not None}
         if self._confirmations > 0:
             active.add(UiState.AWAITING_CONFIRMATION)
@@ -103,6 +108,11 @@ class StateTracker:
     def confirmation(self, waiting: bool) -> None:
         with self._lock:
             self._confirmations = max(0, self._confirmations + (1 if waiting else -1))
+        self._publish()
+
+    def set_emergency(self, engaged: bool) -> None:
+        with self._lock:
+            self._emergency = bool(engaged)
         self._publish()
 
     def fail(self, message: str) -> None:
@@ -156,6 +166,13 @@ class CallEvent:
 
 
 @dataclass(frozen=True)
+class EmergencyEvent:
+    """The emergency stop changed (engaged / report updated / reset). `text` is for the chat, `engaged` drives the buttons."""
+    engaged: bool
+    text: str = ""
+
+
+@dataclass(frozen=True)
 class CloseEvent:
     """The user typed /exit."""
 
@@ -171,6 +188,7 @@ class SubmitResult(str, Enum):
     VOICE_ACTIVE = "voice_active"
     CLOSED = "closed"
     HANDLED = "handled"             # a GUI-level command (/voice, /exit) was executed without the core
+    EMERGENCY = "emergency"         # the emergency stop is engaged: nothing new starts
 
 
 class GuiController:
@@ -188,6 +206,17 @@ class GuiController:
         self._status_busy = False
         self.chat: deque[ChatEntry] = deque(maxlen=MAX_CHAT_ENTRIES)
         self.tracker = StateTracker(self._on_state)
+        self._deny_confirmations: Callable[[], Any] | None = None     # set by the view: answers open confirmation dialogs with DENY
+        self._stop_busy = False
+        self._reset_busy = False
+        # The emergency stop belongs to the permission engine (the central control point); the GUI only triggers and mirrors it. Without it there is no
+        # button: a GUI-only stop that merely changes the display would be dangerous.
+        self._emergency = getattr(getattr(core, "permissions", None), "emergency", None)
+        if self._emergency is not None:
+            self._emergency.register("gui", self._emergency_stop_gui)
+            self._emergency.add_listener(self._on_emergency)
+            if self._emergency.engaged:
+                self.tracker.set_emergency(True)
 
     # -- events (the only bridge to the GUI thread) -----------------------------------------------------------------
     def _emit(self, event: Any) -> None:
@@ -231,6 +260,8 @@ class GuiController:
         return self._text_busy or self.voice_active
 
     def _input_state(self) -> InputEvent:
+        if self.emergency_engaged:
+            return InputEvent(False, self.voice_active, "NOTAUS aktiv – Eingabe gesperrt, bis er ausdrücklich aufgehoben wird")
         if self.voice_active:
             return InputEvent(False, True, "Sprachmodus aktiv – zum Tippen beenden")
         if self._text_busy:
@@ -245,6 +276,9 @@ class GuiController:
         with self._lock:
             if self._closed:
                 return SubmitResult.CLOSED
+            if self.emergency_engaged:
+                self.say("System", "Notaus aktiv: keine neuen Anfragen, bis er aufgehoben wird.")
+                return SubmitResult.EMERGENCY
             if self.voice_active:
                 self.say("System", "Der Sprachmodus ist aktiv. Beende ihn, um zu tippen.")
                 return SubmitResult.VOICE_ACTIVE
@@ -307,6 +341,8 @@ class GuiController:
         with self._lock:
             if self._closed:
                 return "Das Fenster wird geschlossen."
+            if self.emergency_engaged:
+                return "Notaus aktiv: das Mikrofon bleibt aus, bis er aufgehoben wird."
             if self.voice_active:
                 return "Der Sprachmodus läuft bereits."
             if self._text_busy:
@@ -373,6 +409,101 @@ class GuiController:
                 self.say(sender, line[len(prefix):])
                 return
         self.say("System", line)
+
+    # -- emergency stop ------------------------------------------------------------------------------------------------------------
+    @property
+    def emergency_available(self) -> bool:
+        return self._emergency is not None
+
+    @property
+    def emergency_engaged(self) -> bool:
+        return bool(self._emergency is not None and self._emergency.engaged)
+
+    def set_confirmation_denier(self, fn: Callable[[], Any]) -> None:
+        self._deny_confirmations = fn
+
+    def emergency_stop(self, reason: str = "Notaus per GUI") -> bool:
+        """The button. The latch is flipped HERE, synchronously and without waiting (works while a request hangs); stopping the components then runs in a
+        background thread under the stop deadline, and its report arrives as an EmergencyEvent. False when no emergency stop is available."""
+        em = self._emergency
+        if em is None:
+            self.say("System", "Notaus nicht verfügbar (der Core hat keine zentrale Notaus-Schnittstelle).")
+            return False
+        em.engage(reason, "gui")                                   # immediate; also reports to _on_emergency
+        with self._lock:
+            if self._stop_busy:
+                return True
+            self._stop_busy = True
+        threading.Thread(target=self._work_stop, name="jarvis-gui-stop", daemon=True).start()
+        return True
+
+    def _work_stop(self) -> None:
+        try:
+            self._emergency.run_stoppers()                         # reports through the listener when done
+        except Exception:
+            log.exception("emergency stoppers crashed")
+            self.say("System", "NOTAUS aktiv, aber das Anhalten der Komponenten ist fehlgeschlagen – siehe Anwendungsprotokoll. Der Stopp ist NICHT vollständig.")
+        finally:
+            with self._lock:
+                self._stop_busy = False
+
+    def _emergency_stop_gui(self, reason: str) -> Any:
+        """The GUI's own part of the stop (registered with the emergency stop): refuse typing (done by the state), answer open confirmation dialogs with DENY, ask
+        the voice mode to end. A request that is already inside `core.handle` can not be interrupted: it only finds every tool call denied."""
+        from jarvis.permissions.emergency import StopOutcome, StopResult
+        notes, outcome = [], StopOutcome.NOTHING
+        if self._deny_confirmations is not None:
+            self._deny_confirmations()
+            notes.append("offene Bestätigungen abgelehnt")
+        if self.voice_active:
+            self._voice_stop.set()
+            notes.append("Sprachmodus beendet nach der laufenden Aufnahme (Wiedergabe lässt sich nicht unterbrechen)")
+            outcome = StopOutcome.REQUESTED
+        if self._text_busy:
+            notes.append("eine laufende Anfrage kann nicht unterbrochen werden; alle Tool-Aufrufe sind gesperrt")
+            outcome = StopOutcome.REQUESTED
+        if outcome is StopOutcome.NOTHING and notes:
+            outcome = StopOutcome.STOPPED
+        return StopResult(outcome, "; ".join(notes))
+
+    def _on_emergency(self, engaged: bool, report: Any) -> None:
+        """Listener of the emergency stop: may run on any thread, so it only updates the tracker and queues events."""
+        engaged = bool(self._emergency is not None and self._emergency.engaged)      # the latch is the truth, never the (possibly late) argument
+        self.tracker.set_emergency(engaged)
+        if self._closed:
+            return
+        self._emit(self._input_state())
+        text = report.summary() if (engaged and report is not None) else ("Notaus aufgehoben." if not engaged else "")
+        self._emit(EmergencyEvent(engaged, text))
+        if text:
+            entry = ChatEntry("System", text)
+            self.chat.append(entry)
+            self._emit(ChatEvent(entry))
+
+    def reset_emergency(self) -> bool:
+        """Ask for the reset. The permission engine asks the user (confirmation dialog); this runs in a worker so the GUI thread stays free to show it."""
+        if self._emergency is None or not self._emergency.engaged:
+            return False
+        with self._lock:
+            if self._reset_busy or self._closed:
+                return False
+            self._reset_busy = True
+        threading.Thread(target=self._work_reset, name="jarvis-gui-reset", daemon=True).start()
+        return True
+
+    def _work_reset(self) -> None:
+        try:
+            res = self.core.permissions.reset_emergency_stop("gui")
+            if not self._closed and not res.ok:
+                self.say("System", f"Notaus bleibt aktiv: {res.detail}")
+            elif not self._closed and res.problems:
+                self.say("System", "Notaus aufgehoben, aber: " + "; ".join(res.problems))
+        except Exception:
+            log.exception("emergency reset crashed")
+            self.say("System", "Der Notaus bleibt aktiv (Reset fehlgeschlagen).")
+        finally:
+            with self._lock:
+                self._reset_busy = False
 
     # -- confirmation (reported by the provider) ----------------------------------------------------------------------------
     def confirmation_waiting(self, waiting: bool) -> None:

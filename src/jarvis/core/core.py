@@ -100,10 +100,21 @@ class JarvisCore:
         """The permission engine that guards every tool execution (owned by the tool registry)."""
         return self.tools.permissions
 
+    @property
+    def emergency_stopped(self) -> bool:
+        """True while the emergency stop is engaged (the latch lives in the permission engine, the one central control point)."""
+        return bool(getattr(getattr(self.permissions, "emergency", None), "engaged", False))
+
+    def _stopped_response(self) -> Response:
+        return Response("Notaus aktiv – keine neuen Aktionen, Ziele oder Tool-Aufrufe. Aufheben: /notaus reset (mit ausdrücklicher Bestätigung).",
+                        ResponseKind.ERROR, error="emergency_stop")
+
     def handle(self, user_input: str) -> Response:
         text = user_input.strip()
         if not text:
             return Response("", ResponseKind.CHAT)
+        if self.emergency_stopped:
+            return self._stopped_response()
         try:
             intent = self.extractor.extract(text)
             if intent is not None:  # explicit memory request: handled locally, never sent to the LLM
@@ -139,6 +150,10 @@ class JarvisCore:
 
     # -- memory ------------------------------------------------------------------------------------
     # ---- goals (optional layer built by the composition root; the Core never imports it) -------------------------------------------------
+    def _ensure_not_stopped(self) -> None:
+        if self.emergency_stopped:
+            raise JarvisError("Notaus aktiv: keine neuen Ziele oder Reparaturläufe (Aufheben: /notaus reset)")
+
     def _goal_engine(self) -> Any:
         engine = getattr(self.subsystems.get("goals"), "engine", None)
         if engine is None:
@@ -147,9 +162,11 @@ class JarvisCore:
 
     def create_goal(self, objective: str, **options: Any) -> Any:
         """Register a goal (PENDING). Only explicit calls create goals: ordinary chat is never turned into a goal."""
+        self._ensure_not_stopped()
         return self._goal_engine().create(objective, **options)
 
     def run_goal(self, goal_id: str) -> Any:
+        self._ensure_not_stopped()
         return self._goal_engine().run(goal_id)
 
     def cancel_goal(self, goal_id: str) -> Any:
@@ -170,9 +187,11 @@ class JarvisCore:
 
     def create_repair(self, objective: str, **options: Any) -> Any:
         """Register a repair run (PENDING). Only explicit calls create runs: ordinary chat is never turned into a repair."""
+        self._ensure_not_stopped()
         return self._repair_engine().create(objective, **options)
 
     def run_repair(self, run_id: str) -> Any:
+        self._ensure_not_stopped()
         return self._repair_engine().run(run_id)
 
     def cancel_repair(self, run_id: str) -> Any:

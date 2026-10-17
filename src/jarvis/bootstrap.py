@@ -1,6 +1,8 @@
 """Composition root: the only place that wires concrete implementations together."""
 from __future__ import annotations
 
+from typing import Any, Callable
+
 from jarvis.config import Settings
 from jarvis.core import JarvisCore
 from jarvis.llm.factory import create_provider
@@ -56,6 +58,7 @@ def build_core(settings: Settings) -> JarvisCore:
     core.subsystems["self_improvement"] = build_self_improvement(
         settings, goals=getattr(core.subsystems.get("goals"), "engine", None), repairs=getattr(core.subsystems.get("self_repair"), "engine", None),
         audit=permissions.audit, llm=provider, confirmation=lambda: permissions.confirmation, detector=guard)
+    register_emergency_components(core)
     return core
 
 
@@ -71,3 +74,70 @@ def build_voice_session(settings: Settings, core: JarvisCore, display=print, inp
     return VoiceSession(core, build_listener(v, input_fn), build_speaker(v, display), wake_word=v.wake_word,
                         require_wake_word=v.require_wake_word, speak_responses=v.speak_responses,
                         display=display, on_state=on_state)
+
+
+# ---- emergency stop wiring (composition root) ---------------------------------------------------------------------------------
+def register_emergency_components(core: JarvisCore) -> None:
+    """Register what the central emergency stop (`core.permissions.emergency`) can stop. The latch itself lives in the permission engine; these are the components
+    that need an additional nudge: the controllers' own halt (further steps are refused, a running test process is aborted) and the cancellation of goals, agent
+    tasks and repair runs. Each stopper reports honestly (stopped / only requested / nothing / failed) and never claims to have undone anything."""
+    from jarvis.permissions.emergency import StopOutcome, StopResult
+
+    em = core.permissions.emergency
+    subs = core.subsystems
+
+    def halting(name: str, detail: str):
+        sub = subs.get(name)
+        if sub is None or not hasattr(sub, "halt"):
+            return
+
+        def stop(reason: str) -> StopResult:
+            if not getattr(sub, "available", False):
+                return StopResult(StopOutcome.NOTHING, "off or unavailable")
+            return (StopResult(StopOutcome.STOPPED, detail) if sub.halt(f"Notaus: {reason}")
+                    else StopResult(StopOutcome.NOTHING, "no controller"))
+        em.register(name, stop, resumer=lambda: sub.resume() if hasattr(sub, "resume") else None)
+
+    halting("computer", "further steps are refused; actions already executed (clicks, typed text, started programs) stay as they are")
+    halting("browser", "further steps are refused; pages already loaded or forms already sent stay as they are")
+    halting("coding", "further steps are refused and a running test process is aborted; files already written stay as they are")
+
+    def cancelling(name: str, handle: Callable[[Any], Any], items: Callable[[Any], list[tuple[str, Any]]], terminal: Any) -> None:
+        sub = subs.get(name)
+        if sub is None:
+            return
+
+        def stop(reason: str) -> StopResult:
+            target = handle(sub)
+            if target is None:
+                return StopResult(StopOutcome.NOTHING, "off")
+            stopped = requested = 0
+            failed: list[str] = []
+            for ident, status in items(target):
+                if status in terminal:
+                    continue
+                try:
+                    report = target.cancel(ident)
+                except Exception as exc:
+                    failed.append(f"{ident}: {type(exc).__name__}")
+                    continue
+                if report.status in terminal:
+                    stopped += 1
+                elif report.accepted:
+                    requested += 1
+                else:
+                    failed.append(f"{ident}: {report.message}")
+            detail = f"{stopped} cancelled, {requested} cancellation requested (cooperative; the work may continue until the agent notices)"
+            if failed:
+                return StopResult(StopOutcome.FAILED, detail + "; could NOT be cancelled: " + "; ".join(failed)[:200])
+            if requested:
+                return StopResult(StopOutcome.REQUESTED, detail)
+            return StopResult(StopOutcome.STOPPED if stopped else StopOutcome.NOTHING, detail if stopped else "nothing running")
+        em.register(name, stop)
+
+    from jarvis.agents.state import TERMINAL as TASK_TERMINAL
+    from jarvis.goals.state import GOAL_TERMINAL
+    from jarvis.self_repair.state import RUN_TERMINAL
+    cancelling("goals", lambda sub: getattr(sub, "engine", None), lambda e: [(g.goal_id, g.status) for g in e.list()], GOAL_TERMINAL)
+    cancelling("agents", lambda sub: getattr(sub, "orchestrator", None), lambda o: [(r.task_id, r.status) for r in o.list()], TASK_TERMINAL)
+    cancelling("self_repair", lambda sub: getattr(sub, "engine", None), lambda e: [(r.run_id, r.status) for r in e.list()], RUN_TERMINAL)

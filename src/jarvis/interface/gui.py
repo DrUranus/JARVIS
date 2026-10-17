@@ -17,8 +17,8 @@ from typing import Any, Callable, Sequence
 from jarvis.bootstrap import build_core
 from jarvis.config import load_settings
 from jarvis.errors import JarvisError
-from jarvis.interface.gui_model import (CallEvent, ChatEvent, CloseEvent, GuiController, InputEvent, StateEvent, StatusEvent, SubmitResult,
-                                        UiState)
+from jarvis.interface.gui_model import (CallEvent, ChatEvent, CloseEvent, EmergencyEvent, GuiController, InputEvent, StateEvent, StatusEvent,
+                                        SubmitResult, UiState)
 from jarvis.permissions.confirmation import (
     ConfirmationChoice,
     ConfirmationProvider,
@@ -189,6 +189,18 @@ class GUIConfirmationProvider(ConfirmationProvider):
                 pass
             record["dialog"] = None
 
+    def deny_pending(self) -> int:
+        """Answer every open confirmation with DENY (emergency stop). Unlike close_pending the provider keeps working afterwards (for the reset question)."""
+        with self._lock:
+            records = list(self._pending.values())
+        for record in records:
+            self._resolve(record, ConfirmationChoice.DENY)
+            try:
+                self._dispatch(self._close_dialog, record)
+            except Exception:
+                pass
+        return len(records)
+
     def close_pending(self) -> None:
         """Beim Schließen der Anwendung alle offenen Bestätigungen ablehnen."""
         with self._lock:
@@ -202,7 +214,7 @@ class GUIConfirmationProvider(ConfirmationProvider):
 
 STATE_STYLE: dict[UiState, str] = {            # Farbe des Zustandspunkts; weitere Zustände/Animationen kommen hier und in _apply_state dazu
     UiState.READY: "#2e7d32", UiState.LISTENING: "#1565c0", UiState.PROCESSING: "#ef6c00", UiState.SPEAKING: "#6a1b9a",
-    UiState.AWAITING_CONFIRMATION: "#c62828", UiState.ERROR: "#b71c1c",
+    UiState.AWAITING_CONFIRMATION: "#c62828", UiState.ERROR: "#b71c1c", UiState.EMERGENCY: "#000000",
 }
 POLL_MS = 50
 
@@ -223,6 +235,7 @@ class JarvisGUI:
         self._closing = False
         self._after_id: str | None = None
         self.confirmation_provider = GUIConfirmationProvider(root, dispatch=self.controller.call_in_gui, on_wait=self.controller.confirmation_waiting)
+        self.controller.set_confirmation_denier(self.confirmation_provider.deny_pending)
         self.root.title("JARVIS – Personal AI Assistant")
         self.root.geometry("1000x700")
         self.root.minsize(760, 520)
@@ -241,8 +254,16 @@ class JarvisGUI:
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(1, weight=1)
         ttk.Label(header, text="JARVIS", font=("Segoe UI", 20, "bold")).grid(row=0, column=0, sticky="w")
+        emergency = ttk.Frame(header)
+        emergency.grid(row=0, column=2, sticky="e", padx=(0, 16))
+        self.emergency_button = tk.Button(emergency, text="NOTAUS", command=self._on_emergency, bg="#b71c1c", fg="white", activebackground="#7f0000",
+                                          activeforeground="white", font=("Segoe UI", 12, "bold"), padx=16, pady=4,
+                                          state="normal" if self.controller.emergency_available else "disabled")
+        self.emergency_button.grid(row=0, column=0)
+        self.reset_button = ttk.Button(emergency, text="Notaus aufheben …", command=self._on_reset_emergency, state="disabled")
+        self.reset_button.grid(row=0, column=1, padx=(8, 0))
         status = ttk.Frame(header)
-        status.grid(row=0, column=2, sticky="e")
+        status.grid(row=0, column=3, sticky="e")
         self.state_dot = tk.Canvas(status, width=16, height=16, highlightthickness=0)
         self.state_dot.grid(row=0, column=0, padx=(0, 6))
         self._dot = self.state_dot.create_oval(2, 2, 14, 14, fill=STATE_STYLE[UiState.READY], outline="")
@@ -312,6 +333,8 @@ class JarvisGUI:
             self._apply_input(event)
         elif isinstance(event, StatusEvent):
             self._set_status_text("\n\n".join(f"== {title} ==\n{body}" for title, body in event.sections))
+        elif isinstance(event, EmergencyEvent):
+            self._apply_emergency(event.engaged)
         elif isinstance(event, CallEvent):
             event.fn(*event.args)
         elif isinstance(event, CloseEvent):
@@ -328,12 +351,18 @@ class JarvisGUI:
         self.send_button.configure(state=state)
         self.voice_button.configure(text="Sprache beenden" if event.voice_active else "Sprache starten",
                                     state="disabled" if (not event.enabled and not event.voice_active) else "normal")
+        if self.controller.emergency_engaged:
+            self.hint.configure(text=event.reason)
         if event.enabled:
             self.input_field.focus_set()
             if not self.hint.cget("text"):
                 self.hint.configure(text="")
         elif event.reason and self.state_label.cget("text") == UiState.READY.label:
             self.hint.configure(text=event.reason)
+
+    def _apply_emergency(self, engaged: bool) -> None:
+        self.reset_button.configure(state="normal" if engaged else "disabled")
+        self.emergency_button.configure(text="NOTAUS AKTIV" if engaged else "NOTAUS", relief="sunken" if engaged else "raised")
 
     def _append_entry(self, sender: str, message: str) -> None:
         self.output.configure(state="normal")
@@ -362,6 +391,12 @@ class JarvisGUI:
         reason = self.controller.start_voice()
         if reason:
             self.controller.say("System", reason)
+
+    def _on_emergency(self) -> None:
+        self.controller.emergency_stop()                 # one click, no question: the latch is set at once, the components are stopped in the background
+
+    def _on_reset_emergency(self) -> None:
+        self.controller.reset_emergency()                # the permission engine asks for explicit confirmation (dialog); nothing else can lift the stop
 
     def _refresh_status(self) -> None:
         self.controller.request_status()

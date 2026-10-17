@@ -1,5 +1,6 @@
 """The real Tk window (gui.py). Needs tkinter and a display: skipped otherwise (Linux CI without X, a Python without Tk). The Windows CI job runs these
 for real. What is NOT covered here: how the window looks, a real microphone, real speakers, and a human clicking - see docs/TESTING.md (manual checks)."""
+import gc
 import threading
 import time
 from types import SimpleNamespace
@@ -23,11 +24,14 @@ def root():
     except tk.TclError as exc:
         pytest.skip(f"no usable display for Tk ({exc})")
     r.withdraw()
+    gc.disable()                      # a Tk object freed by the garbage collector on a WORKER thread aborts the interpreter (Tcl_AsyncDelete): collect only on this thread
     yield r
     try:
         r.destroy()
     except tk.TclError:
         pass
+    gc.enable()
+    gc.collect()
 
 
 def pump(root, cond, timeout=5.0):
@@ -265,3 +269,66 @@ def test_the_status_tab_shows_subsystems_and_read_only_sections(root):
 def test_state_styles_exist_for_every_state():
     from jarvis.interface.gui import STATE_STYLE
     assert set(STATE_STYLE) == set(UiState)
+
+
+# ---- emergency stop through the real window and a REAL permission engine ----------------------------------------------------------------------
+def engine_core(handler=None):
+    from jarvis.permissions import PermissionEngine
+    core = Core(handler)
+    core.permissions = PermissionEngine()
+    return core
+
+
+def test_the_emergency_button_locks_the_window_and_only_the_confirmed_reset_unlocks_it(root):
+    core = engine_core()
+    gui = make(root, core)
+    core.permissions.set_confirmation_provider(gui.confirmation_provider, source="test")
+    assert str(gui.emergency_button.cget("state")) == "normal" and str(gui.reset_button.cget("state")) == "disabled"
+    gui.emergency_button.invoke()
+    assert core.permissions.emergency.engaged                                   # the real latch, not just the display
+    assert pump(root, lambda: gui.state_label.cget("text") == "NOTAUS" and str(gui.send_button.cget("state")) == "disabled")
+    assert str(gui.input_field.cget("state")) == "disabled" and str(gui.voice_button.cget("state")) == "disabled"
+    assert str(gui.reset_button.cget("state")) == "normal" and "NOTAUS" in gui.hint.cget("text")
+    assert pump(root, lambda: "NOTAUS aktiv" in chat(gui))
+    assert gui.controller.submit("hallo").value == "emergency" and core.threads == set()
+    # reset: the engine asks through the GUI's confirmation dialog; "Ablehnen" keeps the stop
+    gui.reset_button.invoke()
+    assert pump(root, lambda: any(isinstance(w, tk.Toplevel) for w in root.winfo_children()))
+    dialog = next(w for w in root.winfo_children() if isinstance(w, tk.Toplevel))
+    find_button(dialog, "Ablehnen").invoke()
+    assert pump(root, lambda: "Notaus bleibt aktiv" in chat(gui)) and core.permissions.emergency.engaged
+    assert pump(root, lambda: not gui.controller._reset_busy)
+    gui.reset_button.invoke()
+    assert pump(root, lambda: any(isinstance(w, tk.Toplevel) for w in root.winfo_children()))
+    dialog = next(w for w in root.winfo_children() if isinstance(w, tk.Toplevel))
+    assert sorted(w.cget("text") for w in widgets(dialog) if isinstance(w, ttk.Button)) == ["Ablehnen", "Einmal erlauben"]      # no "for the session" option
+    find_button(dialog, "Einmal erlauben").invoke()
+    assert pump(root, lambda: not core.permissions.emergency.engaged and gui.state_label.cget("text") == "Bereit")
+    assert pump(root, lambda: str(gui.send_button.cget("state")) == "normal" and str(gui.reset_button.cget("state")) == "disabled")
+    gui._on_close()
+
+
+def test_the_emergency_button_works_while_a_request_hangs_and_denies_an_open_confirmation(root):
+    gate = threading.Event()
+    core = engine_core(lambda t: (gate.wait(10), SimpleNamespace(text="spät"))[1])
+    gui = make(root, core, confirm_close=lambda: True)
+    gui.input_field.insert(0, "lang")
+    gui._send_message()
+    assert pump(root, lambda: gui.controller.busy)
+    result = {}
+    t = threading.Thread(target=lambda: result.update(choice=gui.confirmation_provider.confirm(request())), daemon=True)
+    t.start()
+    assert pump(root, lambda: gui.state_label.cget("text") == "Wartet auf Bestätigung")
+    gui.emergency_button.invoke()
+    assert pump(root, lambda: gui.state_label.cget("text") == "NOTAUS")
+    t.join(5)
+    assert result["choice"] is ConfirmationChoice.DENY
+    assert pump(root, lambda: "nicht unterbrochen werden" in chat(gui))        # honest: the request itself can not be interrupted
+    gate.set()
+    gui._on_close()
+
+
+def test_without_a_central_emergency_stop_the_button_is_disabled(root):
+    gui = make(root, Core())
+    assert str(gui.emergency_button.cget("state")) == "disabled"
+    gui._on_close()

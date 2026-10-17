@@ -21,6 +21,7 @@ from jarvis.errors import InvalidRequestError, PermissionDeniedError, PolicyErro
 from jarvis.permissions.audit import AuditEvent, AuditEventType, AuditLogger, AuditSink
 from jarvis.permissions.confirmation import ConfirmationChoice, ConfirmationProvider, ConfirmationRequest
 from jarvis.permissions.decision import DecisionStatus, GrantScope, PermissionDecision
+from jarvis.permissions.emergency import EmergencyStop, ResetResult
 from jarvis.permissions.grants import ExecutionGrant, SessionGrants, SessionKey, _SEAL, _enter_scope
 from jarvis.permissions.levels import PermissionLevel, max_level
 from jarvis.permissions.paths import PathGuard
@@ -94,6 +95,9 @@ class PermissionEngine:
         self._approved: dict[str, tuple[float, str | None, str | None, str, PermissionDecision]] = {}
         self._lock = threading.RLock()
         self._confirm_lock = threading.Lock()  # one prompt at a time; re-checks state after waiting
+        # Emergency stop: ONE latch for the whole application. While it is engaged every request is denied (GREEN included) and no execution scope opens.
+        # `emergency.engage/trigger` are not tools; only `reset_emergency_stop` (explicit human confirmation) clears it.
+        self.emergency = EmergencyStop(on_event=self._emergency_event)
 
     @classmethod
     def legacy(cls, **overrides: Any) -> "PermissionEngine":
@@ -120,6 +124,28 @@ class PermissionEngine:
         self._confirmation = provider
         self._emit(AuditEventType.POLICY_CHANGED, None,
                    detail=f"confirmation provider set to {type(provider).__name__ if provider else 'none'} via {source}")
+
+    # -- emergency stop ---------------------------------------------------------------------------------------
+    def _emergency_event(self, kind: str, detail: str) -> None:
+        self._emit(AuditEventType.EMERGENCY_STOP, None, detail=self.redact(f"{kind}: {detail}")[:300])
+
+    def reset_emergency_stop(self, source: str = "user") -> ResetResult:
+        """Clear the emergency stop after an explicit human decision, asked through this engine's ConfirmationProvider (ALLOW_ONCE only; a missing, denying or
+        failing provider keeps the stop engaged). Never call this from a tool or from model output."""
+        def authorize() -> bool:
+            provider = self._confirmation
+            if provider is None:
+                return False
+            if not self._confirm_lock.acquire(timeout=10.0):          # a prompt is stuck: do not wait forever
+                return False
+            try:
+                request = ConfirmationRequest(
+                    request_id="emergency-reset", tool="jarvis", action="emergency_reset", level=PermissionLevel.YELLOW, resource="emergency stop",
+                    reason="Der Notaus wird aufgehoben: Aktionen, Ziele und Tool-Aufrufe sind danach wieder möglich.", context={}, session_allowed=False)
+                return provider.confirm(request) is ConfirmationChoice.ALLOW_ONCE
+            finally:
+                self._confirm_lock.release()
+        return self.emergency.reset(authorize, source)
 
     # -- helpers ------------------------------------------------------------------------------------
     def redact(self, text: Any) -> str:
@@ -153,6 +179,8 @@ class PermissionEngine:
 
     # -- evaluation (pure: no prompts, no audit, no approvals) ----------------------------------------------
     def _evaluate(self, request: Any) -> _Eval:
+        if self.emergency.engaged:                                    # checked first: nothing is judged, nothing is approved while the stop is on
+            return _Eval(self._deny(DecisionStatus.DENIED, f"emergency stop active ({self.emergency.reason}); everything is denied until it is reset", request))
         if type(request) is not PermissionRequest:  # no subclasses: they could override validation or properties
             return _Eval(self._deny(DecisionStatus.INVALID_REQUEST, "not a PermissionRequest", None))
         try:
@@ -331,6 +359,9 @@ class PermissionEngine:
         decision this engine issued for `request`; the approval is consumed, so it covers exactly one execution."""
         with self._lock:
             entry = self._approved.pop(getattr(request, "id", None), None)
+        if self.emergency.engaged:                                    # an approval issued just before the stop is void
+            self._emit(AuditEventType.SECURITY_ERROR, request, detail="execution blocked: emergency stop active")
+            raise PermissionDeniedError("emergency stop active")
         valid = False
         try:
             valid = (entry is not None and type(request) is PermissionRequest and decision == entry[4]
@@ -403,4 +434,5 @@ class PermissionEngine:
         return {"mode": self.mode.value, "roots": self._guard.allowed_roots, "denied_paths": self._guard.denied_paths,
                 "rules": [r.to_dict() for r in self._policy.rules], "session_grants": self.session_grants(),
                 "confirmation": type(self._confirmation).__name__ if self._confirmation else None,
-                "session_grants_allowed": self._allow_session_grants, "policy_fingerprint": self._policy.fingerprint}
+                "session_grants_allowed": self._allow_session_grants, "policy_fingerprint": self._policy.fingerprint,
+                "emergency_stop": {"engaged": self.emergency.engaged, "reason": self.emergency.reason}}
