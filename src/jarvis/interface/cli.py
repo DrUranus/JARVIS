@@ -440,6 +440,8 @@ def _improve(core: JarvisCore, arg: str) -> str:
     except ValueError:
         return "Nicht möglich: Anführungszeichen sind nicht ausgeglichen."
     word, rest = (words[0] if words else "list"), words[1:]
+    if core.emergency_stopped and word not in ("list", "show"):
+        return "Notaus aktiv: /improve ändert nichts, solange der Notaus aktiv ist (nur list und show). Aufheben: /notaus reset"
 
     def line(p: Any) -> str:
         return f"  {p.proposal_id}  {p.status.value:<18} {p.source:<8} {p.title[:70]}"
@@ -618,7 +620,9 @@ def _emergency(core: JarvisCore, arg: str) -> str:
 
 def _describe_permissions(core: JarvisCore) -> str:
     d = core.permissions.describe()
-    lines = [f"Modus: {d['mode']}   Bestätigung: {d['confirmation'] or 'keine (Rückfrage nicht möglich)'}",
+    lines = ([f"NOTAUS AKTIV ({d['emergency_stop']['reason']}): alle Anfragen werden verweigert. Aufheben: /notaus reset"]
+             if d.get("emergency_stop", {}).get("engaged") else [])
+    lines += [f"Modus: {d['mode']}   Bestätigung: {d['confirmation'] or 'keine (Rückfrage nicht möglich)'}",
              "Erlaubte Verzeichnisse: " + (", ".join(d["roots"]) or "keine"),
              "Gesperrte Pfade: " + (", ".join(d["denied_paths"]) or "keine")]
     lines.append("Regeln: " + ("" if d["rules"] else "keine"))
@@ -645,6 +649,8 @@ def _tail_audit(core: JarvisCore, arg: str) -> str:
 def _voice(core: JarvisCore, settings: Settings | None, display: Callable[[str], None] = print,
            input_fn: Callable[[str], str] = input) -> str:
     """Run the voice loop; any voice problem degrades to a message and the text CLI keeps working."""
+    if core.emergency_stopped:
+        return "Notaus aktiv: der Sprachmodus startet nicht (das Mikrofon bleibt aus). Aufheben: /notaus reset"
     if settings is None:
         return "Sprachmodus nicht konfiguriert."
     try:

@@ -295,12 +295,18 @@ def test_the_engine_stays_stopped_when_the_audit_log_is_broken(tmp_path):
 
 
 # ---- tools, core, CLI -----------------------------------------------------------------------------------------------------------------------------
-def build_core(tmp_path, confirmation=None):
+def build_core(tmp_path, confirmation=None, memory=False):
     engine, sink, _ = make_engine(tmp_path, confirmation=confirmation)
     registry = ToolRegistry(engine)
     from jarvis.tools.builtin import register_builtin_tools
     register_builtin_tools(registry, include_demo=True)
-    return JarvisCore(MockProvider(), tools=registry), engine, sink
+    store = None
+    if memory:
+        from jarvis.config import MemorySettings
+        from jarvis.memory.factory import create_memory
+        from jarvis.memory.guard import SecretGuard
+        store = create_memory(MemorySettings(backend="memory"), SecretGuard.from_environment())
+    return JarvisCore(MockProvider(), tools=registry, memory=store), engine, sink
 
 
 def test_tool_calls_fail_while_engaged_and_work_again_after_an_authorised_reset(tmp_path):
@@ -454,3 +460,77 @@ def test_no_tool_agent_or_goal_module_can_engage_or_reset_the_emergency_stop():
             tree = ast.parse(f.read_text(encoding="utf-8"))
             hits = [n for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr in forbidden]
             assert not hits, f"{pkg}/{f.name} touches the emergency stop"
+
+
+# ---- integration gaps found by the probe of the running program (commit 60970d7): entry points that bypassed core.handle ------------------------
+def test_direct_core_entry_points_refuse_while_engaged_but_reading_memory_still_works(tmp_path):
+    """`/plan` called core.plan directly (it created a task and called the LLM) and `/forget` deleted a memory while the stop was on."""
+    core, engine, _ = build_core(tmp_path, memory=True)
+    core.remember("etwas", type="fact")
+    engine.emergency.engage("t", "t")
+    for call in (lambda: core.plan("bau etwas"), lambda: core.chat("hallo"), lambda: core.remember("neu"), lambda: core.forget("1")):
+        with pytest.raises(JarvisError, match="Notaus aktiv"):
+            call()
+    assert core.tasks.open_tasks() == [] and len(core.recall("etwas")) == 1          # nothing was created, nothing was deleted; reading is fine
+
+
+def test_cli_commands_that_would_change_something_refuse_while_engaged(tmp_path):
+    core, engine, _ = build_core(tmp_path, memory=True)
+    core.remember("etwas")
+    entry = core.recall("etwas")[0]
+    engine.emergency.engage("t", "t")
+    with pytest.raises(JarvisError, match="Notaus aktiv"):
+        run_command(core, "/plan Bau etwas")
+    with pytest.raises(JarvisError, match="Notaus aktiv"):
+        run_command(core, f"/forget {entry.id}")
+    assert core.tasks.open_tasks() == [] and core.recall("etwas")
+    assert "Notaus nicht aktiv" not in run_command(core, "/notaus status")
+    assert "NOTAUS AKTIV" in run_command(core, "/permissions").splitlines()[0]        # the permission overview says so
+    assert "alle Anfragen werden verweigert" in run_command(core, "/permissions")
+
+
+def test_cli_voice_mode_does_not_start_while_engaged(tmp_path):
+    from jarvis.config import load_settings
+    core, engine, _ = build_core(tmp_path)
+    engine.emergency.engage("t", "t")
+    asked = []
+    out = run_command(core, "/voice", load_settings(env={}), lambda _l: None, lambda p="": asked.append(p) or "x")
+    assert "Notaus aktiv" in out and asked == []                                         # no session, no microphone/console read
+
+
+class _NoTouch:
+    """A self-improvement manager that fails the test if anything but list/show reaches it."""
+    def __init__(self):
+        self.calls = []
+
+    def list(self, limit=20):
+        self.calls.append("list")
+        return []
+
+    def __getattr__(self, name):
+        raise AssertionError(f"/improve reached manager.{name} while the emergency stop is engaged")
+
+
+def test_improve_changes_nothing_while_engaged_but_list_still_works(tmp_path):
+    core, engine, _ = build_core(tmp_path)
+    mgr = _NoTouch()
+    core.subsystems["self_improvement"] = SimpleNamespace(manager=mgr, reason="")
+    engine.emergency.engage("t", "t")
+    for word in ("analyze", 'propose "T" "P"', "reject imp-1", "prepare imp-1", "test imp-1", "approve imp-1", "activate imp-1", "rollback imp-1"):
+        assert "Notaus aktiv" in run_command(core, f"/improve {word}")
+    assert "Keine Vorschläge" in run_command(core, "/improve list") and mgr.calls == ["list"]
+
+
+def test_repeated_cli_activation_is_consistent_and_a_new_process_starts_without_the_stop(tmp_path):
+    import subprocess
+    import sys
+    core, engine, _ = build_core(tmp_path)
+    first = run_command(core, "/notaus")
+    second = run_command(core, "/notaus")
+    assert engine.emergency.engaged and "NOTAUS aktiv" in first and "NOTAUS aktiv" in second
+    assert engine.emergency.report().status is ReportStatus.COMPLETE
+    # documented limit: the latch lives in memory only - a restarted process is not stopped
+    code = ("import sys; sys.path.insert(0, %r); from jarvis.permissions import PermissionEngine; e = PermissionEngine(); "
+            "print(e.emergency.engaged)" % str(SRC.parent))
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
+    assert out.stdout.strip() == "False"

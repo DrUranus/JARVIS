@@ -129,6 +129,7 @@ class JarvisCore:
                             ResponseKind.ERROR, error=str(exc))
 
     def chat(self, text: str) -> Response:
+        self._ensure_not_stopped()
         notes = self._memory_notes(text)
         self.context.add_user(text)
         try:
@@ -140,6 +141,7 @@ class JarvisCore:
         return Response(reply, ResponseKind.CHAT)
 
     def plan(self, goal: str) -> Response:
+        self._ensure_not_stopped()
         notes = self._memory_notes(goal)
         task = self.planner.plan(goal, context="\n".join(notes))
         self.tasks.add(task)
@@ -152,7 +154,7 @@ class JarvisCore:
     # ---- goals (optional layer built by the composition root; the Core never imports it) -------------------------------------------------
     def _ensure_not_stopped(self) -> None:
         if self.emergency_stopped:
-            raise JarvisError("Notaus aktiv: keine neuen Ziele oder Reparaturläufe (Aufheben: /notaus reset)")
+            raise JarvisError("Notaus aktiv: keine neuen Anfragen, Pläne, Ziele, Reparaturläufe oder Gedächtnisänderungen (Aufheben: /notaus reset)")
 
     def _goal_engine(self) -> Any:
         engine = getattr(self.subsystems.get("goals"), "engine", None)
@@ -218,6 +220,7 @@ class JarvisCore:
     def remember(self, content: str, type: MemoryType | str = MemoryType.FACT, importance: int = 5,
                  tags: Sequence[str] = (), source: str = "user") -> MemoryEntry:
         """Durably store something (explicit request). Raises MemoryStoreError subclasses."""
+        self._ensure_not_stopped()
         return self.memory.add(content, type=type, importance=importance, tags=tags, source=source)
 
     def recall(self, query: str = "", limit: int | None = None) -> list[MemoryEntry]:
@@ -228,6 +231,7 @@ class JarvisCore:
         return self.memory.recent(limit)
 
     def forget(self, entry_id: str) -> bool:
+        self._ensure_not_stopped()
         return self.memory.delete(entry_id)
 
     def _handle_memory_intent(self, intent: MemoryIntent) -> Response:

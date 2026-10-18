@@ -856,7 +856,7 @@ Nichts wird dauerhaft gespeichert: weder Recherche-, Finanz-, Trading- noch Busi
 ## Notaus (Phase 14, Teilziel 1)
 
 `/notaus` (CLI) bzw. der rote Knopf **NOTAUS** (GUI) setzt einen zentralen Latch in der Berechtigungs-Engine: ab sofort wird **jede** Anfrage verweigert (auch GREEN), `core.handle`
-und neue Ziele/Reparaturen lehnen ab, und alle Komponenten werden nebenläufig unter einer Frist gestoppt (Halt der Controller, Abbruch von Zielen/Agenten-Tasks/Reparaturläufen,
+`core.plan`/`chat`, Gedächtnisänderungen, neue Ziele/Reparaturen, CLI-`/voice` und `/improve` (außer `list`/`show`) lehnen ab, und alle Komponenten werden nebenläufig unter einer Frist gestoppt (Halt der Controller, Abbruch von Zielen/Agenten-Tasks/Reparaturläufen,
 GUI: Eingabe gesperrt, offene Bestätigungen abgelehnt, Sprachmodus beendet). Der Bericht nennt jede Komponente ehrlich als *stopped / requested / nothing / failed / timeout*;
 ein Fehler macht den Notaus *unvollständig*. **Nicht rückgängig** gemacht und nicht als beendet gemeldet werden bereits ausgeführte externe Aktionen; eine laufende
 `core.handle`-Anfrage lässt sich nicht unterbrechen. Aufheben nur mit `/notaus reset` bzw. „Notaus aufheben …“ und ausdrücklicher Bestätigung (nur *Einmal erlauben*; mit
