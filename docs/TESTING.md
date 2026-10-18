@@ -47,7 +47,7 @@ Nur `contents: read`, keine Secrets; Actions sind auf Commit-SHAs gepinnt. Jeder
 | GUI + Voice, Windows, py3.13 (Tk 8.6, Anzeige 1024x768) | dfffaf9 | **105 passed / 0 skipped** (alle Fenstertests liefen wirklich, ca. 6 s) |
 | GUI + Voice + Notaus + Berechtigungs-Regression, Windows, py3.13 | 3ef61ac (Lauf 39032720754) | **410 passed / 4 skipped** (POSIX-Symlinks); Fenstertests mit echter Engine liefen wirklich, ca. 8 s |
 | GUI + Voice + Notaus + Berechtigungs-Regression, Windows, py3.13 | 4885171 (Lauf 39153201869) | 414 passed / 5 skipped: **ein** Fenstertest wurde einmalig uebersprungen, weil Tk auf dem Runner `tk.tcl` nicht fand (nicht reproduziert) |
-| dito, nach `JARVIS_GUI_TESTS_REQUIRED=1` (ein nicht startendes Tk faellt jetzt durch statt zu skippen) | 85b036f (Lauf 39153347774) | **415 passed / 4 skipped** (nur POSIX-Symlinks) |
+| dito, nach `JARVIS_GUI_TESTS_REQUIRED=1` (ein nicht startendes Tk faellt jetzt durch statt zu skippen) | 85b036f (Lauf 39153347774) | **415 passed / 4 skipped** (nur POSIX-Symlinks) ; Tk 8.6 startete, alle 17 Fenstertests bestanden, keiner uebersprungen. Spaetere Commits (z. B. b6f7805) aendern nur Dokumentation (`src/`, `tests/`, `.github/`, `pyproject.toml` sind baumgleich) und loesen wegen des Pfadfilters keinen Lauf aus. |
 | Volle Suite, Windows, py3.13 | dfffaf9 | **3525 passed / 38 skipped** (31 min) |
 | Volle Suite, Ubuntu py3.13 und py3.11 | dfffaf9 | **je 3476 passed / 87 skipped** (GUI-Fenstertests ohne tkinter uebersprungen) |
 | Phase 15, Windows, py3.13 | dfffaf9 | **165 passed / 2 skipped** (19 min) |
