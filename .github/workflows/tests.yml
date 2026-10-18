@@ -69,6 +69,8 @@ jobs:
           root.destroy()
           PY
       - name: GUI- und Voice-Tests
+        env:
+          JARVIS_GUI_TESTS_REQUIRED: "1"          # ein nicht startendes Tk soll hier fehlschlagen, nicht still ueberspringen
         run: |
           python -m pytest -p no:cacheprovider -rfEs --durations=10 --junitxml=reports/junit-gui-windows.xml \
             tests/test_gui_model.py tests/test_gui_view.py tests/test_gui_confirmation.py tests/test_voice_state.py tests/test_voice.py tests/test_voice_cli.py \

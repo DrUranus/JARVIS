@@ -1,6 +1,7 @@
 """The real Tk window (gui.py). Needs tkinter and a display: skipped otherwise (Linux CI without X, a Python without Tk). The Windows CI job runs these
 for real. What is NOT covered here: how the window looks, a real microphone, real speakers, and a human clicking - see docs/TESTING.md (manual checks)."""
 import gc
+import os
 import threading
 import time
 from types import SimpleNamespace
@@ -22,6 +23,8 @@ def root():
     try:
         r = tk.Tk()
     except tk.TclError as exc:
+        if os.environ.get("JARVIS_GUI_TESTS_REQUIRED") == "1":       # set by the Windows CI job: a Tk that does not start there is a finding, not a skip
+            raise
         pytest.skip(f"no usable display for Tk ({exc})")
     r.withdraw()
     gc.disable()                      # a Tk object freed by the garbage collector on a WORKER thread aborts the interpreter (Tcl_AsyncDelete): collect only on this thread
