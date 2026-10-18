@@ -46,6 +46,8 @@ Nur `contents: read`, keine Secrets; Actions sind auf Commit-SHAs gepinnt. Jeder
 | Volle Suite, Ubuntu py3.13 und py3.11 | dc2d3d6 | **je 3437 passed / 74 skipped** |
 | GUI + Voice, Windows, py3.13 (Tk 8.6, Anzeige 1024x768) | dfffaf9 | **105 passed / 0 skipped** (alle Fenstertests liefen wirklich, ca. 6 s) |
 | GUI + Voice + Notaus + Berechtigungs-Regression, Windows, py3.13 | 3ef61ac (Lauf 39032720754) | **410 passed / 4 skipped** (POSIX-Symlinks); Fenstertests mit echter Engine liefen wirklich, ca. 8 s |
+| GUI + Voice + Notaus + Berechtigungs-Regression, Windows, py3.13 | 4885171 (Lauf 39153201869) | 414 passed / 5 skipped: **ein** Fenstertest wurde einmalig uebersprungen, weil Tk auf dem Runner `tk.tcl` nicht fand (nicht reproduziert) |
+| dito, nach `JARVIS_GUI_TESTS_REQUIRED=1` (ein nicht startendes Tk faellt jetzt durch statt zu skippen) | 85b036f (Lauf 39153347774) | **415 passed / 4 skipped** (nur POSIX-Symlinks) |
 | Volle Suite, Windows, py3.13 | dfffaf9 | **3525 passed / 38 skipped** (31 min) |
 | Volle Suite, Ubuntu py3.13 und py3.11 | dfffaf9 | **je 3476 passed / 87 skipped** (GUI-Fenstertests ohne tkinter uebersprungen) |
 | Phase 15, Windows, py3.13 | dfffaf9 | **165 passed / 2 skipped** (19 min) |
@@ -63,5 +65,6 @@ Die 38 Windows-Skips (Stand dc2d3d6, vor Phase 11): POSIX-Symlinks/-Skripte/-Mod
 - **Manuell (Notaus):** Mit einer laufenden, langen Aktion (z. B. `/run coding action=test` auf einem langsamen Testlauf) im GUI-Fenster NOTAUS druecken: Zustand "NOTAUS", Bericht im Chat; pruefen, dass ein laufender Testprozess wirklich endet (Taskmanager) und dass bereits Ausgefuehrtes bestehen bleibt. Reset ueber den Dialog pruefen.
 - **Manuell (GUI/Voice, nicht automatisierbar):** (1) `jarvis-gui` starten: Fenster erscheint, Skalierung/Lesbarkeit pruefen. (2) Text senden, Zustandspunkt wechselt Bereit -> Verarbeiten -> Bereit. (3) Eine Aktion ausloesen, die Bestaetigung braucht (z. B. `/run` mit einem YELLOW-Tool): Dialog erscheint, Zustand "Wartet auf Bestaetigung", Ablehnen/Erlauben wirkt. (4) Mit echtem Mikrofon und `voice.stt_provider != console`: "Sprache starten", sprechen, Zuhoeren -> Verarbeiten -> Sprechen, Lautsprecher hoerbar, "Sprache beenden". (5) Fenster waehrend einer laufenden Anfrage schliessen: Rueckfrage erscheint.
 - Mikrofon, Lautsprecher, echter Browser (Playwright), X11-Tests unter Windows.
+- Windows-Runner: ein Fenstertest wurde einmal wegen eines nicht auffindbaren `tk.tcl` uebersprungen (Lauf 39153201869, nicht reproduziert). Seit 85b036f scheitert der Job in so einem Fall sichtbar; tritt es wieder auf, ist die Ursache (Umgebung des Runners oder Teststate) zu klaeren.
 - Verhalten ausserhalb der Runner-Umgebung (andere Konten, Domaenen, Antivirus).
 - Phase 15 bleibt ein deaktivierter Vorschlagsworkflow; es gibt keine Sandbox. Job Objects sind Eindaemmung, keine Isolation.
