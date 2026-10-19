@@ -1,0 +1,78 @@
+
+name: Trigger Claude Code Routine
+
+on:
+  workflow_dispatch:
+    inputs:
+      context:
+        description: "Begrenzter Auftrag für Claude"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: claude-routine-fire
+  cancel-in-progress: false
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Validate input
+        env:
+          CONTEXT: ${{ inputs.context }}
+        run: |
+          if [ -z "${CONTEXT//[[:space:]]/}" ]; then
+            echo "Fehler: Auftrag ist leer."
+            exit 1
+          fi
+          if [ "${#CONTEXT}" -gt 60000 ]; then
+            echo "Fehler: Auftrag ist zu lang."
+            exit 1
+          fi
+
+      - name: Trigger Claude routine
+        env:
+          ROUTINE_FIRE_URL: ${{ secrets.ROUTINE_FIRE_URL }}
+          ROUTINE_FIRE_TOKEN: ${{ secrets.ROUTINE_FIRE_TOKEN }}
+          CONTEXT: ${{ inputs.context }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${ROUTINE_FIRE_URL:-}" ] || [ -z "${ROUTINE_FIRE_TOKEN:-}" ]; then
+            echo "Claude API Secrets fehlen."
+            exit 1
+          fi
+
+          payload="$(jq -n --arg text "$CONTEXT" '{text: $text}')"
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+
+          status="$(curl --silent --show-error \
+            --output "$response_file" \
+            --write-out '%{http_code}' \
+            --request POST "$ROUTINE_FIRE_URL" \
+            --header "Authorization: Bearer $ROUTINE_FIRE_TOKEN" \
+            --header "anthropic-version: 2023-06-01" \
+            --header "anthropic-beta: experimental-cc-routine-2026-04-01" \
+            --header "Content-Type: application/json" \
+            --data "$payload")"
+
+          if [ "$status" != "200" ]; then
+            echo "Claude API Fehler: HTTP $status"
+            jq -r '.error.message // "Keine Fehlerbeschreibung verfügbar."' \
+              "$response_file" 2>/dev/null || true
+            exit 1
+          fi
+
+          session_id="$(jq -er '.claude_code_session_id' "$response_file")"
+          session_url="$(jq -er '.claude_code_session_url' "$response_file")"
+
+          echo "Claude Routine erfolgreich gestartet."
+          echo "Session-ID: $session_id"
+          echo "Session-URL: $session_url"
+          echo "Der Abschluss der Sitzung wird hier noch nicht überwacht."
