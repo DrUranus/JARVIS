@@ -1,0 +1,37 @@
+# Sicherheitsnetz: Zeitueberschreitungen, nie gestartete Auftraege, Stopp-Label, verpasste Berichte, verlorene Controller-Anstoesse.
+# Beginnt nie einen neuen Auftrag. Kein Zugriff auf Fire-Secrets.
+name: JARVIS watchdog
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  actions: write        # nur fuer das erneute Anstossen von jarvis-controller.yml
+
+concurrency:
+  group: jarvis-state
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: .github/automation
+
+      - name: Check running jobs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          JARVIS_AUTOMATION_HALT: ${{ vars.JARVIS_AUTOMATION_HALT }}
+          JARVIS_TRUSTED_REPORTERS: ${{ vars.JARVIS_TRUSTED_REPORTERS }}
+        run: python3 .github/automation/jarvis_automation.py watchdog
