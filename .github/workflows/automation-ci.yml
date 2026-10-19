@@ -1,0 +1,25 @@
+# Prueft die Automatisierung selbst (Linux, ohne Secrets): Unit-Tests und Sicherheitsregeln fuer die Workflow-Dateien.
+name: automation-ci
+
+on:
+  pull_request:
+    paths: [".github/**"]
+  push:
+    branches: ["claude/great-rubin-iizu3o"]
+    paths: [".github/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Unit tests and workflow policy checks
+        run: |
+          python3 -m pip install --quiet pytest pyyaml
+          python3 -m pytest -q .github/automation/tests

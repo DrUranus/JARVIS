@@ -1,78 +1,73 @@
-
+# Manueller Start eines JARVIS-Entwicklungsauftrags.
+# Legt ein Tracking-Issue an (job_id, Frist, Kette), startet die Claude-Code-Routine ueber die Fire-API und vermerkt die Session.
+# Den Abschluss meldet die Routine selbst als Kommentar im Tracking-Issue; geprueft wird er in jarvis-report.yml.
+# Nur dieser Workflow und jarvis-controller.yml sehen die Fire-Secrets; sie werden nie an die Routine weitergegeben.
 name: Trigger Claude Code Routine
 
 on:
   workflow_dispatch:
     inputs:
       context:
-        description: "Begrenzter Auftrag für Claude"
+        description: "Begrenzter Auftrag für Claude (max. 50000 Zeichen)"
         required: true
         type: string
+      base_branch:
+        description: "Basis-Branch (leer = Variable JARVIS_BASE_BRANCH bzw. claude/inspiring-ritchie-8ljinw)"
+        required: false
+        type: string
+        default: ""
+      auto_continue:
+        description: "Nach Erfolg automatisch freigegebene Backlog-Schritte starten (braucht Variable JARVIS_AUTO_CONTINUE_ENABLED=true)"
+        required: false
+        type: boolean
+        default: false
+      chain_budget:
+        description: "Höchstzahl Aufträge dieser Kette (1-5)"
+        required: false
+        type: string
+        default: "1"
+      timeout_minutes:
+        description: "Zeitlimit je Auftrag in Minuten (10-240)"
+        required: false
+        type: string
+        default: "90"
 
 permissions:
   contents: read
+  issues: write
 
+# Gemeinsam mit jarvis-controller.yml: Auftraege werden nie gleichzeitig angelegt.
 concurrency:
-  group: claude-routine-fire
+  group: jarvis-job-create
   cancel-in-progress: false
 
 jobs:
-  trigger:
+  start:
+    # Secrets nur im Lauf auf dem Standard-Branch (kein Start aus einem veraenderten Feature-Branch).
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 2
-
+    timeout-minutes: 5
     steps:
-      - name: Validate input
-        env:
-          CONTEXT: ${{ inputs.context }}
-        run: |
-          if [ -z "${CONTEXT//[[:space:]]/}" ]; then
-            echo "Fehler: Auftrag ist leer."
-            exit 1
-          fi
-          if [ "${#CONTEXT}" -gt 60000 ]; then
-            echo "Fehler: Auftrag ist zu lang."
-            exit 1
-          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: .github/automation
 
-      - name: Trigger Claude routine
+      - name: Start job
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           ROUTINE_FIRE_URL: ${{ secrets.ROUTINE_FIRE_URL }}
           ROUTINE_FIRE_TOKEN: ${{ secrets.ROUTINE_FIRE_TOKEN }}
           CONTEXT: ${{ inputs.context }}
-        run: |
-          set -euo pipefail
-
-          if [ -z "${ROUTINE_FIRE_URL:-}" ] || [ -z "${ROUTINE_FIRE_TOKEN:-}" ]; then
-            echo "Claude API Secrets fehlen."
-            exit 1
-          fi
-
-          payload="$(jq -n --arg text "$CONTEXT" '{text: $text}')"
-          response_file="$(mktemp)"
-          trap 'rm -f "$response_file"' EXIT
-
-          status="$(curl --silent --show-error \
-            --output "$response_file" \
-            --write-out '%{http_code}' \
-            --request POST "$ROUTINE_FIRE_URL" \
-            --header "Authorization: Bearer $ROUTINE_FIRE_TOKEN" \
-            --header "anthropic-version: 2023-06-01" \
-            --header "anthropic-beta: experimental-cc-routine-2026-04-01" \
-            --header "Content-Type: application/json" \
-            --data "$payload")"
-
-          if [ "$status" != "200" ]; then
-            echo "Claude API Fehler: HTTP $status"
-            jq -r '.error.message // "Keine Fehlerbeschreibung verfügbar."' \
-              "$response_file" 2>/dev/null || true
-            exit 1
-          fi
-
-          session_id="$(jq -er '.claude_code_session_id' "$response_file")"
-          session_url="$(jq -er '.claude_code_session_url' "$response_file")"
-
-          echo "Claude Routine erfolgreich gestartet."
-          echo "Session-ID: $session_id"
-          echo "Session-URL: $session_url"
-          echo "Der Abschluss der Sitzung wird hier noch nicht überwacht."
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          AUTO_CONTINUE: ${{ inputs.auto_continue }}
+          CHAIN_BUDGET: ${{ inputs.chain_budget }}
+          TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          JARVIS_AUTOMATION_HALT: ${{ vars.JARVIS_AUTOMATION_HALT }}
+          JARVIS_BASE_BRANCH: ${{ vars.JARVIS_BASE_BRANCH }}
+          JARVIS_AUTO_CONTINUE_ENABLED: ${{ vars.JARVIS_AUTO_CONTINUE_ENABLED }}
+          JARVIS_MAX_CHAIN_JOBS: ${{ vars.JARVIS_MAX_CHAIN_JOBS }}
+          JARVIS_MAX_JOBS_PER_DAY: ${{ vars.JARVIS_MAX_JOBS_PER_DAY }}
+        run: python3 .github/automation/jarvis_automation.py start
