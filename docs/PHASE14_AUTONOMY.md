@@ -1,6 +1,6 @@
 # Phase 14 "Maximum Autonomy": Bestand, Sicherheitsgrenzen und pruefbare Teilziele
 
-Stand: nach Phase 11 (GUI) und Teilziel 1 (gemeinsamer Notaus) - **Teilziel 1 abgeschlossen**: Windows-Runner-Lauf 39153347774 (Commit 85b036f, 415 passed / 4 skipped nur POSIX-Symlinks; alle 17 Fenstertests, 39 Notaus-Tests und 123 Engine-Tests liefen und bestanden), Linux-Regression gruen. Offene Grenzen siehe unten; die naechsten Teilziele sind nicht begonnen. Dieses Dokument beschreibt, was von Phase 14 heute **wirklich** im Code ist, welche Grenzen die Autonomie schon begrenzen, und schlaegt
+Stand: nach Phase 11 (GUI), Teilziel 1 (gemeinsamer Notaus) und Teilziel 2 (Sichtbarkeit laufender Arbeit; Windows-Lauf 39220035919, Commit 8f0b2dd: 434 passed / 4 skipped) - **Teilziel 1 abgeschlossen**: Windows-Runner-Lauf 39153347774 (Commit 85b036f, 415 passed / 4 skipped nur POSIX-Symlinks; alle 17 Fenstertests, 39 Notaus-Tests und 123 Engine-Tests liefen und bestanden), Linux-Regression gruen. Offene Grenzen siehe unten; die naechsten Teilziele sind nicht begonnen. Dieses Dokument beschreibt, was von Phase 14 heute **wirklich** im Code ist, welche Grenzen die Autonomie schon begrenzen, und schlaegt
 **pruefbare Teilziele** vor. Es fuehrt keine neue Autonomie ein; jedes Teilziel braucht vor der Umsetzung eine ausdrueckliche Freigabe.
 
 ## Was von Phase 14 existiert
