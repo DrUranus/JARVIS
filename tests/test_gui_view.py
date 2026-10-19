@@ -4,6 +4,7 @@ import gc
 import os
 import threading
 import time
+import warnings
 from types import SimpleNamespace
 
 import pytest
@@ -18,10 +19,27 @@ from jarvis.permissions.confirmation import ConfirmationChoice, ConfirmationRequ
 from jarvis.permissions.levels import PermissionLevel  # noqa: E402
 
 
+def _start_tk():
+    """Start a Tk root. On the GitHub Windows runner Tk very rarely fails to start for ONE test ("Can't find a usable tk.tcl" / "couldn't read file .../icons.tcl",
+    seen twice in about ten runs, every time a different test, never reproducible, the files exist afterwards). That is an environment hiccup, not a property of the
+    GUI, so starting is retried a few times; every retry is reported as a warning (visible in the CI log) and a start that never works still fails/skips as before."""
+    last = None
+    for attempt in range(1, 4):
+        try:
+            r = tk.Tk()
+            if attempt > 1:
+                warnings.warn(f"Tk needed {attempt} attempts to start (transient: {str(last)[:120]})", UserWarning, stacklevel=2)
+            return r
+        except tk.TclError as exc:
+            last = exc
+            time.sleep(0.5 * attempt)
+    raise last
+
+
 @pytest.fixture
 def root():
     try:
-        r = tk.Tk()
+        r = _start_tk()
     except tk.TclError as exc:
         if os.environ.get("JARVIS_GUI_TESTS_REQUIRED") == "1":       # set by the Windows CI job: a Tk that does not start there is a finding, not a skip
             raise
