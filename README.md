@@ -876,7 +876,7 @@ gelesen (`jarvis.local.toml`, sonst `config/jarvis.toml`).
 
 **Bedienung.** Reiter *Gespräch*: Eingabe + Enter oder „Senden“. Der Verlauf gilt nur für die laufende Sitzung (nicht gespeichert; Erinnerungen laufen weiter über
 Memory). Zeilen mit `/` sind dieselben Befehle wie in der CLI (`/help`, `/tasks`, `/run …`; sie laufen durch dieselbe Berechtigungsprüfung); `/voice` startet den
-GUI-Sprachmodus, `/exit` schließt das Fenster. Reiter *Status*: „Aktualisieren“ liest **nur lesend** Subsystemstatus, `/tasks`, `/goals` und `/permissions`; ein
+GUI-Sprachmodus, `/exit` schließt das Fenster. Reiter *Status*: „Aktualisieren“ liest **nur lesend** Subsystemstatus, `/tasks`, `/goals` und `/permissions` und zeigt unter „Laufende Arbeit“ alle nicht beendeten Ziele, Agenten-Tasks, Reparaturläufe und gespeicherten Pläne mit je einem Knopf *Abbrechen*; der Knopf ruft nur das passende `cancel` auf (kooperativ: eine Meldung wie „Abbruch angefordert“ heißt nur, dass er angefordert ist; nicht unterstützte oder bereits beendete Abbrüche werden als „Nicht abgebrochen“ mit der Antwort der Schnittstelle gezeigt; Abbrechen geht auch bei aktivem Notaus, startet aber nie etwas). Ziele, Agenten und Self-Repair sind standardmäßig aus; dann steht dort „Keine laufende Arbeit“ und welche Quellen ausgeschaltet sind; ein
 Abschnitt, der sich nicht lesen lässt, sagt das, statt zu fehlen. Es gibt keine neue autonome Ausführung und keine zusätzlichen Rechte.
 
 **Zustände** (oben rechts; angezeigt nur, wenn die Komponente ihn meldet – nichts ist animiert oder erfunden):

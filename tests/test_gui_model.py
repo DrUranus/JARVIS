@@ -488,3 +488,227 @@ def test_a_new_request_never_lifts_the_emergency_stop():
     for _ in range(3):
         assert c.submit("x") is SubmitResult.EMERGENCY
     assert core.emergency.engaged
+
+
+# ---- activity: running work (read-only) and the cancel buttons (Phase 14, sub-goal 2) -----------------------------------------------------------
+import ast  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from jarvis.agents.state import TaskStatus as AgentStatus  # noqa: E402
+from jarvis.goals.state import GoalStatus  # noqa: E402
+from jarvis.interface.gui_model import ActivityEvent, ActivityItem, CancelResult  # noqa: E402
+from jarvis.self_repair.state import RepairStatus  # noqa: E402
+from jarvis.tasks.manager import TaskManager  # noqa: E402
+from jarvis.tasks.task import Task  # noqa: E402
+
+
+def report(accepted, status, message="msg"):
+    return SimpleNamespace(accepted=accepted, status=status, message=message)
+
+
+class ActCore:
+    """A core with fake engines. Every call is recorded, so a test can prove which interface a button reached."""
+    def __init__(self, goals=(), agent_tasks=(), repairs=(), plans=(), *, off=(), unsupported=()):
+        self.calls = []
+        self.threads = set()
+        self.goal_items = list(goals)
+        self.task_items = list(agent_tasks)
+        self.repair_items = list(repairs)
+        self.cancel_answers = {}
+        outer = self
+
+        class Orch:
+            registry = SimpleNamespace(has=lambda a: True, get=lambda a: SimpleNamespace(supports_cancellation=a not in unsupported))
+
+            def list(self, limit=None):
+                outer.calls.append("orch.list")
+                return [SimpleNamespace(task_id=t, agent_id=a, status=st, summary=s) for t, a, st, s in outer.task_items]
+
+            def cancel(self, task_id):
+                outer.calls.append(f"orch.cancel:{task_id}")
+                outer.threads.add(threading.get_ident())
+                return outer.cancel_answers.get(task_id, report(True, AgentStatus.CANCELLED))
+        self.subsystems = {}
+        if "goals" not in off:
+            self.subsystems["goals"] = SimpleNamespace(engine=object())
+        if "agents" not in off:
+            self.subsystems["agents"] = SimpleNamespace(orchestrator=Orch())
+        if "self_repair" not in off:
+            self.subsystems["self_repair"] = SimpleNamespace(engine=object())
+        self.tasks = TaskManager()
+        for t in plans:
+            self.tasks.add(t)
+
+    def list_goals(self, limit=None):
+        self.calls.append("list_goals")
+        return [SimpleNamespace(goal_id=g, objective=o, status=st) for g, o, st in self.goal_items]
+
+    def cancel_goal(self, goal_id):
+        self.calls.append(f"cancel_goal:{goal_id}")
+        self.threads.add(threading.get_ident())
+        return self.cancel_answers.get(goal_id, report(True, GoalStatus.CANCELLED))
+
+    def list_repairs(self, limit=None):
+        self.calls.append("list_repairs")
+        return [SimpleNamespace(run_id=r, objective=o, status=st) for r, o, st in self.repair_items]
+
+    def cancel_repair(self, run_id):
+        self.calls.append(f"cancel_repair:{run_id}")
+        self.threads.add(threading.get_ident())
+        return self.cancel_answers.get(run_id, report(True, RepairStatus.CANCELLED))
+
+    def handle(self, text):                                         # pragma: no cover - the activity code must never get here
+        raise AssertionError("activity code called core.handle")
+
+
+def busy_core(**kw):
+    return ActCore(goals=[("g-run", "Marktanalyse\nfür   Q3", GoalStatus.RUNNING), ("g-done", "fertig", GoalStatus.SUCCEEDED), ("g-wait", "wartet", GoalStatus.WAITING)],
+                   agent_tasks=[("t-run", "research", AgentStatus.RUNNING, "liest Seiten"), ("t-end", "coding", AgentStatus.FAILED, "x"),
+                                ("t-pend", "coding", AgentStatus.PENDING, "")],
+                   repairs=[("r-run", "Tests reparieren", RepairStatus.PLANNING), ("r-end", "alt", RepairStatus.CANCELLED)],
+                   plans=[Task("Plan A")], **kw)
+
+
+def test_activity_lists_only_unfinished_work_of_every_kind_and_shortens_the_text():
+    c = GuiController(busy_core(unsupported=("coding",)))
+    snap = c.collect_activity()
+    by = {(i.kind, i.ident): i for i in snap.items}
+    assert set(by) == {("goal", "g-run"), ("goal", "g-wait"), ("agent_task", "t-run"), ("agent_task", "t-pend"), ("repair", "r-run"), ("plan", next(iter(c.core.tasks.list())).id)}
+    assert by[("goal", "g-run")].text == "Marktanalyse für Q3" and by[("goal", "g-run")].status == "RUNNING"            # whitespace collapsed
+    assert by[("agent_task", "t-pend")].note == "dieser Agent unterstützt keinen Abbruch" and by[("agent_task", "t-run")].note == ""
+    assert "nichts führt ihn aus" in by[("plan", next(iter(c.core.tasks.list())).id)].note
+    assert snap.problems == () and snap.inactive == ()
+
+
+def test_activity_never_hides_a_source_that_can_not_be_read():
+    core = busy_core()
+    core.list_goals = lambda limit=None: (_ for _ in ()).throw(RuntimeError("engine kaputt"))
+    snap = GuiController(core).collect_activity()
+    assert any(p.startswith("Ziele: nicht lesbar (RuntimeError") for p in snap.problems)
+    assert {i.kind for i in snap.items} == {"agent_task", "repair", "plan"}                  # the other sources still show
+
+
+def test_switched_off_subsystems_are_named_not_treated_as_errors():
+    snap = GuiController(ActCore(off=("goals", "agents", "self_repair"))).collect_activity()
+    assert snap.items == () and snap.problems == () and snap.inactive == ("Ziele", "Agenten-Tasks", "Reparaturläufe")
+    snap = GuiController(FakeCore()).collect_activity()                                         # a core without any of it
+    assert snap.items == () and "Pläne" in snap.inactive
+
+
+def test_each_kind_reaches_exactly_its_own_cancel_interface_and_nothing_else():
+    core = busy_core()
+    c = GuiController(core)
+    plan_id = next(iter(core.tasks.list())).id
+    assert c.cancel_activity("goal", "g-run").outcome == "cancelled" and core.calls == ["cancel_goal:g-run"]
+    core.calls.clear()
+    assert c.cancel_activity("agent_task", "t-run").outcome == "cancelled" and core.calls == ["orch.cancel:t-run"]
+    core.calls.clear()
+    assert c.cancel_activity("repair", "r-run").outcome == "cancelled" and core.calls == ["cancel_repair:r-run"]
+    core.calls.clear()
+    assert c.cancel_activity("plan", plan_id).outcome == "cancelled" and core.calls == [] and core.tasks.get(plan_id).status.value == "CANCELLED"
+
+
+def test_unknown_kind_or_id_is_refused_without_any_call():
+    core = busy_core()
+    c = GuiController(core)
+    for kind, ident in (("run_goal", "g"), ("goal", ""), ("goal", "x" * 200), ("", "g"), ("agent_task; drop", "t")):
+        r = c.cancel_activity(kind, ident)
+        assert r.outcome == "refused" and core.calls == []
+
+
+def test_the_message_follows_the_real_answer_of_the_interface():
+    core = busy_core()
+    c = GuiController(core)
+    core.cancel_answers["g-run"] = report(True, GoalStatus.RUNNING, "cancellation requested")                      # cooperative
+    core.cancel_answers["t-run"] = report(False, AgentStatus.RUNNING, "this agent does not support cancellation")  # unsupported
+    core.cancel_answers["r-run"] = report(False, RepairStatus.SUCCEEDED, "the run is already SUCCEEDED")            # already over
+    r1, r2, r3 = c.cancel_activity("goal", "g-run"), c.cancel_activity("agent_task", "t-run"), c.cancel_activity("repair", "r-run")
+    assert (r1.outcome, r2.outcome, r3.outcome) == ("requested", "refused", "refused")
+    assert "kooperativ" in r1.text and "Abbruch angefordert" in r1.text and "Abgebrochen –" not in r1.text            # never "cancelled" for a mere request
+    assert "Nicht abgebrochen" in r2.text and "does not support cancellation" in r2.text
+    assert "Nicht abgebrochen" in r3.text and "already SUCCEEDED" in r3.text
+    core.cancel_goal = lambda gid: (_ for _ in ()).throw(RuntimeError("boom"))
+    r4 = c.cancel_activity("goal", "g-run")
+    assert r4.outcome == "error" and "Abbruch fehlgeschlagen" in r4.text and "RuntimeError" in r4.text
+    plan_id = next(iter(core.tasks.list())).id
+    core.tasks.cancel(plan_id)
+    already = c.cancel_activity("plan", plan_id)                                                                   # an already finished plan is refused, not "cancelled" again
+    assert already.outcome == "refused" and "bereits beendet" in already.text
+    assert c.cancel_activity("plan", "unbekannt").outcome == "error"                                               # an unknown id: the manager's error is shown
+    assert c.cancel_activity("agent_task", "t-run").outcome == "refused"
+
+
+def test_with_the_agent_layer_off_a_task_cancel_is_refused_without_a_call():
+    core = busy_core(off=("agents",))
+    assert GuiController(core).cancel_activity("agent_task", "t-run").outcome == "refused" and "orch.cancel:t-run" not in core.calls
+
+
+def test_cancelling_works_while_the_emergency_stop_is_engaged_and_starts_nothing():
+    core = busy_core()
+    core.emergency = EmergencyStop()
+    core.permissions = SimpleNamespace(emergency=core.emergency, reset_emergency_stop=lambda s="x": ResetResult(False, "no"))
+    c = GuiController(core)
+    c.emergency_stop()
+    assert core.emergency.engaged
+    assert c.cancel_activity("goal", "g-run").outcome == "cancelled" and core.calls[-1] == "cancel_goal:g-run"
+    assert c.request_cancel("repair", "r-run") is True
+    assert wait_for(lambda: "cancel_repair:r-run" in core.calls)
+    assert core.emergency.engaged and not any(x.startswith(("run", "create", "start")) for x in core.calls)          # still stopped, nothing was started
+
+
+def test_the_cancel_button_runs_in_a_worker_reports_in_the_chat_and_refreshes_the_list():
+    core = busy_core()
+    c = GuiController(core)
+    assert c.request_cancel("goal", "g-run") is True
+    ev = collect(c, lambda e: any(isinstance(x, ActivityEvent) for x in e) and any("Ziel g-run: Abgebrochen" in t for t in texts(e, "System")))
+    assert any("Ziel g-run: Abgebrochen" in t for t in texts(ev, "System")) and any(isinstance(x, ActivityEvent) for x in ev)
+    assert core.threads and threading.get_ident() not in core.threads                                              # never on the GUI thread
+
+
+def test_a_second_click_on_the_same_item_is_ignored_while_the_first_cancel_is_in_flight():
+    gate = threading.Event()
+    core = busy_core()
+    core.cancel_goal = lambda gid: (gate.wait(5), report(True, GoalStatus.CANCELLED))[1]
+    c = GuiController(core)
+    assert c.request_cancel("goal", "g-run") and not c.request_cancel("goal", "g-run")
+    assert c.request_cancel("goal", "g-wait")                                                                      # another item is independent
+    gate.set()
+
+
+def test_one_activity_collection_at_a_time_and_none_after_closing():
+    gate = threading.Event()
+    core = busy_core()
+    original = core.list_goals
+    core.list_goals = lambda limit=None: (gate.wait(5), original(limit))[1]
+    c = GuiController(core)
+    assert c.request_activity() and not c.request_activity()
+    gate.set()
+    ev = collect(c, lambda e: any(isinstance(x, ActivityEvent) for x in e))
+    assert len([x for x in ev if isinstance(x, ActivityEvent)]) == 1
+    assert wait_for(c.request_activity)
+    c.close()
+    assert not c.request_activity() and not c.request_cancel("goal", "g-run")
+
+
+def test_the_activity_code_only_lists_and_cancels():
+    """Structure: inside collect_activity / cancel_activity / _act_* no attribute that starts, creates, resumes, approves or runs anything is touched."""
+    forbidden = {"run", "run_goal", "run_repair", "create", "create_goal", "create_repair", "submit", "start", "resume", "enable", "disable", "reset", "plan", "handle",
+                 "execute", "authorize", "approve", "activate", "remember", "forget", "set_confirmation_provider", "halt"}
+    tree = ast.parse((Path(__file__).resolve().parents[1] / "src" / "jarvis" / "interface" / "gui_model.py").read_text(encoding="utf-8"))
+    scanned = 0
+    for fn in (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and (n.name in ("collect_activity", "cancel_activity") or n.name.startswith("_act_"))):
+        scanned += 1
+        used = {n.attr for n in ast.walk(fn) if isinstance(n, ast.Attribute)}
+        assert not used & forbidden, f"{fn.name} touches {used & forbidden}"
+    assert scanned >= 8
+
+
+def test_the_real_core_shows_a_stored_plan_and_the_default_has_everything_else_off():
+    from jarvis.core import JarvisCore
+    from jarvis.llm.mock import MockProvider
+    core = JarvisCore(MockProvider())
+    core.tasks.add(Task("Webseite bauen"))
+    c = GuiController(core)
+    snap = c.collect_activity()
+    assert [(i.kind, i.text) for i in snap.items] == [("plan", "Webseite bauen")] and set(snap.inactive) == {"Ziele", "Agenten-Tasks", "Reparaturläufe"}
+    assert c.cancel_activity("plan", snap.items[0].ident).outcome == "cancelled" and c.collect_activity().items == ()

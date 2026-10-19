@@ -335,3 +335,107 @@ def test_without_a_central_emergency_stop_the_button_is_disabled(root):
     gui = make(root, Core())
     assert str(gui.emergency_button.cget("state")) == "disabled"
     gui._on_close()
+
+
+# ---- running work in the status tab (Phase 14, sub-goal 2) ---------------------------------------------------------------------------------------
+from test_gui_model import ActCore, busy_core  # noqa: E402
+
+
+def activity_texts(gui):
+    out = []
+    for row in gui.activity_rows:
+        out.append(" | ".join(str(w.cget("text")) for w in row.winfo_children() if isinstance(w, ttk.Label)))
+    return out
+
+
+def cancel_button(gui, ident):
+    for row in gui.activity_rows:
+        if any(isinstance(w, ttk.Label) and str(w.cget("text")).startswith(ident) for w in row.winfo_children()):
+            return next(w for w in row.winfo_children() if isinstance(w, ttk.Button))
+    raise AssertionError(f"no row for {ident}")
+
+
+def test_the_status_tab_lists_unfinished_work_with_one_cancel_button_each(root):
+    core = busy_core(unsupported=("coding",))
+    gui = make(root, controller=GuiController(core))
+    gui._refresh_status()
+    assert pump(root, lambda: len(gui.activity_rows) == 6)
+    rows = "\n".join(activity_texts(gui))
+    assert "Ziel · RUNNING" in rows and "g-run  Marktanalyse für Q3" in rows and "Agenten-Task · PENDING" in rows and "Reparaturlauf · PLANNING" in rows and "Plan · PENDING" in rows
+    assert "dieser Agent unterstützt keinen Abbruch" in rows and "g-done" not in rows and "t-end" not in rows                      # finished work is not listed
+    assert [w.cget("text") for r in gui.activity_rows for w in r.winfo_children() if isinstance(w, ttk.Button)] == ["Abbrechen"] * 6
+    gui._on_close()
+
+
+def test_the_cancel_button_calls_only_its_own_interface_shows_the_real_answer_and_refreshes(root):
+    core = busy_core()
+    gui = make(root, controller=GuiController(core))
+    gui._refresh_status()
+    assert pump(root, lambda: len(gui.activity_rows) == 6)
+    core.calls.clear()
+    core.goal_items = [g for g in core.goal_items if g[0] != "g-run"]                                                        # what the engine will report afterwards
+    cancel_button(gui, "g-run").invoke()
+    assert pump(root, lambda: "Ziel g-run: Abgebrochen" in chat(gui) or "Ziel g-run: Abgebrochen" in gui.status_text.get("1.0", "end"))
+    assert pump(root, lambda: len(gui.activity_rows) == 5 and "cancel_goal:g-run" in core.calls)
+    assert [c for c in core.calls if c.startswith(("cancel", "orch.cancel"))] == ["cancel_goal:g-run"]                          # no other cancel was touched
+    gui._on_close()
+
+
+def test_a_refused_cancel_is_shown_as_refused_and_the_row_stays(root):
+    from jarvis.agents.state import TaskStatus as AgentStatus
+    core = busy_core()
+    core.cancel_answers["t-run"] = SimpleNamespace(accepted=False, status=AgentStatus.RUNNING, message="this agent does not support cancellation")
+    gui = make(root, controller=GuiController(core))
+    gui._refresh_status()
+    assert pump(root, lambda: len(gui.activity_rows) == 6)
+    cancel_button(gui, "t-run").invoke()
+    assert pump(root, lambda: "Nicht abgebrochen" in chat(gui) and "does not support cancellation" in chat(gui))
+    assert "Abgebrochen –" not in chat(gui) and pump(root, lambda: len(gui.activity_rows) == 6)
+    gui._on_close()
+
+
+def test_the_empty_list_explains_itself_and_unreadable_sources_are_shown(root):
+    gui = make(root, controller=GuiController(ActCore(off=("goals", "agents", "self_repair"))))
+    gui._refresh_status()
+    assert pump(root, lambda: "Keine laufende Arbeit." in gui.activity_hint.cget("text"))
+    assert "Ausgeschaltet (Standard): Ziele, Agenten-Tasks, Reparaturläufe." in gui.activity_hint.cget("text") and gui.activity_rows == []
+    core = ActCore()
+    core.list_goals = lambda limit=None: (_ for _ in ()).throw(RuntimeError("kaputt"))
+    gui2 = make(tk.Toplevel(root), controller=GuiController(core))
+    gui2._refresh_status()
+    assert pump(root, lambda: "Ziele: nicht lesbar (RuntimeError" in gui2.activity_hint.cget("text"))
+    gui2._on_close()
+    gui._on_close()
+
+
+def test_the_activity_widgets_are_only_touched_from_the_gui_thread(root):
+    core = busy_core()
+    gui = make(root, controller=GuiController(core))
+    main, seen = threading.get_ident(), []
+    original = gui._render_activity
+
+    def wrapper(snap):
+        seen.append(threading.get_ident())
+        return original(snap)
+    gui._render_activity = wrapper
+    gui._refresh_status()
+    assert pump(root, lambda: len(gui.activity_rows) == 6)
+    cancel_button(gui, "r-run").invoke()
+    assert pump(root, lambda: "cancel_repair:r-run" in core.calls) and pump(root, lambda: len(seen) >= 2)
+    assert seen and set(seen) == {main} and main not in core.threads                                                        # render on the GUI thread, cancel in a worker
+    gui._on_close()
+
+
+def test_cancelling_from_the_window_still_works_while_the_emergency_stop_is_engaged(root):
+    core = busy_core()
+    from jarvis.permissions import EmergencyStop, ResetResult
+    core.emergency = EmergencyStop()
+    core.permissions = SimpleNamespace(emergency=core.emergency, reset_emergency_stop=lambda s="x": ResetResult(False, "no"))
+    gui = make(root, controller=GuiController(core))
+    gui._refresh_status()
+    assert pump(root, lambda: len(gui.activity_rows) == 6)
+    gui.emergency_button.invoke()
+    assert pump(root, lambda: gui.state_label.cget("text") == "NOTAUS")
+    cancel_button(gui, "r-run").invoke()
+    assert pump(root, lambda: "cancel_repair:r-run" in core.calls) and core.emergency.engaged
+    gui._on_close()

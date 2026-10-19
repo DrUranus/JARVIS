@@ -31,6 +31,11 @@ MAX_ERROR_TEXT = 300
 STATUS_COMMANDS = (("Aufgaben", "/tasks"), ("Ziele", "/goals"), ("Berechtigungen", "/permissions"))
 
 
+KIND_LABELS = {"goal": "Ziel", "agent_task": "Agenten-Task", "repair": "Reparaturlauf", "plan": "Plan"}
+_FINISHED = frozenset({"SUCCEEDED", "FAILED", "BLOCKED", "CANCELLED", "TIMEOUT", "COMPLETED"})     # status names (all engines) that mean "over"
+ACTIVITY_LIMIT = 50
+
+
 class UiState(str, Enum):
     READY = "ready"
     LISTENING = "listening"
@@ -159,6 +164,44 @@ class StatusEvent:
 
 
 @dataclass(frozen=True)
+class ActivityItem:
+    """One piece of work that has not finished: a goal, an agent task, a repair run or a stored plan (a plan is only a record, nothing executes it)."""
+    kind: str                       # "goal" | "agent_task" | "repair" | "plan"
+    ident: str
+    status: str
+    text: str
+    note: str = ""                  # known limits before cancelling (for example: the agent does not support cancellation)
+
+
+@dataclass(frozen=True)
+class ActivitySnapshot:
+    items: tuple[ActivityItem, ...] = ()
+    problems: tuple[str, ...] = ()  # sources that could not be read (shown, never hidden)
+    inactive: tuple[str, ...] = ()  # sources that are switched off (the default for goals, agents and self-repair)
+
+
+@dataclass(frozen=True)
+class ActivityEvent:
+    snapshot: ActivitySnapshot
+
+
+@dataclass(frozen=True)
+class CancelResult:
+    """What a cancel call REALLY answered: cancelled (the work is over), requested (cooperative: it may still run), refused (the interface said no, with its
+    reason) or error (the call failed)."""
+    kind: str
+    ident: str
+    outcome: str
+    message: str
+
+    @property
+    def text(self) -> str:
+        head = {"cancelled": "Abgebrochen", "requested": "Abbruch angefordert (kooperativ – die Arbeit kann noch laufen, bis der Agent ihn bemerkt)",
+                "refused": "Nicht abgebrochen", "error": "Abbruch fehlgeschlagen"}[self.outcome]
+        return f"{KIND_LABELS.get(self.kind, self.kind)} {self.ident}: {head}" + (f" – {self.message}" if self.message else "")
+
+
+@dataclass(frozen=True)
 class CallEvent:
     """Something a non-GUI thread wants to run on the GUI thread (used by the confirmation provider)."""
     fn: Callable[..., Any]
@@ -209,6 +252,8 @@ class GuiController:
         self._deny_confirmations: Callable[[], Any] | None = None     # set by the view: answers open confirmation dialogs with DENY
         self._stop_busy = False
         self._reset_busy = False
+        self._activity_busy = False
+        self._cancelling: set[tuple[str, str]] = set()
         # The emergency stop belongs to the permission engine (the central control point); the GUI only triggers and mirrors it. Without it there is no
         # button: a GUI-only stop that merely changes the display would be dangerous.
         self._emergency = getattr(getattr(core, "permissions", None), "emergency", None)
@@ -547,6 +592,143 @@ class GuiController:
             except Exception as exc:
                 sections.append((title, f"nicht abrufbar ({type(exc).__name__}: {exc})"))
         return sections
+
+    # -- activity: running work, read-only, and the cancel buttons --------------------------------------------------------------------
+    # Everything in collect_activity / cancel_activity / _act_* only LISTS and CANCELS. Nothing here starts, creates, resumes or approves anything
+    # (a structure test checks the names), and cancelling stays possible while the emergency stop is engaged: stopping is always allowed.
+    def request_activity(self) -> bool:
+        """Collect the snapshot in a worker thread and report it as an ActivityEvent. False if one is running or the GUI is closed."""
+        with self._lock:
+            if self._closed or self._activity_busy:
+                return False
+            self._activity_busy = True
+        threading.Thread(target=self._work_activity, name="jarvis-gui-activity", daemon=True).start()
+        return True
+
+    def _work_activity(self) -> None:
+        try:
+            snap = self.collect_activity()
+            if not self._closed:
+                self._emit(ActivityEvent(snap))
+        finally:
+            with self._lock:
+                self._activity_busy = False
+
+    def collect_activity(self) -> ActivitySnapshot:
+        items: list[ActivityItem] = []
+        problems: list[str] = []
+        inactive: list[str] = []
+        for label, reader in (("Ziele", self._act_goals), ("Agenten-Tasks", self._act_agent_tasks), ("Reparaturläufe", self._act_repairs), ("Pläne", self._act_plans)):
+            try:
+                found, off = reader()
+            except Exception as exc:
+                problems.append(f"{label}: nicht lesbar ({type(exc).__name__}: {str(exc)[:80]})")
+                continue
+            if off:
+                inactive.append(label)
+            items.extend(found[:ACTIVITY_LIMIT])
+        return ActivitySnapshot(tuple(items), tuple(problems), tuple(inactive))
+
+    @staticmethod
+    def _act_short(text: Any, limit: int = 90) -> str:
+        return " ".join(str(text or "").split())[:limit]
+
+    def _act_open(self, status: Any) -> bool:
+        return str(getattr(status, "value", status)).upper() not in _FINISHED
+
+    def _act_goals(self) -> tuple[list[ActivityItem], bool]:
+        engine = getattr(self.core.subsystems.get("goals"), "engine", None)
+        if engine is None:
+            return [], True
+        return [ActivityItem("goal", g.goal_id, str(g.status.value), self._act_short(g.objective)) for g in self.core.list_goals(limit=ACTIVITY_LIMIT * 2)
+                if self._act_open(g.status)], False
+
+    def _act_agent_tasks(self) -> tuple[list[ActivityItem], bool]:
+        sub = self.core.subsystems.get("agents")
+        orch = getattr(sub, "orchestrator", None)
+        if orch is None:
+            return [], True
+        out = []
+        for r in orch.list(limit=ACTIVITY_LIMIT * 2):
+            if not self._act_open(r.status):
+                continue
+            note = ""
+            try:
+                agent = orch.registry.get(r.agent_id) if r.agent_id and orch.registry.has(r.agent_id) else None
+                if agent is not None and not agent.supports_cancellation:
+                    note = "dieser Agent unterstützt keinen Abbruch"
+            except Exception:
+                note = ""
+            out.append(ActivityItem("agent_task", r.task_id, str(r.status.value), self._act_short(f"{r.agent_id or '?'}: {r.summary or r.task_id}"), note))
+        return out, False
+
+    def _act_repairs(self) -> tuple[list[ActivityItem], bool]:
+        engine = getattr(self.core.subsystems.get("self_repair"), "engine", None)
+        if engine is None:
+            return [], True
+        return [ActivityItem("repair", r.run_id, str(r.status.value), self._act_short(r.objective)) for r in self.core.list_repairs(limit=ACTIVITY_LIMIT * 2)
+                if self._act_open(r.status)], False
+
+    def _act_plans(self) -> tuple[list[ActivityItem], bool]:
+        tasks = getattr(self.core, "tasks", None)
+        if tasks is None:
+            return [], True
+        return [ActivityItem("plan", t.id, str(t.status.value), self._act_short(t.description), "nur ein gespeicherter Plan – nichts führt ihn aus")
+                for t in tasks.open_tasks()], False
+
+    def request_cancel(self, kind: str, ident: str) -> bool:
+        """The cancel button: runs cancel_activity in a worker, tells the chat what the interface really answered and refreshes the list."""
+        key = (kind, ident)
+        with self._lock:
+            if self._closed or key in self._cancelling:
+                return False
+            self._cancelling.add(key)
+        threading.Thread(target=self._work_cancel, args=(kind, ident), name="jarvis-gui-cancel", daemon=True).start()
+        return True
+
+    def _work_cancel(self, kind: str, ident: str) -> None:
+        try:
+            result = self.cancel_activity(kind, ident)
+            if not self._closed:
+                self.say("System", result.text)
+        finally:
+            with self._lock:
+                self._cancelling.discard((kind, ident))
+        self.request_activity()
+
+    def cancel_activity(self, kind: str, ident: str) -> CancelResult:
+        """Call exactly the one cancel interface that belongs to `kind` and report its REAL answer. Unknown kinds or ids are refused without a call."""
+        if kind not in KIND_LABELS or not isinstance(ident, str) or not ident or len(ident) > 80:
+            return CancelResult(str(kind)[:20], str(ident)[:40], "refused", "unbekannte Art oder ungültige ID")
+        try:
+            if kind == "goal":
+                return self._act_report(kind, ident, self.core.cancel_goal(ident))
+            if kind == "agent_task":
+                orch = getattr(self.core.subsystems.get("agents"), "orchestrator", None)
+                if orch is None:
+                    return CancelResult(kind, ident, "refused", "Multi-Agent ist deaktiviert")
+                return self._act_report(kind, ident, orch.cancel(ident))
+            if kind == "repair":
+                return self._act_report(kind, ident, self.core.cancel_repair(ident))
+            current = self.core.tasks.get(ident)                                   # kind == "plan": a stored plan, nothing runs
+            if not self._act_open(current.status):
+                return CancelResult(kind, ident, "refused", f"bereits beendet (Status {getattr(current.status, 'value', current.status)})")
+            task = self.core.tasks.cancel(ident)
+            done = str(getattr(task.status, "value", task.status)).upper() == "CANCELLED"
+            return CancelResult(kind, ident, "cancelled" if done else "refused", "" if done else f"Status ist {getattr(task.status, 'value', task.status)}")
+        except Exception as exc:
+            return CancelResult(kind, ident, "error", f"{type(exc).__name__}: {str(exc)[:120]}")
+
+    def _act_report(self, kind: str, ident: str, report: Any) -> CancelResult:
+        """Translate the answer of goals / orchestrator / repair engine (accepted, status, message) without improving it."""
+        accepted = bool(getattr(report, "accepted", False))
+        status = getattr(report, "status", None)
+        message = self._act_short(getattr(report, "message", ""), 160)
+        if not accepted:
+            return CancelResult(kind, ident, "refused", message or "die Schnittstelle hat den Abbruch nicht angenommen")
+        if status is not None and not self._act_open(status):
+            return CancelResult(kind, ident, "cancelled", message)
+        return CancelResult(kind, ident, "requested", message)
 
     # -- closing ----------------------------------------------------------------------------------------------------------------
     def close(self) -> list[str]:

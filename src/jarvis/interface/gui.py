@@ -17,7 +17,7 @@ from typing import Any, Callable, Sequence
 from jarvis.bootstrap import build_core
 from jarvis.config import load_settings
 from jarvis.errors import JarvisError
-from jarvis.interface.gui_model import (CallEvent, ChatEvent, CloseEvent, EmergencyEvent, GuiController, InputEvent, StateEvent, StatusEvent,
+from jarvis.interface.gui_model import (KIND_LABELS, ActivityEvent, ActivitySnapshot, CallEvent, ChatEvent, CloseEvent, EmergencyEvent, GuiController, InputEvent, StateEvent, StatusEvent,
                                         SubmitResult, UiState)
 from jarvis.permissions.confirmation import (
     ConfirmationChoice,
@@ -302,10 +302,17 @@ class JarvisGUI:
         status_tab = ttk.Frame(self.tabs, padding=8)
         self.tabs.add(status_tab, text="Status")
         status_tab.columnconfigure(0, weight=1)
-        status_tab.rowconfigure(1, weight=1)
+        status_tab.rowconfigure(2, weight=1)
         ttk.Button(status_tab, text="Aktualisieren", command=self._refresh_status).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        self.activity_box = ttk.LabelFrame(status_tab, text="Laufende Arbeit", padding=8)
+        self.activity_box.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        self.activity_box.columnconfigure(0, weight=1)
+        self.activity_rows: list[ttk.Frame] = []
+        self.activity_hint = ttk.Label(self.activity_box, text="Noch nicht abgerufen. „Aktualisieren“ liest laufende Ziele, Agenten-Tasks, Reparaturläufe und Pläne.", wraplength=820,
+                                       justify="left")
+        self.activity_hint.grid(row=0, column=0, sticky="w")
         self.status_text = tk.Text(status_tab, wrap="word", state="disabled", font=("Consolas", 10), padx=8, pady=8)
-        self.status_text.grid(row=1, column=0, sticky="nsew")
+        self.status_text.grid(row=2, column=0, sticky="nsew")
         self._set_status_text("Noch nicht abgerufen. „Aktualisieren“ liest Subsysteme, Aufgaben, Ziele und Berechtigungen (nur lesend).")
         self.tabs.bind("<<NotebookTabChanged>>", lambda _e: self._refresh_status() if self.tabs.index("current") == 1 else None)
 
@@ -333,6 +340,8 @@ class JarvisGUI:
             self._apply_input(event)
         elif isinstance(event, StatusEvent):
             self._set_status_text("\n\n".join(f"== {title} ==\n{body}" for title, body in event.sections))
+        elif isinstance(event, ActivityEvent):
+            self._render_activity(event.snapshot)
         elif isinstance(event, EmergencyEvent):
             self._apply_emergency(event.engaged)
         elif isinstance(event, CallEvent):
@@ -371,6 +380,29 @@ class JarvisGUI:
         self.output.configure(state="disabled")
         self.output.see("end")
 
+    def _render_activity(self, snap: ActivitySnapshot) -> None:
+        """Rebuild the list of unfinished work. Runs on the GUI thread only (called from _poll). One row per item with the cancel button that belongs to it."""
+        for row in self.activity_rows:
+            row.destroy()
+        self.activity_rows = []
+        lines = []
+        if not snap.items:
+            lines.append("Keine laufende Arbeit.")
+        if snap.inactive:
+            lines.append("Ausgeschaltet (Standard): " + ", ".join(snap.inactive) + ".")
+        lines += list(snap.problems)
+        self.activity_hint.configure(text="\n".join(lines))
+        if snap.items:
+            self.activity_hint.grid_configure(pady=(0, 6))
+        for i, item in enumerate(snap.items, start=1):
+            row = ttk.Frame(self.activity_box)
+            row.grid(row=i, column=0, sticky="ew", pady=2)
+            row.columnconfigure(1, weight=1)
+            ttk.Label(row, text=f"{KIND_LABELS.get(item.kind, item.kind)} · {item.status}", font=("Segoe UI", 9, "bold"), width=26).grid(row=0, column=0, sticky="w")
+            ttk.Label(row, text=f"{item.ident}  {item.text}" + (f"   ({item.note})" if item.note else ""), wraplength=520, justify="left").grid(row=0, column=1, sticky="w")
+            ttk.Button(row, text="Abbrechen", command=lambda k=item.kind, n=item.ident: self.controller.request_cancel(k, n)).grid(row=0, column=2, padx=(8, 0))
+            self.activity_rows.append(row)
+
     def _set_status_text(self, text: str) -> None:
         self.status_text.configure(state="normal")
         self.status_text.delete("1.0", "end")
@@ -400,6 +432,7 @@ class JarvisGUI:
 
     def _refresh_status(self) -> None:
         self.controller.request_status()
+        self.controller.request_activity()
 
     def _on_close(self) -> None:
         if self._closing:

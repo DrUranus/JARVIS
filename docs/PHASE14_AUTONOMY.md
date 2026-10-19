@@ -26,7 +26,6 @@ implementiert** und nirgends spezifiziert (weder im Repository noch in der lesba
 
 ## Luecken (keine Behauptung von Sicherheit)
 
-- Die GUI zeigt keine laufenden Ziele/Agenten-Tasks mit Abbrechen-Knopf (nur schreibgeschuetzten Text).
 - Ein einzelner `core.handle`-Aufruf laesst sich nicht unterbrechen.
 - Kein Gesamtbudget (Aktionen/Zeit/Kosten) ueber mehrere Ziele hinweg.
 - Windows-Prozesskontrolle ist Eindaemmung, keine Isolation (siehe README Phase 15).
@@ -50,12 +49,18 @@ Bedienung: CLI `/notaus`, `/notaus status`, `/notaus reset`; GUI: roter Knopf *N
 
 Der Bericht nennt jede Komponente mit *stopped*, *requested*, *nothing*, *failed* oder *timeout*; nur "alle stopped/nothing" heisst *vollstaendig*. Ein Stopper, der einen Fehler wirft oder die Frist ueberschreitet, macht den Notaus *unvollstaendig* (sichtbar im Chat/CLI und im Audit-Log als `emergency_stop`). Der CLI-Sprachmodus blockiert das Terminal und kennt keinen Notaus; er endet mit dem Wort *exit*. Ein Notaus ist keine Sandbox und beweist keine Isolation.
 
+## Sichtbarkeit laufender Arbeit (Teilziel 2) - umgesetzt
+
+GUI-Reiter *Status*, Abschnitt "Laufende Arbeit": nicht beendete Ziele (`core.list_goals`), Agenten-Tasks (`orchestrator.list`), Reparaturlaeufe (`core.list_repairs`) und gespeicherte Plaene (`core.tasks.open_tasks`; ein Plan ist nur ein Eintrag, nichts fuehrt ihn aus) mit Status, Kurztext und einem Knopf *Abbrechen* je Eintrag. Implementiert in `gui_model.GuiController.collect_activity` / `cancel_activity` (ohne tkinter, Ereignis-Queue, Worker-Threads). `cancel_activity(kind, id)` ruft **genau** ein Abbruch-Verb auf (`cancel_goal`, `orchestrator.cancel`, `cancel_repair`, `tasks.cancel`) und startet, erstellt, setzt nichts fort und erteilt nichts (Strukturtest ueber die Namen in den Aktivitaetsfunktionen). Unbekannte Arten oder IDs werden ohne Aufruf abgelehnt. Abbrechen ist bei aktivem Notaus erlaubt: Stoppen ist immer zulaessig.
+
+Die Meldung gibt die **tatsaechliche Antwort** der Schnittstelle wieder: *Abgebrochen* nur, wenn sie den Abbruch angenommen hat und der Eintrag beendet ist; *Abbruch angefordert (kooperativ)*, wenn er angenommen wurde, die Arbeit aber noch laeuft; *Nicht abgebrochen* mit der Begruendung der Schnittstelle (z. B. Agent ohne Abbruchunterstuetzung, bereits beendet); *Abbruch fehlgeschlagen* bei einem Fehler. Eine nicht lesbare Quelle erscheint als Hinweis statt zu fehlen; ausgeschaltete Quellen (Standard fuer Ziele, Agenten, Self-Repair) werden benannt. Grenzen: der Abbruch bleibt kooperativ; eine laufende `core.handle`-/LLM-Anfrage taucht hier nicht auf und ist nicht abbrechbar (dafuer gibt es den Notaus); die Liste ist eine Momentaufnahme (Aktualisieren) und zeigt hoechstens 50 Eintraege je Art.
+
 ## Weitere vorgeschlagene Teilziele (jeweils aus, bis ausdruecklich freigegeben; jeweils mit Abnahmetest)
 
 1. ~~**Gemeinsamer Notaus.**~~ *(umgesetzt, siehe oben)* Urspruengliche Vorgabe: eine Funktion `core.halt_all(reason)`, die alle Subsysteme mit `halt`, offene Ziele (`cancel`) und offene Bestaetigungen abbricht; CLI `/halt` und
    ein Knopf in der GUI. *Abnahme:* Tests mit Fake-Subsystemen (jedes `halt` genau einmal, ein fehlschlagendes blockiert die anderen nicht, Ergebnis nennt jedes Subsystem,
    danach keine neue Aktion ohne `resume`), GUI-Test, Audit-Eintrag.
-2. **Sichtbarkeit laufender autonomer Arbeit.** Statusbereich der GUI um aktive Ziele/Tasks mit Abbrechen-Knopf (nutzt nur `cancel`). *Abnahme:* Model- und View-Tests; der
+2. ~~**Sichtbarkeit laufender autonomer Arbeit.**~~ *(umgesetzt, siehe oben)* Urspruengliche Vorgabe: Statusbereich der GUI um aktive Ziele/Tasks mit Abbrechen-Knopf (nutzt nur `cancel`). *Abnahme:* Model- und View-Tests; der
    Knopf ruft ausschliesslich `cancel`/`halt`.
 3. **Autonomie-Invarianten als Tests.** Tests, die die harten Limits und Voreinstellungen festnageln (`enabled=false`, Obergrenzen, Replanning-Verbote) und per AST pruefen,
    dass `goals/` und `agents/` Tools nur ueber `ToolRegistry` aufrufen. *Abnahme:* Tests schlagen an, wenn jemand ein Limit lockert oder die Kontrollstelle umgeht.
