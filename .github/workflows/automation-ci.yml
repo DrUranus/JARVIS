@@ -5,7 +5,7 @@ on:
   pull_request:
     paths: [".github/**"]
   push:
-    branches: ["claude/great-rubin-iizu3o"]
+    branches: ["claude/**"]
     paths: [".github/**"]
 
 permissions:
