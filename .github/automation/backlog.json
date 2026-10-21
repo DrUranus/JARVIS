@@ -1,0 +1,23 @@
+{
+  "_comment": "Freigegebene Arbeitsschritte fuer die automatische Fortsetzung. Nur Eintraege mit approved=true werden je gestartet. Aenderungen nur per Pull Request, den du selbst mergst. Quelle der Schritte: docs/PHASE14_AUTONOMY.md auf dem Branch claude/inspiring-ritchie-8ljinw (jedes Teilziel braucht dort eine ausdrueckliche Freigabe - approved=true ist diese Freigabe).",
+  "items": [
+    {
+      "id": "autonomy-invariants",
+      "title": "Phase 14, Teilziel 3: Autonomie-Invarianten als Tests",
+      "approved": true,
+      "depends_on": [],
+      "max_attempts": 2,
+      "timeout_minutes": 90,
+      "task": "Lies auf dem Basis-Branch README.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Setze Phase-14-Teilziel 3 ('Autonomie-Invarianten als Tests') um: Tests unter tests/, die die harten Limits und Voreinstellungen festnageln (enabled=false fuer agents/goals/goals.replanning/computer/browser/coding in config/jarvis.toml, Obergrenzen max_steps<=50 und max_attempts_per_step<=5, Replanning-Verbote) und per AST pruefen, dass goals/ und agents/ Tools nur ueber die ToolRegistry aufrufen. Ausschliesslich neue Testdateien und, falls zwingend noetig, Dokumentation; keine Aenderung an Produktionscode, keine neue Autonomie, keine Lockerung von Limits. Fuehre die neuen Tests und die bestehende Linux-faehige Suite aus (python -m pytest -rfEs) und berichte ehrlich, was auf Linux lief und was Windows/Hardware braucht. Aktualisiere docs/PHASE14_AUTONOMY.md (Teilziel 3 als umgesetzt, mit Belegen) nur, wenn alle Abnahmetests gruen sind."
+    },
+    {
+      "id": "session-budget",
+      "title": "Phase 14, Teilziel 4: Gesamtbudget pro Sitzung",
+      "approved": false,
+      "depends_on": ["autonomy-invariants"],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch docs/PHASE14_AUTONOMY.md. Setze Teilziel 4 um: eine Obergrenze fuer Tool-Aufrufe und Laufzeit ueber alle Ziele einer Sitzung; bei Ueberschreitung Stopp mit klarer Meldung, standardmaessig sicher (fail closed), mit Tests mit Fake-Uhr. Keine neue Faehigkeit, keine Lockerung bestehender Grenzen. Fuehre die relevanten Tests und die Linux-faehige Suite aus und berichte ehrlich."
+    }
+  ]
+}

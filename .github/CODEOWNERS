@@ -1,0 +1,4 @@
+# Aenderungen an Workflows und Automatisierung brauchen den Besitzer (wirksam mit Branch-Schutz "Require review from Code Owners").
+/.github/ @DrUranus
+/CLAUDE.md @DrUranus
+/.claude/ @DrUranus

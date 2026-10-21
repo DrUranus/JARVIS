@@ -1,0 +1,73 @@
+# Manueller Start eines JARVIS-Entwicklungsauftrags.
+# Legt ein Tracking-Issue an (job_id, Frist, Kette), startet die Claude-Code-Routine ueber die Fire-API und vermerkt die Session.
+# Den Abschluss meldet die Routine selbst als Kommentar im Tracking-Issue; geprueft wird er in jarvis-report.yml.
+# Nur dieser Workflow und jarvis-controller.yml sehen die Fire-Secrets; sie werden nie an die Routine weitergegeben.
+name: Trigger Claude Code Routine
+
+on:
+  workflow_dispatch:
+    inputs:
+      context:
+        description: "Begrenzter Auftrag für Claude (max. 50000 Zeichen)"
+        required: true
+        type: string
+      base_branch:
+        description: "Basis-Branch (leer = Variable JARVIS_BASE_BRANCH bzw. claude/inspiring-ritchie-8ljinw)"
+        required: false
+        type: string
+        default: ""
+      auto_continue:
+        description: "Nach Erfolg automatisch freigegebene Backlog-Schritte starten (braucht Variable JARVIS_AUTO_CONTINUE_ENABLED=true)"
+        required: false
+        type: boolean
+        default: false
+      chain_budget:
+        description: "Höchstzahl Aufträge dieser Kette (1-5)"
+        required: false
+        type: string
+        default: "1"
+      timeout_minutes:
+        description: "Zeitlimit je Auftrag in Minuten (10-240)"
+        required: false
+        type: string
+        default: "90"
+
+permissions:
+  contents: read
+  issues: write
+
+# Gemeinsam mit jarvis-controller.yml: Auftraege werden nie gleichzeitig angelegt.
+concurrency:
+  group: jarvis-job-create
+  cancel-in-progress: false
+
+jobs:
+  start:
+    # Secrets nur im Lauf auf dem Standard-Branch (kein Start aus einem veraenderten Feature-Branch).
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: .github/automation
+
+      - name: Start job
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ROUTINE_FIRE_URL: ${{ secrets.ROUTINE_FIRE_URL }}
+          ROUTINE_FIRE_TOKEN: ${{ secrets.ROUTINE_FIRE_TOKEN }}
+          CONTEXT: ${{ inputs.context }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          AUTO_CONTINUE: ${{ inputs.auto_continue }}
+          CHAIN_BUDGET: ${{ inputs.chain_budget }}
+          TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          JARVIS_AUTOMATION_HALT: ${{ vars.JARVIS_AUTOMATION_HALT }}
+          JARVIS_BASE_BRANCH: ${{ vars.JARVIS_BASE_BRANCH }}
+          JARVIS_AUTO_CONTINUE_ENABLED: ${{ vars.JARVIS_AUTO_CONTINUE_ENABLED }}
+          JARVIS_MAX_CHAIN_JOBS: ${{ vars.JARVIS_MAX_CHAIN_JOBS }}
+          JARVIS_MAX_JOBS_PER_DAY: ${{ vars.JARVIS_MAX_JOBS_PER_DAY }}
+        run: python3 .github/automation/jarvis_automation.py start
