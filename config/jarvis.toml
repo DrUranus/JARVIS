@@ -1,0 +1,202 @@
+# JARVIS default project configuration.
+# Precedence (low -> high): built-in defaults < this file < environment variables (JARVIS_*).
+mode = "development"        # development | production
+log_level = "INFO"          # overridden to DEBUG in development if not set via env
+log_dir = "logs"
+workspace = "workspace"     # sandbox directory for GREEN file operations
+
+[llm]
+provider = "mock"           # mock | openai | anthropic  (API keys come from env only)
+model = "mock-1"
+temperature = 0.2
+max_tokens = 1024
+timeout = 60
+
+[voice]
+# console = hardware-free simulation (typed lines are "speech", output is printed). Works everywhere.
+stt_provider = "console"    # console | mock | openai
+tts_provider = "console"    # console | mock | system | openai
+audio_input = "sounddevice" # microphone backend for non-console STT
+audio_output = "system"     # playback backend for openai TTS (system | null)
+language = "de"
+wake_word = "jarvis"
+require_wake_word = false   # true: only react to utterances starting with the wake word
+speak_responses = true
+sample_rate = 16000
+max_record_seconds = 15.0
+silence_seconds = 1.0       # silence that ends an utterance
+silence_threshold = 500     # RMS level counted as speech
+stt_model = "whisper-1"
+tts_model = "tts-1"
+tts_voice = "alloy"
+# tts_command = "espeak-ng -v de"   # override for tts_provider = "system"
+# API key: OPENAI_API_KEY or JARVIS_VOICE_API_KEY (environment only)
+
+[memory]
+enabled = true
+backend = "sqlite"          # sqlite | memory (non-persistent)
+path = "data/memory.db"     # created on first write; stays on this machine
+max_relevant = 5            # memories retrieved per request (0 = none)
+recent_limit = 10
+max_content_length = 2000
+max_entries = 10000         # 0 = unlimited
+use_in_prompts = false      # true = relevant memories are added to LLM prompts (sent to the provider if it is remote!)
+
+[security]
+# Defaults are restrictive; no setting here is required to start JARVIS.
+mode = "standard"           # standard: GREEN automatic, YELLOW asks you | lockdown: only GREEN, everything else denied
+confirmation = "cli"        # cli: ask in the terminal | deny: never ask (headless; YELLOW is denied)
+# policy_file = "config/policy.toml"   # explicit allow/confirm/deny rules, see config/policy.example.toml
+allowed_roots = []          # [] = tools may only touch the workspace directory (workspace = ... above)
+denied_paths = []           # always blocked, even inside allowed roots
+allow_session_grants = true # may you answer "allow for this session"?
+session_ttl_seconds = 3600
+audit_enabled = true
+audit_path = ""             # "" = <log_dir>/audit.jsonl
+audit_strict = true         # audit log unwritable -> non-GREEN actions are denied
+audit_green = false         # also log automatic GREEN approvals (verbose)
+# RED actions are never permitted; there is deliberately no setting that changes that.
+
+[computer]
+# Computer control is OFF by default. Enable it deliberately; every action still goes through the permission engine.
+enabled = false
+backend = "auto"            # auto (windows on Windows, x11 elsewhere) | windows | x11 | fake
+default_monitor = 0         # 0 = primary monitor
+screenshot_max_items = 3    # screenshots stay in memory only; saving to disk is an explicit, confirmed action
+max_text_length = 500
+type_interval = 0.02
+max_scroll = 20
+max_actions_per_minute = 120
+show_text_preview = true    # show the beginning of text to be typed in the confirmation prompt (never logged)
+confirm_keyboard_each_time = true
+confirm_window_close_each_time = true
+use_default_apps = true     # Notepad/Calculator/Paint aliases on Windows
+allow_unlisted_apps = false # true: absolute .exe paths may be launched (still confirmed and filtered)
+blocked_processes = ["explorer.exe"]  # extra processes that receive no input (built-in: terminals, shells, security tools...)
+blocked_titles = []
+# Application aliases: only these can be launched (unless allow_unlisted_apps). Terminals/shells/script hosts are always refused.
+# [computer.apps]
+# notepad = "%SystemRoot%\\System32\\notepad.exe"
+
+[browser]
+# The browser agent is OFF by default (pip install -e ".[browser]" and python -m playwright install chromium). Every action still
+# goes through the permission engine; login forms, credentials, internal addresses and executable downloads are always refused.
+enabled = false
+provider = "playwright"     # playwright | fake (tests)
+browser = "chromium"        # chromium | chrome | msedge (Edge is preinstalled on Windows)
+headless = false            # false: you can watch what JARVIS does
+navigation_timeout = 15
+action_timeout = 5
+max_pages = 5
+max_actions_per_minute = 60
+max_actions_per_session = 300   # hard stop against runaway loops
+trusted_hosts = []          # navigation to these hosts needs no question: "docs.python.org", "*.wikipedia.org"
+blocked_hosts = []
+private_hosts_allowed = []  # exact internal hosts that may be visited, e.g. ["127.0.0.1"]
+confirm_fill_each_time = true
+confirm_file_transfer_each_time = true
+
+[coding]
+# The coding agent is OFF by default. It works inside ONE confirmed workspace; reading and searching are free, every write, delete
+# and test run is asked. No shell, no arbitrary commands, no commit/push; .env/keys/.git internals are never read or written.
+enabled = false
+provider = "local"          # local | fake (tests)
+workspace_roots = []        # [] = only the JARVIS workspace directory; must also lie inside security.allowed_roots
+max_actions_per_session = 300   # hard stop against runaway loops (reads count too)
+max_actions_per_minute = 120
+max_output_bytes = 200000   # per output stream of a test run
+max_file_size = 1000000
+max_search_results = 100
+test_timeout = 120
+test_commands = ["pytest", "python -m pytest", "python -m unittest"]   # known runners only: also "npm test" (not available as .cmd on Windows)
+llm_context_chars = 12000
+confirm_delete_each_time = true
+confirm_llm_each_time = true
+
+[agents]
+# Multi-agent orchestration is OFF by default. It adds no capability: every agent acts only through the permission-checked tools
+# (browser / coding / computer), so each of those subsystems must be enabled separately.
+enabled = false
+max_concurrent = 3          # agents working at the same time; more tasks wait as PENDING
+task_timeout_seconds = 300
+max_queue = 50
+max_history = 200
+cancel_grace_seconds = 5    # an agent that ignores cancel/timeout this long is marked FAILED
+tool_call_limit = 200       # tool calls per task
+max_output_chars = 20000
+
+[goals]
+# The goal engine is OFF by default and needs [agents] enabled. It only plans steps and lets the existing agents do them through the
+# permission-checked tools; it adds no capability and no permission. Goals and their results are NOT saved to the long-term memory.
+enabled = false
+max_steps = 20                  # steps per goal (hard limit 50)
+max_attempts_per_step = 2       # 1 = no retry (hard limit 5); only transient failures are retried, never a permission denial
+goal_timeout_seconds = 1800
+step_timeout_seconds = 300
+max_active_goals = 3
+max_history = 100
+# Controlled replanning (Phase 14): after a RETRYABLE failure (never after a permission denial, cancel or timeout) the configured LLM provider may propose an
+# alternative plan - at most 2 attempts per goal. The plan is only a restructuring of what the goal already uses: it cannot add capabilities or write actions,
+# it is validated like every plan and the agents/permission engine still decide everything. OFF by default (the goal text and redacted results go to the provider).
+replanning = false
+
+[self_repair]
+# Self-testing / self-repair is OFF by default. It needs [agents] and [coding] enabled and works ONLY in a workspace you name explicitly
+# (/repair ... workspace="..."). It touches no file itself: a repair is done by the Coding Agent through the permission engine (every write and
+# every test run asks you as usual). It never changes JARVIS itself, tests, dependency files, secrets or git state, and it never commits or pushes.
+enabled = false
+max_attempts = 3                # repair attempts per run (hard limit 5)
+repair_timeout_seconds = 900    # whole run, hard limit 3600
+step_timeout_seconds = 300      # one agent task (e.g. one test run), hard limit 3600
+max_active_repairs = 1
+max_history = 50
+
+[self_improvement]
+# Phase 15 is a DISABLED PROPOSAL WORKFLOW. With enabled = true JARVIS only analyses what was recorded (finished goals, repair runs, audit log), stores proposals in a signed
+# file and tracks their status. It NEVER prepares, imports, tests, runs, merges or activates code: that needs a proven sandbox, which does not exist (see
+# src/jarvis/self_improvement/isolation.py and the README). allow_prepare, allow_activation and repo_path are reserved: any other value is rejected at startup.
+enabled = false
+use_llm = false                 # true: the LLM provider may reword proposals (redacted observations are sent to it)
+repo_path = ""                  # RESERVED - must stay empty
+allow_prepare = false           # RESERVED - must stay false
+allow_activation = false        # RESERVED - must stay false
+data_dir = "data/improvements"  # RELATIVE to the working directory (not to this file); an absolute path outside OneDrive is safer. proposals.json lives here; must be OUTSIDE security.allowed_roots, coding.workspace_roots, the workspace and the log directory
+key_path = ""                   # HMAC key for proposals.json; "" = ~/.jarvis/self_improvement.store.key (created owner-only). Or set JARVIS_SELF_IMPROVEMENT_STORE_KEY (hex, 32+ bytes)
+max_proposals = 200
+min_occurrences = 2             # a problem must have been recorded at least this often
+max_edits = 5                   # reserved for a later, isolated version
+max_diff_bytes = 100000         # reserved
+prepare_timeout_seconds = 60    # reserved
+test_timeout_seconds = 600      # reserved
+regression_paths = ["tests"]    # reserved
+
+[research]
+# Research agent: reads public web pages THROUGH the permission-checked browser tool (every navigation is still judged by the browser rules and asked
+# via the permission engine). Needs [agents] and [browser]. OFF by default. It reads the URLs it is given; it does not search the web.
+enabled = false
+max_sources = 8                 # pages read per task (hard limit 20)
+max_actions = 40                # browser tool calls per task (hard limit 200)
+timeout_seconds = 300           # the whole task (hard limit 1800)
+max_result_chars = 20000
+
+[business]
+# Business agent: structured analyses and DRAFTS from research results and your own numbers (market/competitor analysis, business plan, marketing drafts,
+# lead preparation). It has NO tools and sends nothing. OFF by default.
+enabled = false
+max_steps = 20                  # list items / rows per task (hard limit 100)
+timeout_seconds = 120           # hard limit 600
+max_result_chars = 20000
+
+[finance]
+# Finance agent: ANALYSIS and PAPER trading only - no broker, no orders, no transfers, no withdrawals, no leverage. OFF by default.
+# paper_trading_only must stay true: false is rejected at startup.
+enabled = false
+max_steps = 50                  # data points / positions / ideas per task (hard limit 1000)
+paper_trading_only = true
+timeout_seconds = 120           # hard limit 600
+max_result_chars = 20000
+max_risk_per_trade_pct = 1.0    # risk limits for paper trades (prepared for later real-money limits)
+max_position_pct = 20.0
+max_total_exposure_pct = 100.0
+daily_loss_limit_pct = 3.0
+max_leverage = 1.0              # no leverage (must be 1.0)

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-ai"
+version = "0.1.0"
+description = "JARVIS - modular personal autonomous AI assistant (Phase 1: Core MVP)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+computer = ["pyautogui>=0.9.54", "mss>=9.0", "python-xlib>=0.33; sys_platform != 'win32'"]  # mouse/keyboard/screenshots
+browser = ["playwright>=1.49"]  # browser agent (then: python -m playwright install chromium; Edge/Chrome need no download)
+voice = ["sounddevice>=0.4", "numpy>=1.24"]   # microphone capture (needs the PortAudio system library); numpy: SystemPlayer on Windows plays through sounddevice with numpy samples
+
+[project.scripts]
+jarvis = "jarvis.interface.cli:main"
+jarvis-gui = "jarvis.interface.gui:main"   # needs tkinter (bundled with the python.org / setup-python builds on Windows)
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "detection_only: checks a detection heuristic or a static filter (AST scan, allow-list, prompt rendering). It does NOT prove isolation and does not authorise running proposed code.",
+]

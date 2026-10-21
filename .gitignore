@@ -1,0 +1,11 @@
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.venv/
+logs/*.log
+.env
+jarvis.local.toml
+data/
+*.db
+logs/*.jsonl
+config/policy.toml

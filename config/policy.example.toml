@@ -1,0 +1,39 @@
+# Example JARVIS policy. Copy to config/policy.toml and set security.policy_file to use it.
+#
+# Effects:  deny    -> always blocked
+#           confirm -> always ask the user (every time, even for GREEN actions)
+#           allow   -> pre-approve YELLOW actions you trust (persistent permission)
+# Conflicts are resolved safely and deterministically: deny > confirm > allow, regardless of rule order.
+# RED actions can never be allowed, and filesystem rules cannot widen the allowed roots.
+# allow rules must name an exact tool and an action (no bare "*").
+
+[[rule]]
+id = "never-touch-ssh"
+effect = "deny"
+tool = "filesystem"
+resource_type = "path"
+resources = ["~/.ssh", "~/.gnupg"]
+
+[[rule]]
+id = "confirm-deletes"
+effect = "confirm"
+tool = "filesystem"
+action = "delete*"
+
+[[rule]]
+id = "trust-notes-edits"
+effect = "allow"
+tool = "filesystem"
+action = "write"
+resource_type = "path"
+resources = ["workspace/notes"]
+levels = ["yellow"]
+description = "Editing files below workspace/notes needs no confirmation"
+
+[[rule]]
+id = "trust-docs-site"
+effect = "allow"
+tool = "browser"
+action = "navigate"
+resource_type = "domain"
+resources = ["docs.python.org", "*.python.org"]
