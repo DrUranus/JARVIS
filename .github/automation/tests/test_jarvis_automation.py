@@ -215,6 +215,28 @@ def test_session_id_url_form_is_accepted(running):
     assert ja.process_comment(api, cfg(), api.get_issue(n), c) == "accepted"
 
 
+def test_session_id_cse_and_session_prefix_are_equivalent(running):
+    api, n, st = running
+    core = st["session_id"].split("_", 1)[-1]
+    for sid in (f"cse_{core}", f"https://claude.ai/code/cse_{core}", f"session_{core}"):
+        assert ja.normalize_session_id(sid) == ja.normalize_session_id(st["session_id"])
+    assert ja.process_comment(api, cfg(), api.get_issue(n), report_comment(st, session_id=f"cse_{core}")) == "accepted"
+
+
+def test_session_id_with_foreign_core_still_rejected(running):
+    api, n, st = running
+    r = ja.process_comment(api, cfg(), api.get_issue(n), report_comment(st, session_id="cse_9999"))
+    assert r.startswith("rejected")
+
+
+@pytest.mark.parametrize("branch", ["", "   ", None])
+def test_read_only_report_without_branch_is_accepted(running, branch):
+    api, n, st = running
+    c = report_comment(st, branch=branch, commits=[], next_action={"type": "none", "reason": "fertig"})
+    assert ja.process_comment(api, cfg(), api.get_issue(n), c) == "accepted"
+    assert state_of(api, n)["report"]["branch"] is None
+
+
 def test_untrusted_sender_ignored(running):
     api, n, st = running
     for user in ["mallory", "github-actions[bot]", "DrUranus-fake"]:
