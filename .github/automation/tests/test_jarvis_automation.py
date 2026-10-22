@@ -215,6 +215,28 @@ def test_session_id_url_form_is_accepted(running):
     assert ja.process_comment(api, cfg(), api.get_issue(n), c) == "accepted"
 
 
+def test_session_id_cse_and_session_prefix_are_equivalent(running):
+    api, n, st = running
+    core = st["session_id"].split("_", 1)[-1]
+    for sid in (f"cse_{core}", f"https://claude.ai/code/cse_{core}", f"session_{core}"):
+        assert ja.normalize_session_id(sid) == ja.normalize_session_id(st["session_id"])
+    assert ja.process_comment(api, cfg(), api.get_issue(n), report_comment(st, session_id=f"cse_{core}")) == "accepted"
+
+
+def test_session_id_with_foreign_core_still_rejected(running):
+    api, n, st = running
+    r = ja.process_comment(api, cfg(), api.get_issue(n), report_comment(st, session_id="cse_9999"))
+    assert r.startswith("rejected")
+
+
+@pytest.mark.parametrize("branch", ["", "   ", None])
+def test_read_only_report_without_branch_is_accepted(running, branch):
+    api, n, st = running
+    c = report_comment(st, branch=branch, commits=[], next_action={"type": "none", "reason": "fertig"})
+    assert ja.process_comment(api, cfg(), api.get_issue(n), c) == "accepted"
+    assert state_of(api, n)["report"]["branch"] is None
+
+
 def test_untrusted_sender_ignored(running):
     api, n, st = running
     for user in ["mallory", "github-actions[bot]", "DrUranus-fake"]:
@@ -281,12 +303,86 @@ def test_watchdog_times_out_running_job(running):
     assert ja.run_watchdog(api, cfg(), now=later) == []          # idempotent
 
 
-def test_watchdog_picks_up_missed_report_before_timeout(running):
+def test_watchdog_picks_up_missed_report_before_timeout(running, monkeypatch):
     api, n, st = running
     api.comments[n] = [dict(report_comment(st))]
-    out = ja.run_watchdog(api, cfg(), now=NOW + dt.timedelta(minutes=200), dispatch_ref="main")
-    assert out[0] == f"#{n}: Bericht nachgeholt" and state_of(api, n)["status"] == "completed"
-    assert api.dispatched == [("jarvis-controller.yml", "main", {"after_job": str(n)})]
+    later = NOW + dt.timedelta(minutes=200)
+    # Keep the persisted report timestamp aligned with the simulated watchdog clock.
+    # Otherwise the recovery pass can treat the freshly accepted report as older.
+    monkeypatch.setattr(ja, "utcnow", lambda: later)
+    out = ja.run_watchdog(api, cfg(), now=later, dispatch_ref="main")
+    assert out == [f"#{n}: Bericht nachgeholt"]
+    assert state_of(api, n)["status"] == "completed"
+    expected = [("jarvis-controller.yml", "main", {"after_job": str(n)})]
+    assert api.dispatched == expected
+    assert ja.run_watchdog(api, cfg(), now=later, dispatch_ref="main") == []
+    assert api.dispatched == expected
+
+
+
+def _accept_for_followup(api, n, st):
+    assert ja.process_comment(api, cfg(), api.get_issue(n), report_comment(st)) == "accepted"
+    return ja.parse_iso(state_of(api, n)["updated_at"])
+
+
+def test_followup_dispatch_persists_and_watchdog_does_not_duplicate(running):
+    api, n, st = running
+    t0 = _accept_for_followup(api, n, st)
+    assert ja.request_followup(api, cfg(), n, "main", now=t0)
+    assert state_of(api, n)["followup_request"] == {"requested_at": ja.iso(t0), "count": 1}
+    for minute in (0, 1, 15, 19):
+        assert ja.run_watchdog(api, cfg(), now=t0 + dt.timedelta(minutes=minute), dispatch_ref="main") == []
+    assert len(api.dispatched) == 1
+    assert ja.run_watchdog(api, cfg(), now=t0 + dt.timedelta(minutes=21), dispatch_ref="main") == [
+        f"#{n}: Controller erneut angestossen"]
+    ja.run_watchdog(api, cfg(), now=t0 + dt.timedelta(minutes=45), dispatch_ref="main")
+    ja.run_watchdog(api, cfg(), now=t0 + dt.timedelta(minutes=90), dispatch_ref="main")
+    assert len(api.dispatched) == 3
+
+
+@pytest.mark.parametrize("status", [403, 404, 422])
+def test_rejected_dispatch_rolls_back_marker(running, monkeypatch, status):
+    api, n, st = running
+    t0 = _accept_for_followup(api, n, st)
+    def fail(*args, **kwargs):
+        raise ja.ApiError("rejected", status=status)
+    monkeypatch.setattr(api, "dispatch_workflow", fail)
+    with pytest.raises(ja.ApiError):
+        ja.request_followup(api, cfg(), n, "main", now=t0)
+    assert "followup_request" not in state_of(api, n)
+
+
+@pytest.mark.parametrize("status", [None, 408, 500, 503])
+def test_uncertain_dispatch_keeps_marker(running, monkeypatch, status):
+    api, n, st = running
+    t0 = _accept_for_followup(api, n, st)
+    def fail(*args, **kwargs):
+        raise ja.ApiError("uncertain", status=status)
+    monkeypatch.setattr(api, "dispatch_workflow", fail)
+    with pytest.raises(ja.ApiError):
+        ja.request_followup(api, cfg(), n, "main", now=t0)
+    assert state_of(api, n)["followup_request"]["count"] == 1
+    assert ja.run_watchdog(api, cfg(), now=t0 + dt.timedelta(minutes=15), dispatch_ref="main") == []
+
+
+def test_dispatch_workflow_404_is_failure(monkeypatch):
+    import urllib.error
+    api = ja.GitHubApi(REPO, "T")
+    def fail(*args, **kwargs):
+        raise urllib.error.HTTPError("u", 404, "missing", {}, None)
+    monkeypatch.setattr(ja.urllib.request, "urlopen", fail)
+    with pytest.raises(ja.ApiError) as error:
+        api.dispatch_workflow("jarvis-controller.yml", "main", {"after_job": "1"})
+    assert error.value.definitely_rejected
+
+
+def test_duplicate_controller_run_is_noop_after_child_created(running):
+    api, n, st = running
+    _accept_for_followup(api, n, st)
+    fire = Fire()
+    assert controller(api, n, fire).startswith("started:")
+    assert controller(api, n, fire, run_id="901") == "already-decided"
+    assert len(fire.calls) == 1
 
 
 def test_watchdog_does_not_spam_rejections(running):

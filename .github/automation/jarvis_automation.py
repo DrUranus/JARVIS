@@ -64,6 +64,18 @@ class AutomationError(Exception):
     """Erwarteter Abbruch mit verstaendlicher Meldung (kein Geheimnis darin)."""
 
 
+class ApiError(AutomationError):
+    """GitHub-API-Fehler; status=None bedeutet ungewisses Ergebnis."""
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
+
+    @property
+    def definitely_rejected(self) -> bool:
+        return self.status is not None and 400 <= self.status < 500 and self.status != 408
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Hilfsfunktionen (rein, ohne Netzwerk)
 # ---------------------------------------------------------------------------------------------------------------------
@@ -123,9 +135,15 @@ def parse_body(body: str | None) -> dict[str, Any] | None:
     return data if isinstance(data, dict) and "job_id" in data and "status" in data else None
 
 
+SESSION_ID_PREFIXES = ("session_", "cse_")
+
+
 def normalize_session_id(value: str) -> str:
     v = value.strip().rstrip("/").rsplit("/", 1)[-1].lower()
-    return v[len("session_"):] if v.startswith("session_") else v
+    for prefix in SESSION_ID_PREFIXES:
+        if v.startswith(prefix):
+            return v[len(prefix):]
+    return v
 
 
 def quote_untrusted(text: str, limit: int = 1500) -> str:
@@ -202,6 +220,8 @@ def validate_report(comment_body: str, state: dict[str, Any], repo: str) -> tupl
         next_reason = next_reason[:500]
 
     branch = data.get("branch")
+    if isinstance(branch, str) and not branch.strip():
+        branch = None  # Read-only job without a push
     if branch is not None and (not isinstance(branch, str) or not BRANCH_RE.match(branch) or ".." in branch):
         errors.append("branch muss 'claude/...' sein")
         branch = None
@@ -285,12 +305,12 @@ Der Kommentar beginnt mit der Zeile {REPORT_MARKER}, danach ein ```json-Block:
 {{
   "schema_version": 1,
   "job_id": "{state['job_id']}",
-  "session_id": "<ID dieser Claude-Code-Session, z. B. aus der Session-URL>",
+  "session_id": "<ID aus der Session-URL im Start-Kommentar des Tracking-Issues, z. B. cse_...>",
   "status": "success | partial | failed | blocked",
   "summary": "<was wurde getan, max. 4000 Zeichen>",
   "tests": [{{"name": "...", "command": "...", "result": "passed | failed | skipped | not_run", "details": "...", "platform": "linux"}}],
   "next_action": {{"type": "none | continue | needs_human", "reason": "<kurz>"}},
-  "branch": "<claude/... Branch mit der Arbeit, falls gepusht>",
+  "branch": "<claude/... Branch mit der Arbeit, falls gepusht; sonst null (nicht leer)>",
   "commits": ["<sha>"],
   "pr_url": "<optional>"
 }}
@@ -326,7 +346,7 @@ class GitHubApi:
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 return None
-            raise AutomationError(f"GitHub-API {method} {path.split('?')[0]}: HTTP {exc.code}") from None
+            raise ApiError(f"GitHub-API {method} {path.split('?')[0]}: HTTP {exc.code}", status=exc.code) from None
         return json.loads(raw) if raw else {}
 
     def get_issue(self, number: int) -> dict[str, Any] | None:
@@ -365,7 +385,13 @@ class GitHubApi:
         return ref["object"]["sha"] if ref else None
 
     def dispatch_workflow(self, workflow_file: str, ref: str, inputs: dict[str, str]) -> None:
-        self.request("POST", f"/repos/{self.repo}/actions/workflows/{workflow_file}/dispatches", {"ref": ref, "inputs": inputs})
+        try:
+            result = self.request("POST", f"/repos/{self.repo}/actions/workflows/{workflow_file}/dispatches",
+                                  {"ref": ref, "inputs": inputs})
+        except OSError as exc:
+            raise ApiError(f"GitHub-API POST dispatches: {type(exc).__name__}", status=None) from None
+        if result is None:
+            raise ApiError(f"GitHub-API POST dispatches: HTTP 404 ({workflow_file})", status=404)
 
 
 def fire_routine(url: str, token: str, text: str) -> tuple[str, str]:
@@ -632,9 +658,44 @@ def completed_item_ids(api: GitHubApi) -> set[str]:
     return done
 
 
-def request_followup(api: GitHubApi, cfg: Config, issue_number: int, ref: str) -> None:
-    """Der Berichts-Workflow stoesst den Controller nur an; entschieden wird dort anhand des Issue-Zustands."""
-    api.dispatch_workflow("jarvis-controller.yml", ref, {"after_job": str(issue_number)})
+FOLLOWUP_GRACE_MIN = 20
+FOLLOWUP_MAX_REQUESTS = 3
+
+
+def followup_failure_text(exc: AutomationError) -> str:
+    return ("Controller-Anstoss fehlgeschlagen"
+            if isinstance(exc, ApiError) and exc.definitely_rejected
+            else "Controller-Anstoss unklar (Marke bleibt)")
+
+
+def request_followup(api: GitHubApi, cfg: Config, issue_number: int, ref: str,
+                     now: dt.datetime | None = None) -> bool:
+    """Speichert den Dispatch-Versuch vor dem Aufruf; unklare Ergebnisse bleiben markiert."""
+    now = now or utcnow()
+    issue = api.get_issue(issue_number)
+    state = own_job_issue(issue) if issue else None
+    if not state or state.get("followup"):
+        return False
+    previous = state.get("followup_request")
+    if previous:
+        if int(previous.get("count", 0)) >= FOLLOWUP_MAX_REQUESTS:
+            return False
+        if now - parse_iso(previous["requested_at"]) < dt.timedelta(minutes=FOLLOWUP_GRACE_MIN):
+            return False
+    marker = {"requested_at": iso(now), "count": int((previous or {}).get("count", 0)) + 1}
+    api.update_issue(issue_number, body=render_body({**state, "followup_request": marker}, "Controller angestossen."))
+    try:
+        api.dispatch_workflow("jarvis-controller.yml", ref, {"after_job": str(issue_number)})
+    except ApiError as exc:
+        if exc.definitely_rejected:
+            rolled = {**state}
+            if previous:
+                rolled["followup_request"] = previous
+            else:
+                rolled.pop("followup_request", None)
+            api.update_issue(issue_number, body=render_body(rolled, "Controller-Anstoss abgelehnt."))
+        raise
+    return True
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -664,7 +725,10 @@ def run_watchdog(api: GitHubApi, cfg: Config, now: dt.datetime | None = None, di
             if result == "accepted":
                 actions.append(f"#{n}: Bericht nachgeholt")
                 if dispatch_ref:
-                    request_followup(api, cfg, n, dispatch_ref)
+                    try:
+                        request_followup(api, cfg, n, dispatch_ref, now)
+                    except AutomationError as exc:
+                        actions.append(f"#{n}: {followup_failure_text(exc)}")
                 break
             if result.startswith("rejected"):
                 actions.append(f"#{n}: Bericht abgelehnt")
@@ -678,17 +742,28 @@ def run_watchdog(api: GitHubApi, cfg: Config, now: dt.datetime | None = None, di
                     api.add_comment(n, "Zeitüberschreitung: kein gültiger Abschlussbericht. Die Kette wird nicht automatisch fortgesetzt.")
                     actions.append(f"#{n}: timeout")
     if dispatch_ref:
-        actions += recover_lost_followups(api, cfg, now, dispatch_ref)
+        # A report accepted above already dispatched its controller. Do not
+        # immediately re-dispatch the same job via lost-followup recovery.
+        just_dispatched = {
+            int(action.split(":", 1)[0][1:])
+            for action in actions
+            if action.startswith("#") and action.endswith(": Bericht nachgeholt")
+        }
+        actions += recover_lost_followups(api, cfg, now, dispatch_ref, skip_issues=just_dispatched)
     return actions
 
 
-def recover_lost_followups(api: GitHubApi, cfg: Config, now: dt.datetime, dispatch_ref: str) -> list[str]:
+def recover_lost_followups(api: GitHubApi, cfg: Config, now: dt.datetime, dispatch_ref: str,
+                           skip_issues: set[int] | None = None) -> list[str]:
     """Controller-Anstoss erneut senden, wenn er verloren ging: abgeschlossener Auftrag, Fortsetzung gewollt, noch keine Entscheidung.
     Nur innerhalb von 2 Stunden nach dem Bericht; der Controller markiert jede Entscheidung, danach endet das hier."""
     out: list[str] = []
     if cfg.halted:
         return out
+    skip_issues = skip_issues or set()
     for issue in api.list_job_issues(state="closed", pages=1):
+        if issue["number"] in skip_issues:
+            continue
         st = own_job_issue(issue)
         if not st or st["status"] != "completed" or st.get("followup") or not st["chain"].get("auto_continue"):
             continue
@@ -696,8 +771,11 @@ def recover_lost_followups(api: GitHubApi, cfg: Config, now: dt.datetime, dispat
             continue
         if now - parse_iso(st.get("updated_at", st["created_at"])) > dt.timedelta(hours=2):
             continue
-        request_followup(api, cfg, issue["number"], dispatch_ref)
-        out.append(f"#{issue['number']}: Controller erneut angestossen")
+        try:
+            if request_followup(api, cfg, issue["number"], dispatch_ref, now):
+                out.append(f"#{issue['number']}: Controller erneut angestossen")
+        except AutomationError as exc:
+            out.append(f"#{issue['number']}: {followup_failure_text(exc)}")
     return out
 
 
@@ -714,6 +792,11 @@ def run_controller(api: GitHubApi, cfg: Config, *, after_job: int, backlog_path:
         raise AutomationError(f"#{after_job} ist kein Auftrags-Issue dieser Automatisierung.")
     if state["status"] in NONTERMINAL:
         raise AutomationError(f"#{after_job} ist noch nicht abgeschlossen ({state['status']}).")
+    if state.get("followup") or any(
+            (own_job_issue(i) or {}).get("parent_issue") == after_job
+            for i in api.list_job_issues(state="all", pages=3)):
+        log(f"#{after_job}: Folgeentscheidung bereits getroffen.")
+        return "already-decided"
     items = load_backlog(backlog_path)
     report = state.get("report") or {}
     branch = report.get("branch")
