@@ -303,12 +303,20 @@ def test_watchdog_times_out_running_job(running):
     assert ja.run_watchdog(api, cfg(), now=later) == []          # idempotent
 
 
-def test_watchdog_picks_up_missed_report_before_timeout(running):
+def test_watchdog_picks_up_missed_report_before_timeout(running, monkeypatch):
     api, n, st = running
     api.comments[n] = [dict(report_comment(st))]
-    out = ja.run_watchdog(api, cfg(), now=NOW + dt.timedelta(minutes=200), dispatch_ref="main")
-    assert out[0] == f"#{n}: Bericht nachgeholt" and state_of(api, n)["status"] == "completed"
-    assert api.dispatched == [("jarvis-controller.yml", "main", {"after_job": str(n)})]
+    later = NOW + dt.timedelta(minutes=200)
+    # Keep the persisted report timestamp aligned with the simulated watchdog clock.
+    # Otherwise the recovery pass can treat the freshly accepted report as older.
+    monkeypatch.setattr(ja, "utcnow", lambda: later)
+    out = ja.run_watchdog(api, cfg(), now=later, dispatch_ref="main")
+    assert out == [f"#{n}: Bericht nachgeholt"]
+    assert state_of(api, n)["status"] == "completed"
+    expected = [("jarvis-controller.yml", "main", {"after_job": str(n)})]
+    assert api.dispatched == expected
+    assert ja.run_watchdog(api, cfg(), now=later, dispatch_ref="main") == []
+    assert api.dispatched == expected
 
 
 def test_watchdog_does_not_spam_rejections(running):
