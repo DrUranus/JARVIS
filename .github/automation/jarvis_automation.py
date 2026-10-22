@@ -123,9 +123,15 @@ def parse_body(body: str | None) -> dict[str, Any] | None:
     return data if isinstance(data, dict) and "job_id" in data and "status" in data else None
 
 
+SESSION_ID_PREFIXES = ("session_", "cse_")
+
+
 def normalize_session_id(value: str) -> str:
     v = value.strip().rstrip("/").rsplit("/", 1)[-1].lower()
-    return v[len("session_"):] if v.startswith("session_") else v
+    for prefix in SESSION_ID_PREFIXES:
+        if v.startswith(prefix):
+            return v[len(prefix):]
+    return v
 
 
 def quote_untrusted(text: str, limit: int = 1500) -> str:
@@ -202,6 +208,8 @@ def validate_report(comment_body: str, state: dict[str, Any], repo: str) -> tupl
         next_reason = next_reason[:500]
 
     branch = data.get("branch")
+    if isinstance(branch, str) and not branch.strip():
+        branch = None  # Read-only job without a push
     if branch is not None and (not isinstance(branch, str) or not BRANCH_RE.match(branch) or ".." in branch):
         errors.append("branch muss 'claude/...' sein")
         branch = None
@@ -285,12 +293,12 @@ Der Kommentar beginnt mit der Zeile {REPORT_MARKER}, danach ein ```json-Block:
 {{
   "schema_version": 1,
   "job_id": "{state['job_id']}",
-  "session_id": "<ID dieser Claude-Code-Session, z. B. aus der Session-URL>",
+  "session_id": "<ID aus der Session-URL im Start-Kommentar des Tracking-Issues, z. B. cse_...>",
   "status": "success | partial | failed | blocked",
   "summary": "<was wurde getan, max. 4000 Zeichen>",
   "tests": [{{"name": "...", "command": "...", "result": "passed | failed | skipped | not_run", "details": "...", "platform": "linux"}}],
   "next_action": {{"type": "none | continue | needs_human", "reason": "<kurz>"}},
-  "branch": "<claude/... Branch mit der Arbeit, falls gepusht>",
+  "branch": "<claude/... Branch mit der Arbeit, falls gepusht; sonst null (nicht leer)>",
   "commits": ["<sha>"],
   "pr_url": "<optional>"
 }}
