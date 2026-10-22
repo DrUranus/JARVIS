@@ -686,17 +686,28 @@ def run_watchdog(api: GitHubApi, cfg: Config, now: dt.datetime | None = None, di
                     api.add_comment(n, "Zeitüberschreitung: kein gültiger Abschlussbericht. Die Kette wird nicht automatisch fortgesetzt.")
                     actions.append(f"#{n}: timeout")
     if dispatch_ref:
-        actions += recover_lost_followups(api, cfg, now, dispatch_ref)
+        # A report accepted above already dispatched its controller. Do not
+        # immediately re-dispatch the same job via lost-followup recovery.
+        just_dispatched = {
+            int(action.split(":", 1)[0][1:])
+            for action in actions
+            if action.startswith("#") and action.endswith(": Bericht nachgeholt")
+        }
+        actions += recover_lost_followups(api, cfg, now, dispatch_ref, skip_issues=just_dispatched)
     return actions
 
 
-def recover_lost_followups(api: GitHubApi, cfg: Config, now: dt.datetime, dispatch_ref: str) -> list[str]:
+def recover_lost_followups(api: GitHubApi, cfg: Config, now: dt.datetime, dispatch_ref: str,
+                           skip_issues: set[int] | None = None) -> list[str]:
     """Controller-Anstoss erneut senden, wenn er verloren ging: abgeschlossener Auftrag, Fortsetzung gewollt, noch keine Entscheidung.
     Nur innerhalb von 2 Stunden nach dem Bericht; der Controller markiert jede Entscheidung, danach endet das hier."""
     out: list[str] = []
     if cfg.halted:
         return out
+    skip_issues = skip_issues or set()
     for issue in api.list_job_issues(state="closed", pages=1):
+        if issue["number"] in skip_issues:
+            continue
         st = own_job_issue(issue)
         if not st or st["status"] != "completed" or st.get("followup") or not st["chain"].get("auto_continue"):
             continue
