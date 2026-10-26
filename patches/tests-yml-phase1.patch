@@ -1,0 +1,114 @@
+diff --git a/.github/workflows/tests.yml b/.github/workflows/tests.yml
+--- a/.github/workflows/tests.yml
++++ b/.github/workflows/tests.yml
+@@ -1,5 +1,7 @@
+ # Tests (Windows + Linux). Liest nur (contents: read): keine Secrets, kein Schreibzugriff, kein automatischer Commit/Push.
+-# Trigger: push auf claude/* (Arbeits- und Routine-Branches; damit der erste Lauf nicht davon abhaengt, dass die Datei auf main liegt) und manuell (workflow_dispatch).
++# Trigger: pull_request gegen main (ohne Pfadfilter, unabhaengig von Stichwoertern), push auf claude/* (Arbeits- und Routine-Branches) und manuell (workflow_dispatch).
++#   pull_request gegen main       -> gui-windows (schnell, strikt) UND suite (Windows py3.13, Ubuntu py3.13, Ubuntu py3.11): die volle Suite ist Pflicht fuer jeden PR.
++#                                    Die Phase-15-Dateien liegen in der vollen Windows-Suite; phase15-windows laeuft auf PRs nicht zusaetzlich.
+ #   push                          -> gui-windows (schnell: GUI- und Voice-Tests unter Windows)
+ #   push mit "[ci-phase15]"       -> zusaetzlich phase15-windows (ACL-/Job-Object-/Junction-Tests, langsam: PowerShell ist auf dem Runner traege)
+ #   push mit "[ci-full]"          -> zusaetzlich die volle Suite (Windows + Linux)
+@@ -8,6 +10,8 @@
+ name: tests
+ 
+ on:
++  pull_request:
++    branches: [main]                       # bewusst ohne paths-Filter: ein uebersprungener Pflichtcheck waere nicht von "gruen" zu unterscheiden
+   push:
+     branches: ["claude/**"]
+     paths: ["src/**", "tests/**", "pyproject.toml", ".github/workflows/tests.yml"]
+@@ -37,13 +41,14 @@
+ jobs:
+   gui-windows:
+     name: gui + voice + emergency stop (windows-latest, py3.13)
+-    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.scope == 'gui' || inputs.scope == 'all')) }}
++    if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.scope == 'gui' || inputs.scope == 'all')) }}
+     runs-on: windows-latest
+     timeout-minutes: 20
+     steps:
+       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+         with:
+           persist-credentials: false
++          fetch-depth: 2                     # pull_request: Merge-Commit samt beider Eltern, damit HEAD^2 (= PR-Head) pruefbar ist
+       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+         with:
+           python-version: "3.13"
+@@ -69,6 +74,7 @@
+           root.destroy()
+           PY
+       - name: GUI- und Voice-Tests
++        id: tests
+         env:
+           JARVIS_GUI_TESTS_REQUIRED: "1"          # ein nicht startendes Tk soll hier fehlschlagen, nicht still ueberspringen
+         run: |
+@@ -100,6 +106,17 @@
+           if n["PASSED"] == 0 or missing:
+               print(f"\n**Pflichtpruefung FEHLGESCHLAGEN: kein bestandener Test in: {missing or 'gesamter Lauf'}** (uebersprungene Fenstertests zaehlen nicht)"); sys.exit(1)
+           PY
++      - name: "CI-Nachweis (maschinenlesbar: Commit, Lauf, Job, Zahlen, Skips)"
++        if: ${{ !cancelled() }}
++        env:                                 # nur SHA/Nummern/Kontexte, nie PR-Titel oder Branch-Namen; alles ueber env, nie ins Skript interpoliert
++          TEST_OUTCOME: ${{ steps.tests.outcome }}
++          EVENT_NAME: ${{ github.event_name }}
++          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
++          PR_NUMBER: ${{ github.event.pull_request.number }}
++          MATRIX_ID: gui-windows
++          REPORT: reports/junit-gui-windows.xml
++          EVIDENCE: reports/evidence-gui-windows.json
++        run: python scripts/ci_evidence.py "$REPORT" "$EVIDENCE" | tee -a "$GITHUB_STEP_SUMMARY"
+       - name: Berichte hochladen (auch bei Fehlschlag)
+         if: ${{ !cancelled() }}
+         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+@@ -118,6 +135,7 @@
+       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+         with:
+           persist-credentials: false         # Token bleibt nicht in .git/config zurueck
++          fetch-depth: 2
+       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+         with:
+           python-version: "3.13"
+@@ -217,7 +235,7 @@
+ 
+   suite:
+     name: suite (${{ matrix.os }}, py${{ matrix.python }})
+-    if: ${{ (github.event_name == 'workflow_dispatch' && (inputs.scope == 'full' || inputs.scope == 'all')) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[ci-full]')) }}
++    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.scope == 'full' || inputs.scope == 'all')) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[ci-full]')) }}
+     runs-on: ${{ matrix.os }}
+     timeout-minutes: 45
+     strategy:
+@@ -231,6 +249,7 @@
+       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+         with:
+           persist-credentials: false
++          fetch-depth: 2                     # pull_request: Merge-Commit samt beider Eltern, damit HEAD^2 (= PR-Head) pruefbar ist
+       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+         with:
+           python-version: ${{ matrix.python }}
+@@ -257,6 +276,7 @@
+           EXTRAS: ${{ runner.os == 'Windows' && 'dev,voice' || 'dev' }}
+         run: python -m pip install --disable-pip-version-check -e ".[$EXTRAS]"
+       - name: "Tests (volle Suite)"
++        id: tests
+         env:
+           REPORT: reports/junit-${{ matrix.os }}-py${{ matrix.python }}.xml   # ueber env, nie direkt in das Skript interpoliert
+         run: |
+@@ -285,6 +305,17 @@
+           for r, k in reasons.most_common(): print(f"- {k}x skipped: {r}")
+           if n["PASSED"] == 0: sys.exit(1)
+           PY
++      - name: "CI-Nachweis (maschinenlesbar: Commit, Lauf, Job, Zahlen, Skips)"
++        if: ${{ !cancelled() }}
++        env:                                 # nur SHA/Nummern/Kontexte, nie PR-Titel oder Branch-Namen; alles ueber env, nie ins Skript interpoliert
++          TEST_OUTCOME: ${{ steps.tests.outcome }}
++          EVENT_NAME: ${{ github.event_name }}
++          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
++          PR_NUMBER: ${{ github.event.pull_request.number }}
++          MATRIX_ID: ${{ matrix.os }}-py${{ matrix.python }}
++          REPORT: reports/junit-${{ matrix.os }}-py${{ matrix.python }}.xml
++          EVIDENCE: reports/evidence-${{ matrix.os }}-py${{ matrix.python }}.json
++        run: python scripts/ci_evidence.py "$REPORT" "$EVIDENCE" | tee -a "$GITHUB_STEP_SUMMARY"
+       - name: Berichte hochladen (auch bei Fehlschlag)
+         if: ${{ !cancelled() }}
+         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
