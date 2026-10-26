@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "hinweis": "Erwartete Skip-Gruende je Plattform (Regex gegen die skip-Meldung im JUnit-Bericht). Alles, was hier nicht passt, gilt als UNERWARTETER Skip und laesst den CI-Nachweis fehlschlagen. Erweiterung nur nach Pruefung des Grundes; Zaehlwerte werden bewusst nicht festgeschrieben.",
+  "platforms": {
+    "linux": [
+      "NTFS junctions / reparse points exist only on Windows",
+      "Windows path semantics",
+      "Windows-specific path handling is checked on Windows only",
+      "Windows paths are checked on Windows only",
+      "optional libraries not installed",
+      "uses the real Windows ACL machinery",
+      "Windows Job Objects / taskkill exist only on Windows",
+      "real Win32 API",
+      "Windows process semantics",
+      "could not import 'playwright'",
+      "collection skipped",
+      "tkinter|display|DISPLAY|Tk"
+    ],
+    "windows": [
+      "POSIX|posix",
+      "symlink",
+      "X11|Xvfb|xvfb",
+      "could not import 'playwright'",
+      "optional libraries not installed",
+      "/proc",
+      "Linux|linux",
+      "collection skipped"
+    ]
+  }
+}
