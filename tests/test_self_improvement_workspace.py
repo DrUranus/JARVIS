@@ -412,6 +412,10 @@ def test_crlf_working_tree_is_clean_under_a_system_level_autocrlf_config(tmp_pat
     (repo / PLANNER).write_bytes(FILES[PLANNER].replace("\n", "\r\n").encode())
     env = {**os.environ, "GIT_CONFIG_SYSTEM": str(sysfile), "GIT_CONFIG_GLOBAL": os.devnull}
     assert subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=repo, env=env, capture_output=True, text=True).stdout.strip() == ""
+    # The status above refreshed the index's stat cache for this file. Without a different stat the next git call would not read the content at all and could report
+    # "clean" whatever the config says (seen once on a Windows runner, timing dependent) - so make the control compare content: same bytes, but a new mtime.
+    st = (repo / PLANNER).stat()
+    os.utime(repo / PLANNER, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))
     assert PLANNER in subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=repo, env={**env, "GIT_CONFIG_NOSYSTEM": "1"}, capture_output=True, text=True).stdout
 
 

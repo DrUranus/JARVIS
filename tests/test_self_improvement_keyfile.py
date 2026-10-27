@@ -222,7 +222,14 @@ def test_concurrent_first_starts_in_real_processes_agree_on_one_key(tmp_path):
     """))
     target = tmp_path / "keys" / "k"
     procs = [subprocess.Popen([sys.executable, str(script), str(target)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(4)]
-    outs = [p.communicate(timeout=300) for p in procs]       # each start runs PowerShell/icacls several times; four at once are slow on a loaded runner
+    outs = []
+    try:
+        outs = [p.communicate(timeout=300) for p in procs]   # each start runs PowerShell/icacls several times; four at once are slow on a loaded runner
+    except subprocess.TimeoutExpired:
+        for p in procs:                                      # a timeout is still a failure, but report who finished and what is left behind instead of a bare TimeoutExpired
+            p.kill()
+        left = sorted(x.name for x in target.parent.glob("*")) if target.parent.exists() else "no key dir"
+        pytest.fail(f"key creation did not finish within 300 s; return codes {[p.poll() for p in procs]}, key dir: {left}, stderr: {[p.communicate()[1][-300:] for p in procs]}")
     assert [p.returncode for p in procs] == [0, 0, 0, 0], [o[1][-300:] for o in outs]
     keys = {o[0].strip() for o in outs}
     assert len(keys) == 1 and len(next(iter(keys))) == 64
