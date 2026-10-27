@@ -100,6 +100,15 @@ def clamp_int(raw: Any, default: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, value))
 
 
+def parse_issue_number(raw: Any) -> int | None:
+    """Positive Issue-Nummer oder None (leer, fehlend, keine Ganzzahl, <= 0)."""
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
 def make_job_id(run_id: str, run_attempt: str, now: dt.datetime) -> str:
     return f"job-{now.strftime('%Y%m%d-%H%M%S')}-{run_id}-{run_attempt}"
 
@@ -874,8 +883,13 @@ def main(argv: list[str], env: dict[str, str] | None = None) -> int:
             for line in run_watchdog(api, cfg, dispatch_ref=cfg.default_branch) or ["nichts zu tun"]:
                 log(line)
         elif cmd == "controller":
+            after_job = parse_issue_number(env.get("AFTER_JOB"))
+            if after_job is None:
+                # Kein Kontext (z. B. Dispatch ohne Eingabe): kontrolliert beenden, keinen Auftrag starten.
+                log(f"Kein gueltiges AFTER_JOB ({env.get('AFTER_JOB', '')!r}): kein Folgeauftrag.")
+                return 0
             outcome = run_controller(
-                api, cfg, after_job=int(env["AFTER_JOB"]), backlog_path=Path(env.get("BACKLOG_PATH", ".github/automation/backlog.json")),
+                api, cfg, after_job=after_job, backlog_path=Path(env.get("BACKLOG_PATH", ".github/automation/backlog.json")),
                 run_id=env.get("GITHUB_RUN_ID", ""), run_attempt=env.get("GITHUB_RUN_ATTEMPT", "1"),
                 fire_url=env.get("ROUTINE_FIRE_URL", ""), fire_token=env.get("ROUTINE_FIRE_TOKEN", ""))
             log(f"Ergebnis: {outcome}")
