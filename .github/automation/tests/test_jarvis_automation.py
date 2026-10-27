@@ -532,7 +532,8 @@ WF = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
 
 def test_workflows_exist():
     names = {p.name for p in WF}
-    assert {"claude-routine-fire.yml", "jarvis-report.yml", "jarvis-watchdog.yml", "jarvis-controller.yml", "automation-ci.yml"} <= names
+    assert {"claude-routine-fire.yml", "jarvis-report.yml", "jarvis-watchdog.yml", "jarvis-controller.yml", "automation-ci.yml",
+            "pr-tests.yml", "jarvis-merge-gate.yml"} <= names
 
 
 @pytest.mark.parametrize("path", WF, ids=lambda p: p.name)
@@ -561,11 +562,12 @@ def test_secrets_only_in_start_and_controller_and_never_openai():
         assert "OPENAI" not in text.upper(), "kein OpenAI-Schluessel ohne tatsaechlichen Bedarf"
 
 
-def test_no_workflow_can_write_contents_or_merge():
+def test_only_merge_gate_can_write_contents_or_merge():
     for p in WF:
         text = p.read_text(encoding="utf-8")
-        assert not re.search(r"contents:\s*write", text) and "pull-requests: write" not in text
-        assert not re.search(r"gh pr merge|merge_pull_request|enable-auto-merge", text)
+        gate = p.name == "jarvis-merge-gate.yml"
+        assert gate or (not re.search(r"contents:\s*write", text) and "pull-requests: write" not in text)
+        assert gate or not re.search(r"gh pr merge|merge_pull_request|enable-auto-merge", text)
 
 
 def test_issue_comment_workflow_never_checks_out_untrusted_code_and_has_no_secrets():
