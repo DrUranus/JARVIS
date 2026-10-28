@@ -37,4 +37,5 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           JARVIS_AUTOMATION_HALT: ${{ vars.JARVIS_AUTOMATION_HALT }}
           JARVIS_TRUSTED_REPORTERS: ${{ vars.JARVIS_TRUSTED_REPORTERS }}
+          JARVIS_AUTO_MERGE_ENABLED: ${{ vars.JARVIS_AUTO_MERGE_ENABLED }}
         run: python3 .github/automation/jarvis_automation.py report

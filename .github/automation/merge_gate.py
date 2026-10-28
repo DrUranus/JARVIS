@@ -18,7 +18,9 @@ import jarvis_automation as ja
 
 REQUIRED_CHECKS = ("tests-linux", "tests-windows")        # Jobnamen in .github/workflows/pr-tests.yml
 CHECK_APP = "github-actions"
-PROTECTED_PATHS = (".github/", "CLAUDE.md", ".claude/", "config/jarvis.toml")   # nie automatisch mergen
+# nie automatisch mergen: Automatisierung, Regeln, Konfiguration und alles, was die Sicherheitsgrenzen (Berechtigungen, Notaus, Verdrahtung) oder deren Tests betrifft
+PROTECTED_PATHS = (".github/", "CLAUDE.md", ".claude/", "config/jarvis.toml", "src/jarvis/permissions/", "src/jarvis/bootstrap.py",
+                   "tests/test_emergency_stop.py", "tests/test_security_", "tests/test_autonomy_invariants.py")
 MAX_REPAIRS = 3                                             # Korrekturschleifen je PR (hart)
 GATE_MARKER = "<!-- JARVIS-GATE v1 -->"
 FAIL_CONCLUSIONS = {"failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"}
@@ -223,6 +225,31 @@ def merge_pr(api: Any, pr_number: int, sha: str, method: str) -> None:
     api.request("PUT", f"/repos/{api.repo}/pulls/{pr_number}/merge", {"sha": sha, "merge_method": method})
 
 
+def origin_job(api: Any, head_ref: str) -> int | None:
+    """Der abgeschlossene Auftrag (kein Korrekturauftrag), dessen Bericht diesen Branch meldet; neuester zuerst."""
+    for issue in api.list_job_issues(state="all", pages=3):
+        st = ja.own_job_issue(issue)
+        if st and st["status"] == "completed" and not st["chain"].get("repair_of") and (st.get("report") or {}).get("branch") == head_ref:
+            return issue["number"]
+    return None
+
+
+def continue_after_merge(api: Any, cfg: ja.Config, pr: dict[str, Any], sha: str) -> str:
+    """Nach dem Merge: im Auftrags-Issue vermerken und (nur mit Freigabe, nicht angehalten) den Controller genau einmal anstossen."""
+    number = origin_job(api, pr["head"]["ref"])
+    if number is None:
+        return "kein zugehoeriger Auftrag"
+    ja.mark_merged(api, number, pr_number=pr["number"], sha=sha)
+    state = ja.own_job_issue(api.get_issue(number) or {}) or {}
+    if not (cfg.auto_continue_enabled and not cfg.halted and (state.get("chain") or {}).get("auto_continue") and state.get("merged")):
+        return f"Auftrag #{number} als gemergt vermerkt; keine Fortsetzung angefordert"
+    try:
+        sent = ja.request_followup(api, cfg, number, cfg.default_branch)
+    except ja.AutomationError as exc:
+        return f"Auftrag #{number}: {ja.followup_failure_text(exc)} (der Watchdog wiederholt den Anstoss)"
+    return f"Auftrag #{number}: Folgeauftrag angefordert" if sent else f"Auftrag #{number}: kein Anstoss noetig"
+
+
 def run_gate(api: Any, cfg: ja.Config, *, backlog_path: Path, only: int | None = None, dispatch=None) -> list[str]:
     """Bewertet offene PRs (oder genau einen), schreibt Statusberichte, merged freigegebene PRs, stoesst Korrekturen an."""
     gcfg = GateConfig(cfg)
@@ -242,6 +269,10 @@ def run_gate(api: Any, cfg: ja.Config, *, backlog_path: Path, only: int | None =
                 merge_pr(api, pr["number"], v.head_sha, gcfg.merge_method)
                 note = "Gemergt (squash) mit dem geprueften Commit."
                 log.append(f"#{pr['number']}: gemergt {v.head_sha[:12]}")
+                try:
+                    log.append(f"#{pr['number']}: {continue_after_merge(api, cfg, pr, v.head_sha)}")
+                except ja.AutomationError as exc:                 # der Merge steht; die Fortsetzung holt der Watchdog nach
+                    log.append(f"#{pr['number']}: Fortsetzung nicht angestossen ({type(exc).__name__})")
             except ja.ApiError as exc:
                 v = Verdict("blocked", [f"Merge abgelehnt (HTTP {exc.status}); der Branch hat sich evtl. geaendert"], v.head_sha)
                 log.append(f"#{pr['number']}: Merge abgelehnt")

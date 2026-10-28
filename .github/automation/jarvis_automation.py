@@ -282,6 +282,7 @@ def load_backlog(path: Path) -> list[dict[str, Any]]:
 def select_next_item(items: list[dict[str, Any]], done: set[str], blocked: set[str]) -> dict[str, Any] | None:
     """Erster freigegebener, nicht erledigter Schritt, dessen Abhaengigkeiten erledigt sind. Gesperrte Schritte stoppen die Suche nicht,
     werden aber uebersprungen; ein nicht freigegebener Schritt wird nie ausgewaehlt."""
+    done = done | {it["id"] for it in items if it.get("done") is True}        # "done": true = bereits gemergt, nie erneut starten
     for it in items:
         if it["id"] in done or it["id"] in blocked or it.get("approved") is not True:
             continue
@@ -449,6 +450,7 @@ class Config:
         self.trusted_reporters = {r.strip().lower() for r in (reporters or owner).split(",") if r.strip()}
         self.halted = env.get("JARVIS_AUTOMATION_HALT", "").strip().lower() in {"1", "true", "yes"}
         self.auto_continue_enabled = env.get("JARVIS_AUTO_CONTINUE_ENABLED", "").strip().lower() == "true"
+        self.auto_merge_enabled = env.get("JARVIS_AUTO_MERGE_ENABLED", "").strip().lower() == "true"
         self.max_chain = clamp_int(env.get("JARVIS_MAX_CHAIN_JOBS"), HARD_MAX_CHAIN_JOBS, 1, HARD_MAX_CHAIN_JOBS)
         self.max_per_day = clamp_int(env.get("JARVIS_MAX_JOBS_PER_DAY"), 10, 1, 50)
         self.base_branch = env.get("JARVIS_BASE_BRANCH", "").strip() or DEFAULT_BASE_BRANCH
@@ -675,6 +677,25 @@ def completed_item_ids(api: GitHubApi) -> set[str]:
     return done
 
 
+def merge_gated(cfg: Config, state: dict[str, Any]) -> bool:
+    """Mit aktivem Auto-Merge startet ein Folgeauftrag erst, wenn der PR des abgeschlossenen Auftrags nach gruener CI gemergt wurde
+    (dann baut er auf dem Standard-Branch auf). Ohne Auto-Merge bleibt das bisherige Verhalten."""
+    chain = state.get("chain") or {}
+    return cfg.auto_merge_enabled and bool(chain.get("auto_continue")) and not chain.get("repair_of")
+
+
+def mark_merged(api: GitHubApi, issue_number: int, *, pr_number: int, sha: str, now: dt.datetime | None = None) -> bool:
+    """Vermerkt im Auftrags-Issue, dass der PR gemergt wurde (einmalig; nur fuer abgeschlossene Auftraege)."""
+    now = now or utcnow()
+    issue = api.get_issue(issue_number)
+    state = own_job_issue(issue) if issue else None
+    if not state or state["status"] != "completed" or state.get("merged"):
+        return False
+    merged = {"pr": pr_number, "sha": sha, "at": iso(now)}
+    api.update_issue(issue_number, body=render_body({**state, "merged": merged, "updated_at": iso(now)}, f"PR #{pr_number} gemergt ({sha[:12]})."))
+    return True
+
+
 FOLLOWUP_GRACE_MIN = 20
 FOLLOWUP_MAX_REQUESTS = 3
 
@@ -693,6 +714,8 @@ def request_followup(api: GitHubApi, cfg: Config, issue_number: int, ref: str,
     state = own_job_issue(issue) if issue else None
     if not state or state.get("followup"):
         return False
+    if merge_gated(cfg, state) and state["status"] == "completed" and not state.get("merged"):
+        return False                                    # das Merge-Gate stoesst nach dem Merge an; ein Anstoss jetzt verbraucht nur Versuche
     previous = state.get("followup_request")
     if previous:
         if int(previous.get("count", 0)) >= FOLLOWUP_MAX_REQUESTS:
@@ -814,12 +837,16 @@ def run_controller(api: GitHubApi, cfg: Config, *, after_job: int, backlog_path:
             for i in api.list_job_issues(state="all", pages=3)):
         log(f"#{after_job}: Folgeentscheidung bereits getroffen.")
         return "already-decided"
+    merged = bool(state.get("merged"))
+    if merge_gated(cfg, state) and state["status"] == "completed" and not merged:
+        log(f"#{after_job}: wartet auf den Merge des Pull Requests (Auto-Merge aktiv); keine Entscheidung.")
+        return "deferred:wartet-auf-merge"
     items = load_backlog(backlog_path)
     report = state.get("report") or {}
     branch = report.get("branch")
     plan, reason = decide_followup(
         state, cfg, issue, items=items, done=completed_item_ids(api), day_count=jobs_last_24h(api, now),
-        branch_exists=bool(branch and api.branch_sha(branch)))
+        branch_exists=merged or bool(branch and api.branch_sha(branch)))
     # Entscheidung im Eltern-Issue festhalten (Idempotenz: ein zweiter Lauf sieht 'followup' und tut nichts)
     if state.get("followup"):
         log(f"#{after_job}: Folgeentscheidung bereits getroffen: {state['followup']}")
@@ -834,7 +861,10 @@ def run_controller(api: GitHubApi, cfg: Config, *, after_job: int, backlog_path:
     marked = {**state, "followup": {"started": True, "item": item["id"], "reason": reason}}
     api.update_issue(after_job, body=render_body(marked, f"Folgeauftrag wird gestartet: {item['id']} ({reason})."))
     new_chain = {**chain, "index": chain["index"] + 1, "item_id": item["id"], "attempt": plan["attempt"]}
-    base = branch if branch and BRANCH_RE.match(branch) and api.branch_sha(branch) else state["base_branch"]
+    if merged:
+        base = cfg.default_branch                         # die Arbeit des Vorgaengers ist gemergt; kein gestapelter Branch
+    else:
+        base = branch if branch and BRANCH_RE.match(branch) and api.branch_sha(branch) else state["base_branch"]
     result = start_job(api, cfg, task=item["task"], base_branch=base, auto_continue=chain["auto_continue"],
                        chain_budget=chain["budget"], timeout_minutes=clamp_int(item.get("timeout_minutes"), DEFAULT_TIMEOUT_MIN, 10, HARD_MAX_TIMEOUT_MIN),
                        run_id=run_id, run_attempt=run_attempt, fire_url=fire_url, fire_token=fire_token,

@@ -52,6 +52,7 @@ jobs:
           JARVIS_AUTOMATION_HALT: ${{ vars.JARVIS_AUTOMATION_HALT }}
           JARVIS_BASE_BRANCH: ${{ vars.JARVIS_BASE_BRANCH }}
           JARVIS_AUTO_CONTINUE_ENABLED: ${{ vars.JARVIS_AUTO_CONTINUE_ENABLED }}
+          JARVIS_AUTO_MERGE_ENABLED: ${{ vars.JARVIS_AUTO_MERGE_ENABLED }}
           JARVIS_MAX_CHAIN_JOBS: ${{ vars.JARVIS_MAX_CHAIN_JOBS }}
           JARVIS_MAX_JOBS_PER_DAY: ${{ vars.JARVIS_MAX_JOBS_PER_DAY }}
         run: python3 .github/automation/jarvis_automation.py controller

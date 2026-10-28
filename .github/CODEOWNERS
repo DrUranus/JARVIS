@@ -2,3 +2,10 @@
 /.github/ @DrUranus
 /CLAUDE.md @DrUranus
 /.claude/ @DrUranus
+# Sicherheitsgrenzen: dieselben Pfade, die das Merge-Gate nie automatisch merged (Doppelsicherung durch Branch-Schutz)
+/src/jarvis/permissions/ @DrUranus
+/src/jarvis/bootstrap.py @DrUranus
+/config/jarvis.toml @DrUranus
+/tests/test_emergency_stop.py @DrUranus
+/tests/test_security_* @DrUranus
+/tests/test_autonomy_invariants.py @DrUranus
