@@ -29,6 +29,7 @@ HELP = """Befehle:
   /audit [n]     Letzte Sicherheitsereignisse
   /revoke        Sitzungsfreigaben widerrufen
   /notaus        NOTAUS: sperrt sofort alle Aktionen/Ziele/Tool-Aufrufe und stoppt Komponenten (reset = aufheben, nur mit ausdrücklicher Bestätigung; status)
+  /budget        Sitzungsbudget (Tool-Aufrufe/Laufzeit): Verbrauch anzeigen (nur lesend; kein Zurücksetzen, keine Erhöhung)
   /computer      Status der Computersteuerung (stop = Notaus, resume = fortsetzen)
   /browser       Browser-Agent: Status | start | stop | pages | halt (Notaus) | resume (sonst: /run browser action=...)
   /coding        Coding-Agent: Status | halt (Notaus) | resume | stop (Sitzung beenden) (sonst: /run coding action=...)
@@ -92,6 +93,9 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
         return _tail_audit(core, arg)
     if cmd in ("/notaus", "/emergency"):
         return _emergency(core, arg)
+    if cmd == "/budget":
+        budget = getattr(core.permissions, "budget", None)
+        return budget.summary() if budget is not None else "Kein Sitzungsbudget aktiv (budget.enabled = false). Es lässt sich im laufenden Betrieb nicht einschalten."
     if cmd == "/revoke":
         return f"{core.permissions.revoke_session_grants('revoked by user')} Sitzungsfreigabe(n) widerrufen."
     if cmd == "/remember":

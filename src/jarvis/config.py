@@ -132,6 +132,14 @@ class GoalsSettings:
 
 
 @dataclass(frozen=True)
+class BudgetSettings:
+    """Session budget (Phase 14): one cap on tool calls and run time for the whole process, across all goals and agents. Enforced by the permission engine."""
+    enabled: bool = False
+    max_tool_calls: int = 500              # all approved tool calls, GREEN included (hard limit 100000)
+    max_runtime_seconds: float = 3600.0    # from the first approved action (hard limit 86400)
+
+
+@dataclass(frozen=True)
 class SelfRepairSettings:
     """Self-testing / self-repair (v1). Opt-in; needs the multi-agent layer and the coding agent; works only in an explicitly named workspace."""
     enabled: bool = False
@@ -262,6 +270,7 @@ class Settings:
     coding: CodingSettings = field(default_factory=CodingSettings)
     agents: AgentsSettings = field(default_factory=AgentsSettings)
     goals: GoalsSettings = field(default_factory=GoalsSettings)
+    budget: BudgetSettings = field(default_factory=BudgetSettings)
     self_repair: SelfRepairSettings = field(default_factory=SelfRepairSettings)
     self_improvement: SelfImprovementSettings = field(default_factory=SelfImprovementSettings)
     research: ResearchSettings = field(default_factory=ResearchSettings)
@@ -366,6 +375,9 @@ class Settings:
         if not 0 < gl.goal_timeout_seconds <= 86_400 or not 0 < gl.step_timeout_seconds <= 3600 or not 1 <= gl.max_active_goals <= 8 \
                 or not 1 <= gl.max_history <= 1000:
             raise ConfigError("goals.goal_timeout_seconds 0..86400, step_timeout_seconds 0..3600 (positive), max_active_goals 1..8, max_history 1..1000")
+        bu = self.budget
+        if not 1 <= bu.max_tool_calls <= 100_000 or not 0 < bu.max_runtime_seconds <= 86_400:
+            raise ConfigError("budget.max_tool_calls 1..100000, max_runtime_seconds 0..86400 (positive)")
         si = self.self_improvement
         if not 1 <= si.max_proposals <= 2000 or not 1 <= si.min_occurrences <= 50 or not 1 <= si.max_edits <= 10 or not 1000 <= si.max_diff_bytes <= 500_000 \
                 or not 0 < si.prepare_timeout_seconds <= 600 or not 0 < si.test_timeout_seconds <= 3600:

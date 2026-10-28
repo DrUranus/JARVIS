@@ -9,6 +9,7 @@ from jarvis.permissions.emergency import (ComponentStop, EmergencyStop, ReportSt
                                           StopResult)
 from jarvis.permissions.audit import (AuditEvent, AuditEventType, AuditLogger, AuditSink, JsonlAuditSink,
                                       LoggingAuditSink, MemoryAuditSink, NullAuditSink)
+from jarvis.permissions.budget import BudgetUsage, SessionBudget
 from jarvis.permissions.confirmation import (CliConfirmation, ConfirmationChoice, ConfirmationProvider,
                                              ConfirmationRequest, DenyAllConfirmation, ScriptedConfirmation)
 from jarvis.permissions.decision import DecisionStatus, GrantScope, PermissionDecision
@@ -21,7 +22,7 @@ from jarvis.permissions.request import ActionSpec, PermissionRequest
 from jarvis.permissions.resources import ResourceType
 
 __all__ = [
-    "ComponentStop", "EmergencyStop", "ReportStatus", "ResetResult", "StopOutcome", "StopReport", "StopResult",
+    "BudgetUsage", "SessionBudget", "ComponentStop", "EmergencyStop", "ReportStatus", "ResetResult", "StopOutcome", "StopReport", "StopResult",
     "PermissionLevel", "is_allowed", "max_level", "PermissionRequest", "ActionSpec", "ResourceType",
     "PermissionDecision", "DecisionStatus", "GrantScope", "PermissionEngine", "PermissionMode", "action_floor",
     "Policy", "Rule", "Effect", "PathGuard", "PathCheck",

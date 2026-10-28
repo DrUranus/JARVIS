@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from jarvis.config import Settings
 from jarvis.permissions.audit import AuditLogger, JsonlAuditSink
+from jarvis.permissions.budget import SessionBudget
 from jarvis.permissions.confirmation import CliConfirmation, ConfirmationProvider, DenyAllConfirmation
 from jarvis.permissions.engine import PermissionEngine, PermissionMode
 from jarvis.permissions.levels import PermissionLevel
@@ -29,7 +30,8 @@ def build_permission_engine(settings: Settings, *, redactor: SecretDetector | No
         policy=policy, path_guard=guard, confirmation=confirmation, audit=AuditLogger(sinks, redactor),
         redactor=redactor, mode=PermissionMode(sec.mode), allow_session_grants=sec.allow_session_grants,
         session_ttl=float(sec.session_ttl_seconds), trust_caller_confirmation=False, undeclared_level=PermissionLevel.YELLOW,
-        require_protected_tools=True, audit_strict=sec.audit_strict and sec.audit_enabled, audit_green=sec.audit_green)
+        require_protected_tools=True, audit_strict=sec.audit_strict and sec.audit_enabled, audit_green=sec.audit_green,
+        budget=SessionBudget(settings.budget.max_tool_calls, settings.budget.max_runtime_seconds) if settings.budget.enabled else None)
     if sec.policy_file:
         engine.note_policy_loaded(sec.policy_file)
     return engine

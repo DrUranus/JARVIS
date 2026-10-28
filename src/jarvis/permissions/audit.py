@@ -37,6 +37,7 @@ class AuditEventType(str, Enum):
     SECURITY_ERROR = "security_error"
     IMPROVEMENT = "improvement"     # self-improvement lifecycle event (tool="self_improvement")
     EMERGENCY_STOP = "emergency_stop"      # the emergency stop was engaged / a stop report was produced / a reset was asked, denied or done
+    BUDGET_EXHAUSTED = "budget_exhausted"  # the session budget (tool calls / run time) ran out: further actions are refused (reported once)
 
 
 @dataclass(frozen=True)
