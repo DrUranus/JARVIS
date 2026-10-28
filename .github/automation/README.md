@@ -44,6 +44,18 @@ Grenzen der Kette: `chain_budget` hart ≤ 5 Aufträge je Kette, `JARVIS_MAX_JOB
 Stopp per `JARVIS_AUTOMATION_HALT=true` oder Label `jarvis:stop`. Neustart-fest: der Zustand liegt in den Tracking-Issues; der Watchdog (15 min) holt verlorene Berichte,
 Timeouts und verlorene Controller-Anstöße (≤ 2 h) nach.
 
+## Einmalig freigegebener Entwicklungsplan
+
+`backlog.json` enthält einen Plan-Block (`plan`: `id`, `approved`, `approved_items`). Die **einzige** Besitzeraktion ist, `plan.approved` auf `true` zu setzen (eine Zeile in
+einer CODEOWNERS-geschützten Datei). Danach gelten genau die in `approved_items` gelisteten Schritte als freigegeben; jeder hat Abnahmekriterien (`acceptance`), Abhängigkeiten
+(`depends_on`), Zeitlimit und höchstens 3 Versuche. Die Liste ist im Test festgenagelt (`PINNED_PLAN`): ein weiterer Schritt braucht eine bewusste Änderung von Besitzer und Test.
+Sicherheitskritische Schritte stehen nicht im Plan und bleiben `approved: false`.
+
+Start: Actions → „Trigger Claude Code Routine“ mit `backlog_item = next` (oder einer Schritt-ID), `auto_continue = true`, `chain_budget = 5`. Der Auftragstext samt Abnahmekriterien kommt aus
+dem Backlog (nie aus Berichten). Weitere Schritte folgen automatisch nach Merge (Variablen `JARVIS_AUTO_CONTINUE_ENABLED` und `JARVIS_AUTO_MERGE_ENABLED`); eine Kette hat höchstens 5 Aufträge,
+bei 7 Plan-Schritten ist deshalb ein zweiter Start nötig. Ein Schritt gilt mit Auto-Merge erst als erledigt, wenn sein PR gemergt ist (`merged`); auch ein vom Besitzer selbst gemergter PR
+setzt die Kette fort (das Gate prüft alle 20 min). Schritte, die geschützte Pfade berühren, mergt weiter nur der Besitzer; die Kette wartet dann.
+
 ## Folgeaufträge (nur wenn **alle** Bedingungen gelten – `decide_followup`)
 
 - Start mit `auto_continue=true` **und** Repository-Variable `JARVIS_AUTO_CONTINUE_ENABLED=true`
