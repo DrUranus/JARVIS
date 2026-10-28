@@ -40,15 +40,18 @@ DEFAULT_BASE_BRANCH = "claude/inspiring-ritchie-8ljinw"   # Stand der JARVIS-Ent
 BRANCH_RE = re.compile(r"^claude/[A-Za-z0-9._/-]{1,100}$")
 SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 
-NONTERMINAL = {"queued", "running"}
+NONTERMINAL = {"queued", "running", "awaiting_ci"}      # awaiting_ci: Arbeit gemeldet, PR offen, CI-Ergebnis noch nicht da (haelt den einen Auftrags-Platz)
 TERMINAL = {"completed", "partial", "failed", "blocked", "timeout", "start_failed", "stopped"}
 TRANSITIONS: dict[str, set[str]] = {
     "queued": {"running", "start_failed", "stopped"},
-    "running": {"completed", "partial", "failed", "blocked", "timeout", "stopped"},
+    "running": {"awaiting_ci", "completed", "partial", "failed", "blocked", "timeout", "stopped"},
+    "awaiting_ci": {"completed", "failed", "blocked", "timeout", "stopped"},
 }
 REPORT_STATUS_TO_STATE = {"success": "completed", "partial": "partial", "failed": "failed", "blocked": "blocked"}
 TEST_RESULTS = {"passed", "failed", "skipped", "not_run"}
-NEXT_TYPES = {"none", "continue", "needs_human"}
+NEXT_TYPES = {"none", "continue", "needs_human", "await_ci"}
+ACCEPTANCE_RESULTS = {"met", "not_met", "awaiting_ci"}
+CI_WAIT_MIN = 180                 # so lange darf ein Auftrag hoechstens auf das CI-Ergebnis seines PR warten (danach timeout, Kette endet)
 
 MAX_CONTEXT_CHARS = 50_000        # Fire-API erlaubt 65.536 Zeichen; Rest fuer die feste Einleitung
 HARD_MAX_CHAIN_JOBS = 5           # absolute Obergrenze, unabhaengig von Eingaben und Variablen
@@ -230,6 +233,22 @@ def validate_report(comment_body: str, state: dict[str, Any], repo: str) -> tupl
         next_reason = na.get("reason", "") if isinstance(na.get("reason", ""), str) else ""
         next_reason = next_reason[:500]
 
+    acceptance: list[dict[str, Any]] = []
+    raw_acc = data.get("acceptance")
+    if raw_acc is not None:
+        if not isinstance(raw_acc, list) or len(raw_acc) > MAX_ACCEPTANCE_ITEMS:
+            errors.append(f"acceptance: Liste mit hoechstens {MAX_ACCEPTANCE_ITEMS} Eintraegen erwartet")
+        else:
+            for i, a in enumerate(raw_acc):
+                if (not isinstance(a, dict) or not isinstance(a.get("criterion"), int) or isinstance(a.get("criterion"), bool)
+                        or not 1 <= a["criterion"] <= MAX_ACCEPTANCE_ITEMS or a.get("result") not in ACCEPTANCE_RESULTS):
+                    errors.append(f"acceptance[{i}]: criterion (1-{MAX_ACCEPTANCE_ITEMS}) und result ({sorted(ACCEPTANCE_RESULTS)}) erforderlich")
+                    continue
+                acceptance.append({"criterion": a["criterion"], "result": a["result"],
+                                   "evidence": a["evidence"][:300] if isinstance(a.get("evidence"), str) else ""})
+            if len({a["criterion"] for a in acceptance}) != len(acceptance):
+                errors.append("acceptance: jedes Kriterium nur einmal")
+
     branch = data.get("branch")
     if isinstance(branch, str) and not branch.strip():
         branch = None  # Read-only job without a push
@@ -251,7 +270,7 @@ def validate_report(comment_body: str, state: dict[str, Any], repo: str) -> tupl
     return {
         "job_id": job_id, "session_id": session, "status": status, "summary": summary, "tests": clean_tests,
         "next_action": {"type": next_type, "reason": next_reason},
-        "branch": branch, "commits": commits, "pr_url": pr_url,
+        "branch": branch, "commits": commits, "pr_url": pr_url, "acceptance": acceptance,
     }, []
 
 
@@ -334,7 +353,10 @@ def build_routine_text(*, repo: str, state: dict[str, Any], issue_number: int, t
     elif chain.get("item_id"):
         extra_rule = ("\n7. Backlog-Schritt: Eroeffne am Ende einen Pull Request gegen main aus deinem Branch (Titel beginnt mit [JARVIS] und der Schritt-ID) "
                       "und nenne ihn im Bericht (pr_url). Gemergt wird nur durch das Merge-Gate, nie durch dich. "
-                      "Berichte status success nur, wenn jedes im Auftragstext genannte Abnahmekriterium belegt ist (je Kriterium ein Satz im summary); sonst partial.")
+                      "Bewerte jedes Abnahmekriterium im Feld acceptance (criterion = Nummer ab 1, result met | not_met | awaiting_ci, evidence kurz). "
+                      "Berichte status success nur, wenn kein Kriterium not_met ist; sonst partial. Haengt ein Kriterium nur vom CI-Ergebnis deines Pull Requests ab "
+                      "(laeuft noch oder fehlt), setze dafuer result awaiting_ci, status success und next_action.type await_ci - NICHT partial/needs_human. "
+                      "Warte nicht auf die CI: die Automatisierung prueft sie selbst und setzt die Kette fort.")
     else:
         extra_rule = ""
     return f"""JARVIS-AUTOMATISIERUNGSAUFTRAG (Protokoll v1)
@@ -362,12 +384,13 @@ Der Kommentar beginnt mit der Zeile {REPORT_MARKER}, danach ein ```json-Block:
   "status": "success | partial | failed | blocked",
   "summary": "<was wurde getan, max. 4000 Zeichen>",
   "tests": [{{"name": "...", "command": "...", "result": "passed | failed | skipped | not_run", "details": "...", "platform": "linux"}}],
-  "next_action": {{"type": "none | continue | needs_human", "reason": "<kurz>"}},
+  "next_action": {{"type": "none | continue | needs_human | await_ci", "reason": "<kurz>"}},
+  "acceptance": [{{"criterion": 1, "result": "met | not_met | awaiting_ci", "evidence": "<kurz>"}}],
   "branch": "<claude/... Branch mit der Arbeit, falls gepusht; sonst null (nicht leer)>",
   "commits": ["<sha>"],
   "pr_url": "<optional>"
 }}
-Der Bericht wird nur akzeptiert, wenn Auftrags-ID und Session-ID stimmen. "continue" bedeutet nur "bereit fuer den naechsten freigegebenen Backlog-Schritt"; was folgt, entscheidet allein der Controller.
+Der Bericht wird nur akzeptiert, wenn Auftrags-ID und Session-ID stimmen. "continue" bedeutet nur "bereit fuer den naechsten freigegebenen Backlog-Schritt"; was folgt, entscheidet allein der Controller. "await_ci" gilt nur mit status success, Pull Request, Branch und Commits; sonst wird es als partial/needs_human gewertet. Das Feld acceptance ist nur bei Backlog-Schritten mit Abnahmekriterien Pflicht.
 Wenn du den Kommentar nicht schreiben kannst, nenne den vollstaendigen Bericht in deiner letzten Antwort und sage ausdruecklich, dass das Posten gescheitert ist.
 
 AUFTRAGSTEXT (Daten des Auftraggebers)
@@ -561,7 +584,7 @@ def jobs_last_24h(api: GitHubApi, now: dt.datetime) -> int:
 def start_job(api: GitHubApi, cfg: Config, *, task: str, base_branch: str | None, auto_continue: bool, chain_budget: int,
               timeout_minutes: int, run_id: str, run_attempt: str, fire_url: str, fire_token: str,
               chain: dict[str, Any] | None = None, parent_issue: int | None = None, item_id: str | None = None,
-              attempt: int = 1, fire=fire_routine, now: dt.datetime | None = None) -> dict[str, Any]:
+              attempt: int = 1, fire=fire_routine, now: dt.datetime | None = None, acceptance_count: int = 0) -> dict[str, Any]:
     """Legt Tracking-Issue an, startet die Routine, vermerkt die Session. Gibt den neuen Zustand + Issue-Nummer zurueck."""
     now = now or utcnow()
     if cfg.halted:
@@ -593,7 +616,8 @@ def start_job(api: GitHubApi, cfg: Config, *, task: str, base_branch: str | None
 
     job_id = make_job_id(run_id, run_attempt, now)
     chain = chain or {"id": f"chain-{job_id}", "index": 1, "budget": min(chain_budget, cfg.max_chain),
-                      "auto_continue": bool(auto_continue), "item_id": item_id, "attempt": attempt}
+                      "auto_continue": bool(auto_continue), "item_id": item_id, "attempt": attempt,
+                      **({"acceptance_count": acceptance_count} if acceptance_count else {})}
     state = {
         "job_id": job_id, "status": "queued", "run_id": run_id, "run_attempt": run_attempt, "created_at": iso(now),
         "deadline": iso(now + dt.timedelta(minutes=timeout_minutes)), "timeout_minutes": timeout_minutes,
@@ -626,6 +650,36 @@ def start_job(api: GitHubApi, cfg: Config, *, task: str, base_branch: str | None
 # Bericht pruefen
 # ---------------------------------------------------------------------------------------------------------------------
 
+def await_ci_problem(report: dict[str, Any], state: dict[str, Any]) -> str | None:
+    """Warum 'await_ci' nicht gelten kann (None = gueltig): nur mit status success, Pull Request/Branch/Commits und - bei einem Backlog-Schritt mit
+    Abnahmekriterien - einer vollstaendigen Bewertung ohne 'not_met'. Die CI selbst prueft spaeter das Merge-Gate, nie der Berichtstext."""
+    if report["status"] != "success":
+        return "await_ci verlangt status success"
+    if not (report["pr_url"] and report["branch"] and report["commits"]):
+        return "await_ci braucht einen Pull Request, Branch und Commits"
+    need = int((state.get("chain") or {}).get("acceptance_count") or 0)
+    if need:
+        got = {a["criterion"]: a["result"] for a in report.get("acceptance", [])}
+        if sorted(got) != list(range(1, need + 1)):
+            return f"alle {need} Abnahmekriterien muessen im Feld acceptance bewertet sein"
+        if "not_met" in got.values():
+            return "ein Abnahmekriterium ist nicht erfuellt"
+    return None
+
+
+def acceptance_problem(state: dict[str, Any]) -> str | None:
+    """Fortsetzung nur mit vollstaendig belegten Abnahmekriterien (Backlog-Schritte mit acceptance); 'awaiting_ci'-Kriterien zaehlen erst nach dem Merge."""
+    need = int((state.get("chain") or {}).get("acceptance_count") or 0)
+    if not need:
+        return None
+    got = {a["criterion"]: a["result"] for a in (state.get("report") or {}).get("acceptance", [])}
+    if sorted(got) != list(range(1, need + 1)) or "not_met" in got.values():
+        return "Abnahmekriterien nicht vollstaendig belegt"
+    if "awaiting_ci" in got.values() and not state.get("merged"):
+        return "Abnahmekriterien nicht vollstaendig belegt (CI-Nachweis fehlt)"
+    return None
+
+
 def process_comment(api: GitHubApi, cfg: Config, issue: dict[str, Any], comment: dict[str, Any], notify: bool = True) -> str:
     """Prueft einen Kommentar. Rueckgabe: kurzer Ergebniscode fuer das Log (accepted, ignored:<grund>, rejected:<grund>)."""
     state = own_job_issue(issue)
@@ -655,12 +709,27 @@ def process_comment(api: GitHubApi, cfg: Config, issue: dict[str, Any], comment:
     fresh_state = own_job_issue(fresh) if fresh else None
     if not fresh_state or fresh_state["status"] != "running":
         return "ignored:zustand-hat-sich-geaendert"
-    summary = (f"Abschlussbericht akzeptiert (Kommentar {comment['id']}): Status **{new_status}**, "
-               f"nächste Aktion laut Bericht: `{report['next_action']['type']}`.")
-    set_state(api, fresh, fresh_state, new_status, note=summary, extra={"report": {
-        "comment_id": comment["id"], "accepted_at": iso(utcnow()), "status": report["status"],
+    now = utcnow()
+    extra_report = {
+        "comment_id": comment["id"], "accepted_at": iso(now), "status": report["status"],
         "next_action": report["next_action"]["type"], "branch": report["branch"], "pr_url": report["pr_url"],
-        "tests": report["tests"], "commits": report["commits"]}})
+        "tests": report["tests"], "commits": report["commits"], "acceptance": report["acceptance"]}
+    extra: dict[str, Any] = {}
+    note = ""
+    if report["next_action"]["type"] == "await_ci":
+        problem = await_ci_problem(report, fresh_state)
+        if problem:                                           # sicherer Rueckfall: wie bisher partial/needs_human, mit Begruendung
+            new_status = "partial" if new_status == "completed" else new_status
+            extra_report["next_action"] = "needs_human"
+            note = f" await_ci abgelehnt: {problem}."
+        else:
+            new_status = "awaiting_ci"
+            extra["ci_deadline"] = iso(now + dt.timedelta(minutes=CI_WAIT_MIN))
+            note = (f" Der Auftrag wartet auf das CI-Ergebnis des Pull Requests (bis {extra['ci_deadline']}); das Merge-Gate prueft es selbst, "
+                    "setzt den Auftrag danach fort oder haelt die Kette an.")
+    summary = (f"Abschlussbericht akzeptiert (Kommentar {comment['id']}): Status **{new_status}**, "
+               f"nächste Aktion laut Bericht: `{extra_report['next_action']}`.{note}")
+    set_state(api, fresh, fresh_state, new_status, note=summary, extra={"report": extra_report, **extra})
     tests_line = ", ".join(f"{t['name']}: {t['result']}" for t in report["tests"]) or "keine Tests gemeldet"
     api.add_comment(issue["number"], f"{summary}\n\n**Zusammenfassung (Bericht, ungeprüft):**\n{quote_untrusted(report['summary'])}\n"
                                      f"**Tests (laut Bericht):** {quote_untrusted(tests_line, 600)}")
@@ -695,6 +764,9 @@ def decide_followup(state: dict[str, Any], cfg: Config, issue: dict[str, Any], *
         return None, f"Status {state['status']} / next_action {report.get('next_action')} erlaubt keine Fortsetzung"
     if not tests_allow_continue(report.get("tests", [])):
         return None, "Berichtete Tests nicht eindeutig bestanden"
+    problem = acceptance_problem(state)
+    if problem:
+        return None, problem
     if report.get("branch") and not branch_exists:
         return None, "gemeldeter Branch existiert nicht"
     item = select_next_item(items, done, blocked=set())
@@ -743,14 +815,15 @@ def start_backlog_job(api: GitHubApi, cfg: Config, *, item_ref: str, backlog_pat
             raise AutomationError(f"Backlog-Schritt {item_ref}: Abhaengigkeit noch offen ({', '.join(open_deps)}).")
     return start_job(api, cfg, task=item_task(item), base_branch=cfg.default_branch, auto_continue=auto_continue, chain_budget=chain_budget,
                      timeout_minutes=clamp_int(item.get("timeout_minutes"), DEFAULT_TIMEOUT_MIN, 10, HARD_MAX_TIMEOUT_MIN),
-                     run_id=run_id, run_attempt=run_attempt, fire_url=fire_url, fire_token=fire_token, item_id=item["id"], fire=fire, now=now)
+                     run_id=run_id, run_attempt=run_attempt, fire_url=fire_url, fire_token=fire_token, item_id=item["id"], fire=fire, now=now,
+                     acceptance_count=len(item.get("acceptance") or []))
 
 
 def merge_gated(cfg: Config, state: dict[str, Any]) -> bool:
     """Mit aktivem Auto-Merge startet ein Folgeauftrag erst, wenn der PR des abgeschlossenen Auftrags nach gruener CI gemergt wurde
     (dann baut er auf dem Standard-Branch auf). Ohne Auto-Merge bleibt das bisherige Verhalten."""
     chain = state.get("chain") or {}
-    return cfg.auto_merge_enabled and bool(chain.get("auto_continue")) and not chain.get("repair_of")
+    return (cfg.auto_merge_enabled or bool(state.get("ci_gated"))) and bool(chain.get("auto_continue")) and not chain.get("repair_of")
 
 
 def mark_merged(api: GitHubApi, issue_number: int, *, pr_number: int, sha: str, now: dt.datetime | None = None) -> bool:
@@ -781,8 +854,8 @@ def request_followup(api: GitHubApi, cfg: Config, issue_number: int, ref: str,
     now = now or utcnow()
     issue = api.get_issue(issue_number)
     state = own_job_issue(issue) if issue else None
-    if not state or state.get("followup"):
-        return False
+    if not state or state.get("followup") or state["status"] in NONTERMINAL:
+        return False                                    # ein noch laufender oder auf die CI wartender Auftrag hat nichts fortzusetzen
     if merge_gated(cfg, state) and state["status"] == "completed" and not state.get("merged"):
         return False                                    # das Merge-Gate stoesst nach dem Merge an; ein Anstoss jetzt verbraucht nur Versuche
     previous = state.get("followup_request")
@@ -822,6 +895,15 @@ def run_watchdog(api: GitHubApi, cfg: Config, now: dt.datetime | None = None, di
         if has_stop_label(issue):
             set_state(api, issue, state, "stopped", note="Per Label `jarvis:stop` angehalten.")
             actions.append(f"#{n}: stopped")
+            continue
+        if state["status"] == "awaiting_ci":                 # das Merge-Gate loest den Zustand auf; hier nur die Frist (Kette endet sichtbar, nichts wird erraten)
+            if now > parse_iso(state.get("ci_deadline") or state["deadline"]):
+                fresh = api.get_issue(n)
+                fresh_state = own_job_issue(fresh) if fresh else None
+                if fresh_state and fresh_state["status"] == "awaiting_ci":
+                    set_state(api, fresh, fresh_state, "timeout", note=f"Kein CI-Ergebnis fuer den Pull Request bis {state.get('ci_deadline')}.")
+                    api.add_comment(n, "Zeitüberschreitung: kein CI-Ergebnis. Die Kette wird nicht automatisch fortgesetzt.")
+                    actions.append(f"#{n}: timeout (CI)")
             continue
         if state["status"] == "queued":
             if now - parse_iso(state["created_at"]) > dt.timedelta(minutes=QUEUED_GRACE_MIN):
@@ -929,7 +1011,8 @@ def run_controller(api: GitHubApi, cfg: Config, *, after_job: int, backlog_path:
     item, chain = plan["item"], state["chain"]
     marked = {**state, "followup": {"started": True, "item": item["id"], "reason": reason}}
     api.update_issue(after_job, body=render_body(marked, f"Folgeauftrag wird gestartet: {item['id']} ({reason})."))
-    new_chain = {**chain, "index": chain["index"] + 1, "item_id": item["id"], "attempt": plan["attempt"]}
+    new_chain = {**{k: v for k, v in chain.items() if k != "acceptance_count"}, "index": chain["index"] + 1, "item_id": item["id"], "attempt": plan["attempt"],
+                 **({"acceptance_count": len(item["acceptance"])} if item.get("acceptance") else {})}
     if merged:
         base = cfg.default_branch                         # die Arbeit des Vorgaengers ist gemergt; kein gestapelter Branch
     else:

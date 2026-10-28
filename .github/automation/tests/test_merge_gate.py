@@ -65,6 +65,11 @@ class GateApi(FakeApi):
             return {"merged": True}
         if method == "PATCH" and "/issues/comments/" in path:
             self.edited.append((path, body))
+            cid = int(path.rsplit("/", 1)[1])
+            for comments in self.comments.values():
+                for c in comments:
+                    if c["id"] == cid:
+                        c["body"] = body["body"]                                   # like GitHub: the edited comment shows the new text
             return {}
         raise AssertionError(f"unerwarteter Aufruf {method} {path}")
 
