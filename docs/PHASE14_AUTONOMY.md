@@ -62,7 +62,7 @@ Die Meldung gibt die **tatsaechliche Antwort** der Schnittstelle wieder: *Abgebr
    danach keine neue Aktion ohne `resume`), GUI-Test, Audit-Eintrag.
 2. ~~**Sichtbarkeit laufender autonomer Arbeit.**~~ *(umgesetzt, siehe oben)* Urspruengliche Vorgabe: Statusbereich der GUI um aktive Ziele/Tasks mit Abbrechen-Knopf (nutzt nur `cancel`). *Abnahme:* Model- und View-Tests; der
    Knopf ruft ausschliesslich `cancel`/`halt`.
-3. **Autonomie-Invarianten als Tests.** Tests, die die harten Limits und Voreinstellungen festnageln (`enabled=false`, Obergrenzen, Replanning-Verbote) und per AST pruefen,
+3. ~~**Autonomie-Invarianten als Tests.**~~ *(umgesetzt: `tests/test_autonomy_invariants.py`, 140 Tests; Linux-Lauf: volle Suite 3669 passed / 76 skipped; Windows-Nachweis ausstehend bis zum CI-Windows-Lauf)* Urspruengliche Vorgabe: Tests, die die harten Limits und Voreinstellungen festnageln (`enabled=false`, Obergrenzen, Replanning-Verbote) und per AST pruefen,
    dass `goals/` und `agents/` Tools nur ueber `ToolRegistry` aufrufen. *Abnahme:* Tests schlagen an, wenn jemand ein Limit lockert oder die Kontrollstelle umgeht.
 4. **Gesamtbudget pro Sitzung (optional).** Obergrenze fuer Tool-Aufrufe/Laufzeit ueber alle Ziele; bei Ueberschreitung Stopp mit klarer Meldung. *Abnahme:* Tests mit Fake-Uhr.
 5. **Nicht ohne neue, ausdrueckliche Entscheidung:** Hintergrund-/zeitgesteuerte Ziele, Selbststart, Fernsteuerung. Mindestvoraussetzungen waeren: `lockdown` oder
