@@ -2,7 +2,7 @@
   "_comment": "Freigegebene Arbeitsschritte fuer die automatische Fortsetzung. Nur Eintraege mit approved=true werden je gestartet; done=true = bereits gemergt, wird nie erneut gestartet. Aenderungen nur per Pull Request, den du selbst mergst (.github/ ist geschuetzt). Quelle der Schritte: docs/PHASE14_AUTONOMY.md.",
   "plan": {
     "id": "pc-v1",
-    "approved": false,
+    "approved": true,
     "approved_items": [
       "windows-capture-tests",
       "coding-windows-process-tree",
