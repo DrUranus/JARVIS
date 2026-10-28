@@ -611,3 +611,18 @@ def test_main_report_dispatches_controller_only_when_accepted(tmp_path, monkeypa
 def test_main_unknown_command_and_missing_token():
     assert ja.main(["x", "bogus"], {"GITHUB_REPOSITORY": REPO, "GITHUB_TOKEN": "t"}) == 2
     assert ja.main(["x", "start"], {"GITHUB_REPOSITORY": REPO}) == 1
+
+
+@pytest.mark.parametrize("raw", ["", "  ", "abc", "-3", "0", "1.5"])
+def test_main_controller_ohne_gueltiges_after_job_startet_nichts(raw, monkeypatch):
+    """Regression: leeres AFTER_JOB (Korrekturauftrag/Dispatch ohne Eingabe) darf nicht mit ValueError abstuerzen."""
+    def boom(*a, **k):
+        raise AssertionError("run_controller darf ohne gueltiges AFTER_JOB nicht laufen")
+    monkeypatch.setattr(ja, "run_controller", boom)
+    env = {"GITHUB_REPOSITORY": REPO, "GITHUB_TOKEN": "t", "AFTER_JOB": raw}
+    assert ja.main(["x", "controller"], env) == 0
+
+
+def test_main_controller_ohne_after_job_variable(monkeypatch):
+    monkeypatch.setattr(ja, "run_controller", lambda *a, **k: pytest.fail("darf nicht laufen"))
+    assert ja.main(["x", "controller"], {"GITHUB_REPOSITORY": REPO, "GITHUB_TOKEN": "t"}) == 0
