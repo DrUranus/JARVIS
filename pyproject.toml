@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "mss>=9.0; sys_platform == 'win32'"]  # mss: real capture tests on Windows
 computer = ["pyautogui>=0.9.54", "mss>=9.0", "python-xlib>=0.33; sys_platform != 'win32'"]  # mouse/keyboard/screenshots
 browser = ["playwright>=1.49"]  # browser agent (then: python -m playwright install chromium; Edge/Chrome need no download)
 voice = ["sounddevice>=0.4", "numpy>=1.24"]   # microphone capture (needs the PortAudio system library); numpy: SystemPlayer on Windows plays through sounddevice with numpy samples
