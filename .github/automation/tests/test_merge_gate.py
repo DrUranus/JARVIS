@@ -343,3 +343,98 @@ def test_controller_repair_step_only_with_fire_secrets_in_controller():
     text, doc = load("jarvis-controller.yml")
     assert "merge_gate.py repair" in text and "pull-requests: write" not in text
     assert "secrets.ROUTINE_FIRE" in text
+
+
+# ---- Merge -> Folgeauftrag (Fortsetzung erst nach gruener CI und Merge) ------------------------------------------------
+
+CHAIN_ENV = {"JARVIS_AUTO_MERGE_ENABLED": "true", "JARVIS_AUTO_CONTINUE_ENABLED": "true"}
+
+
+def finished_job(api, *, auto_continue=True):
+    """Ein abgeschlossener, freigegebener Backlog-Auftrag step-a, dessen Bericht genau zum PR-Head passt."""
+    api.branches["claude/work"] = "c" * 40
+    start(api, item_id="step-a", auto_continue=auto_continue, chain_budget=3)
+    ja.set_state(api, api.get_issue(1), state_of(api, 1), "completed", extra={"report": {
+        "branch": "claude/work", "commits": [HEAD[:10]], "tests": [{"name": "u", "result": "passed"}], "next_action": "continue", "status": "success"}})
+
+
+def test_merge_marks_the_job_merged_and_requests_exactly_one_controller_run():
+    api = GateApi(reviews=[])
+    finished_job(api)
+    run(api, **CHAIN_ENV)
+    assert api.merged == [{"sha": HEAD, "merge_method": "squash"}]
+    assert state_of(api, 1)["merged"]["pr"] == 7 and state_of(api, 1)["merged"]["sha"] == HEAD
+    assert [d[0] for d in api.dispatched] == ["jarvis-controller.yml"] and api.dispatched[0][2] == {"after_job": "1"}
+    run(api, **CHAIN_ENV)                                                     # zweiter Gate-Lauf: PR ist weg/gemergt -> kein zweiter Anstoss
+    assert len(api.dispatched) == 1                                           # Karenzzeit/Marke verhindert einen zweiten Anstoss
+
+
+@pytest.mark.parametrize("env,auto_continue", [
+    ({"JARVIS_AUTO_MERGE_ENABLED": "true"}, True),                            # Fortsetzung nicht freigeschaltet
+    ({**CHAIN_ENV, "JARVIS_AUTOMATION_HALT": "true"}, True),                  # angehalten
+    (CHAIN_ENV, False),                                                       # Kette ohne auto_continue
+])
+def test_merge_without_continuation_marks_merged_but_starts_nothing(env, auto_continue):
+    api = GateApi(reviews=[])
+    finished_job(api, auto_continue=auto_continue)
+    run(api, **env)
+    if "JARVIS_AUTOMATION_HALT" not in env:
+        assert api.merged and state_of(api, 1)["merged"]["pr"] == 7
+    assert api.dispatched == []
+
+
+def test_repair_job_is_not_mistaken_for_the_origin_job():
+    api = GateApi(reviews=[])
+    finished_job(api)
+    start(api, run_id="321", item_id="step-a", chain={"id": "c", "index": 1, "budget": 1, "auto_continue": False, "item_id": "step-a",
+                                                      "attempt": 1, "repair_of": 7})
+    ja.set_state(api, api.get_issue(2), state_of(api, 2), "completed", extra={"report": {
+        "branch": "claude/work", "commits": [HEAD[:10]], "tests": [], "next_action": "none", "status": "success"}})
+    run(api, **CHAIN_ENV)
+    assert "merged" in state_of(api, 1) and "merged" not in state_of(api, 2)
+    assert api.dispatched[0][2] == {"after_job": "1"}
+
+
+def test_failed_merge_marks_nothing_and_continues_nothing():
+    api = GateApi(reviews=[], merge_error=405)
+    finished_job(api)
+    run(api, **CHAIN_ENV)
+    assert "merged" not in state_of(api, 1) and api.dispatched == []
+
+
+@pytest.mark.parametrize("path", ["src/jarvis/permissions/engine.py", "src/jarvis/permissions/emergency.py", "src/jarvis/bootstrap.py",
+                                  "tests/test_emergency_stop.py", "tests/test_security_engine.py", "tests/test_autonomy_invariants.py",
+                                  "config/jarvis.toml", ".github/automation/backlog.json", "CLAUDE.md"])
+def test_security_critical_paths_are_never_merged_automatically(path):
+    api = GateApi(reviews=[], files=["src/jarvis/x.py", path])
+    finished_job(api)
+    run(api, **CHAIN_ENV)
+    assert api.merged == [] and "merged" not in state_of(api, 1) and api.dispatched == []
+    assert "Besitzer" in api.comments[7][0]["body"]
+
+
+def test_end_to_end_chain_with_fake_github_merge_then_next_job_on_main(tmp_path):
+    """Job 1 -> Bericht -> Gate wartet/merged -> Controller startet Job 2 auf main; Job 2 wiederholt Schritt 1 nicht."""
+    backlog = tmp_path / "b.json"
+    backlog.write_text(json.dumps({"items": [{"id": "step-a", "task": "A", "approved": True, "depends_on": []},
+                                             {"id": "step-b", "task": "B", "approved": True, "depends_on": ["step-a"]}]}))
+    api = GateApi(reviews=[])
+    api.branches["claude/work"] = "c" * 40
+    c = cfg(**CHAIN_ENV)
+    start(api, item_id="step-a", auto_continue=True, chain_budget=3, c=c)
+    ja.process_comment(api, c, api.get_issue(1), report_comment(state_of(api, 1), commits=[HEAD[:10]]))
+    assert ja.request_followup(api, c, 1, "main", NOW) is False                  # vor dem Merge nichts
+    mg.run_gate(api, c, backlog_path=backlog, dispatch=api.dispatch_workflow)     # CI gruen, freigegeben -> Merge + Anstoss
+    assert api.merged and api.dispatched[-1][2] == {"after_job": "1"}
+    fire = Fire()
+    assert ja.run_controller(api, c, after_job=1, backlog_path=backlog, run_id="900", run_attempt="1", fire_url="u", fire_token="t",
+                             fire=fire, now=NOW) == "started:2"
+    child = state_of(api, 2)
+    assert child["chain"]["item_id"] == "step-b" and child["base_branch"] == "main" and child["chain"]["index"] == 2
+
+
+@pytest.mark.parametrize("wf", ["jarvis-report.yml", "jarvis-watchdog.yml", "jarvis-controller.yml", "jarvis-merge-gate.yml"])
+def test_every_workflow_that_decides_about_followups_sees_the_auto_merge_switch(wf):
+    """Fehlt die Variable in einem dieser Laeufe, wuerde er vor dem Merge Controller-Anstoesse senden und die Versuche verbrauchen."""
+    text, _ = load(wf)
+    assert "JARVIS_AUTO_MERGE_ENABLED: ${{ vars.JARVIS_AUTO_MERGE_ENABLED }}" in text

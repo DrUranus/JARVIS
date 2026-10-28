@@ -418,9 +418,15 @@ def finish(api, n, st, **over):
     ja.process_comment(api, cfg(), api.get_issue(n), report_comment(st, **over))
 
 
+TEST_BACKLOG = Path(__import__("tempfile").mkdtemp()) / "backlog.json"
+TEST_BACKLOG.write_text(json.dumps({"items": [
+    {"id": "autonomy-invariants", "task": "Teilziel 3", "approved": True, "depends_on": [], "max_attempts": 2, "timeout_minutes": 90},
+    {"id": "session-budget", "task": "Teilziel 4", "approved": False, "depends_on": ["autonomy-invariants"]}]}))
+
+
 def controller(api, n, fire, c=None, run_id="900"):
     return ja.run_controller(api, c or cfg(JARVIS_AUTO_CONTINUE_ENABLED="true"), after_job=n,
-                             backlog_path=ROOT / ".github/automation/backlog.json", run_id=run_id, run_attempt="1",
+                             backlog_path=TEST_BACKLOG, run_id=run_id, run_attempt="1",
                              fire_url="https://example.invalid/f", fire_token="T", fire=fire, now=NOW)
 
 
@@ -485,12 +491,21 @@ def test_stop_label_prevents_followup(running):
 
 
 def test_unapproved_and_unmet_items_never_selected():
-    items = ja.load_backlog(ROOT / ".github/automation/backlog.json")
-    assert [i["id"] for i in items if i["approved"]] == ["autonomy-invariants"]
-    assert ja.select_next_item(items, set(), set())["id"] == "autonomy-invariants"
-    assert ja.select_next_item(items, {"autonomy-invariants"}, set()) is None         # session-budget nicht freigegeben
+    items = [{"id": "first", "task": "x", "approved": True, "depends_on": []},
+             {"id": "second", "task": "y", "approved": False, "depends_on": ["first"]}]
+    assert ja.select_next_item(items, set(), set())["id"] == "first"
+    assert ja.select_next_item(items, {"first"}, set()) is None                      # zweiter Schritt nicht freigegeben
     items[1]["approved"] = True
-    assert ja.select_next_item(items, set(), {"autonomy-invariants"}) is None          # Abhaengigkeit fehlt
+    assert ja.select_next_item(items, set(), {"first"}) is None                      # Abhaengigkeit fehlt
+    assert ja.select_next_item(items, {"first"}, set())["id"] == "second"
+
+
+def test_shipped_backlog_approvals_are_exactly_the_owner_approved_steps():
+    """Jede neue Freigabe im echten Backlog ist eine bewusste, vom Besitzer gemergte Aenderung - und muss hier mit eingetragen werden."""
+    items = ja.load_backlog(ROOT / ".github/automation/backlog.json")
+    assert [i["id"] for i in items if i["approved"]] == ["autonomy-invariants", "session-budget"]
+    assert [i["id"] for i in items if i.get("done")] == ["autonomy-invariants"]
+    assert ja.select_next_item(items, set(), set())["id"] == "session-budget"          # Teilziel 3 ist erledigt, Teilziel 4 ist der naechste Schritt
 
 
 def test_retry_after_failure_is_bounded():
@@ -626,3 +641,78 @@ def test_main_controller_ohne_gueltiges_after_job_startet_nichts(raw, monkeypatc
 def test_main_controller_ohne_after_job_variable(monkeypatch):
     monkeypatch.setattr(ja, "run_controller", lambda *a, **k: pytest.fail("darf nicht laufen"))
     assert ja.main(["x", "controller"], {"GITHUB_REPOSITORY": REPO, "GITHUB_TOKEN": "t"}) == 0
+
+
+# ---- Backlog: erledigte Schritte ------------------------------------------------------------------------------------
+
+def test_done_items_are_never_selected_and_satisfy_dependencies():
+    items = [{"id": "a", "task": "x", "approved": True, "done": True, "depends_on": []},
+             {"id": "b", "task": "y", "approved": True, "depends_on": ["a"]},
+             {"id": "c", "task": "z", "approved": True, "depends_on": ["b"]}]
+    assert ja.select_next_item(items, set(), set())["id"] == "b"
+    assert ja.select_next_item(items, {"b"}, set())["id"] == "c"
+    assert ja.select_next_item([{**items[0], "approved": False}], set(), set()) is None
+    assert ja.select_next_item([{**items[0]}], set(), set()) is None
+
+
+def test_shipped_backlog_loads_and_has_no_unapproved_selectable_item():
+    items = ja.load_backlog(ROOT / ".github/automation/backlog.json")
+    assert items and all(isinstance(i.get("done", False), bool) for i in items)
+
+
+# ---- Fortsetzung erst nach Merge (JARVIS_AUTO_MERGE_ENABLED) -------------------------------------------------------------
+
+MERGE_ENV = {"JARVIS_AUTO_CONTINUE_ENABLED": "true", "JARVIS_AUTO_MERGE_ENABLED": "true"}
+
+
+@pytest.fixture
+def gated():
+    api = FakeApi()
+    start(api, auto_continue=True, chain_budget=3, item_id="vorgaenger")
+    st = state_of(api, 1)
+    ja.process_comment(api, cfg(**MERGE_ENV), api.get_issue(1), report_comment(st))
+    return api
+
+
+def test_followup_waits_for_merge_when_auto_merge_is_on(gated):
+    api = gated
+    fire = Fire()
+    c = cfg(**MERGE_ENV)
+    assert ja.request_followup(api, c, 1, "main", NOW) is False and api.dispatched == []
+    assert controller(api, 1, fire, c=c) == "deferred:wartet-auf-merge"
+    assert fire.calls == [] and state_of(api, 1).get("followup") is None and len(api.issues) == 1
+
+
+def test_followup_after_merge_starts_from_default_branch_not_from_the_merged_branch(gated):
+    api = gated
+    c = cfg(**MERGE_ENV)
+    assert ja.mark_merged(api, 1, pr_number=7, sha="d" * 40, now=NOW) is True
+    assert state_of(api, 1)["merged"] == {"pr": 7, "sha": "d" * 40, "at": ja.iso(NOW)}
+    assert ja.request_followup(api, c, 1, "main", NOW) is True and api.dispatched[-1][2] == {"after_job": "1"}
+    api.branches.pop("claude/work")                                          # Branch wurde nach dem Merge geloescht
+    fire = Fire()
+    assert controller(api, 1, fire, c=c) == "started:2"
+    child = state_of(api, 2)
+    assert child["base_branch"] == "main" and child["chain"]["item_id"] == "autonomy-invariants" and child["parent_issue"] == 1
+
+
+def test_mark_merged_is_idempotent_and_refuses_unfinished_jobs(gated):
+    api = gated
+    assert ja.mark_merged(api, 1, pr_number=7, sha="d" * 40, now=NOW) is True
+    assert ja.mark_merged(api, 1, pr_number=8, sha="e" * 40, now=NOW) is False and state_of(api, 1)["merged"]["pr"] == 7
+    start(api, run_id="777", item_id="x")                                    # laufender Auftrag #2
+    assert ja.mark_merged(api, 2, pr_number=9, sha="f" * 40, now=NOW) is False and "merged" not in state_of(api, 2)
+
+
+def test_without_auto_merge_the_old_behaviour_is_unchanged():
+    api = FakeApi()
+    start(api, auto_continue=True, chain_budget=3, item_id="vorgaenger")
+    ja.process_comment(api, cfg(), api.get_issue(1), report_comment(state_of(api, 1)))
+    assert controller(api, 1, Fire()) == "started:2" and state_of(api, 2)["base_branch"] == "claude/work"
+
+
+def test_failed_job_retry_is_not_held_back_by_the_merge_gate():
+    api = FakeApi()
+    start(api, auto_continue=True, chain_budget=3, item_id="autonomy-invariants")
+    ja.process_comment(api, cfg(), api.get_issue(1), report_comment(state_of(api, 1), status="failed", next_action={"type": "none", "reason": ""}))
+    assert controller(api, 1, Fire(), c=cfg(**MERGE_ENV)) == "started:2" and state_of(api, 2)["chain"]["attempt"] == 2

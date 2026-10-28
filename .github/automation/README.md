@@ -1,7 +1,8 @@
 # JARVIS-Entwicklungsautomatisierung
 
 Steuerung von Claude-Code-Routine-Aufträgen über GitHub. **Kein JARVIS-Anwendungscode** – nur `.github/`.
-Es gibt **keinen automatischen Merge**; Ergebnisse landen auf `claude/*`-Branches und werden von dir geprüft und gemergt.
+Ergebnisse landen auf `claude/*`-Branches und in Pull Requests. Gemergt wird **nur** durch das Merge-Gate (`merge_gate.py`, Variable `JARVIS_AUTO_MERGE_ENABLED=true`)
+und nur bei vollständigem Nachweis; ohne die Variable erstellt das Gate nur Statusberichte. Änderungen an geschützten Pfaden mergt immer der Besitzer.
 
 ## Ablauf
 
@@ -23,6 +24,26 @@ Zustände: `queued → running → completed | partial | failed | blocked | time
 Endzustände sind endgültig (Statusautomat in `set_state`, getestet). Jeder Auftrag ist über sein Issue vom Start bis zum Ende nachvollziehbar
 (Zustandsblock, Statuskommentare, Session-Link, Berichtskommentar, Eltern-/Kind-Verweise).
 
+## Vollautomatische Kette (Auftrag → CI → Merge → nächster Auftrag)
+
+```
+Controller startet Schritt N (Backlog, approved=true, nicht done)  →  Routine implementiert, testet, öffnet PR [JARVIS] <Schritt>, berichtet
+  →  pr-tests: tests-linux + tests-windows auf genau dem Head-Commit  →  Merge-Gate (alle 20 min / nach pr-tests):
+       grün + freigegeben + nicht hinter main + keine geschützten Pfade  →  Squash-Merge mit geprüfter SHA, Vermerk `merged` im Auftrags-Issue
+       rot  →  Korrekturauftrag auf demselben Branch (höchstens 3 je PR), danach „blockiert – Besitzer nötig“
+  →  Gate stößt den Controller genau einmal an  →  Controller startet Schritt N+1 **auf main** (nicht auf dem gemergten Branch)
+```
+
+Mit `JARVIS_AUTO_MERGE_ENABLED=true` und `auto_continue` startet ein Folgeauftrag **erst nach dem Merge** des PR des Vorgängers (`merge_gated`): Bericht und Watchdog
+stoßen den Controller vorher nicht an. Wird der PR nie gemergt (rot, Konflikt, geschützter Pfad, kein Merge-Recht), endet die Kette sichtbar am PR-Statuskommentar und am
+Auftrags-Issue; es wird nichts erraten oder umgangen. Erledigte Schritte stehen mit `"done": true` im Backlog und werden nie erneut gestartet.
+
+**Nie automatisch gemergt** (immer Besitzer): `.github/`, `CLAUDE.md`, `.claude/`, `config/jarvis.toml`, `src/jarvis/permissions/`, `src/jarvis/bootstrap.py`,
+`tests/test_emergency_stop.py`, `tests/test_security_*`, `tests/test_autonomy_invariants.py` (`PROTECTED_PATHS`).
+Grenzen der Kette: `chain_budget` hart ≤ 5 Aufträge je Kette, `JARVIS_MAX_JOBS_PER_DAY` (Standard 10, hart ≤ 50), ein aktiver Auftrag, höchstens 3 Versuche je Schritt,
+Stopp per `JARVIS_AUTOMATION_HALT=true` oder Label `jarvis:stop`. Neustart-fest: der Zustand liegt in den Tracking-Issues; der Watchdog (15 min) holt verlorene Berichte,
+Timeouts und verlorene Controller-Anstöße (≤ 2 h) nach.
+
 ## Folgeaufträge (nur wenn **alle** Bedingungen gelten – `decide_followup`)
 
 - Start mit `auto_continue=true` **und** Repository-Variable `JARVIS_AUTO_CONTINUE_ENABLED=true`
@@ -41,7 +62,7 @@ Endzustände sind endgültig (Statusautomat in `set_state`, getestet). Jeder Auf
   nie im Routine-Text, nie im Log. **Kein OpenAI-Schlüssel**: Es gibt keine OpenAI-Auswertung, sie ist bewusst nicht gebaut.
 - Berichte/Kommentare sind Daten: Absender (Login muss in `JARVIS_TRUSTED_REPORTERS`, Standard: Repository-Besitzer), Issue vom Bot angelegt, Label,
   Auftrags-ID, Session-ID, Schema, Längen, Branch-Regex, PR-URL nur dieses Repos. Ausgabe nur gequotet (Backticks entfernt, `@` entschärft).
-- Der `issue_comment`-Workflow checkt nur den Standard-Branch aus, hat keine Secrets und kein `contents: write`. Kein Workflow hat Merge-Funktion.
+- Der `issue_comment`-Workflow checkt nur den Standard-Branch aus, hat keine Secrets und kein `contents: write`. Nur `jarvis-merge-gate.yml` darf mergen (`contents: write`, ohne Fire-Secrets, ohne PR-Code).
 - Routine-Protokoll verbietet Änderungen unter `.github/`, Pushes auf `main`, Merges, Folgeaufträge. Durchgesetzt wird das nur durch Branch-Schutz/CODEOWNERS (unten) – nicht durch dieses Repo allein.
 - Stopp: Variable `JARVIS_AUTOMATION_HALT=true` (blockiert Start, Berichte, Folgeaufträge) oder Label `jarvis:stop` am Issue (Watchdog beendet den Auftrag, Kette endet).
 
@@ -59,8 +80,11 @@ Endzustände sind endgültig (Statusautomat in `set_state`, getestet). Jeder Auf
    `JARVIS_TRUSTED_REPORTERS` (Standard: Repository-Besitzer; **falls die Routine als App-Konto postet, dessen Login eintragen**, z. B. `claude[bot]`),
    `JARVIS_BASE_BRANCH` (Standard `claude/inspiring-ritchie-8ljinw`), `JARVIS_AUTO_CONTINUE_ENABLED` (erst `true`, wenn der erste Einzelauftrag sauber lief),
    `JARVIS_MAX_CHAIN_JOBS`, `JARVIS_MAX_JOBS_PER_DAY`, `JARVIS_AUTOMATION_HALT`.
-7. **Branch-Schutz für `main`** (Ruleset): PR + Review erforderlich, Code-Owner-Review (`.github/CODEOWNERS` liegt bei), keine Direkt-Pushes, kein Force-Push.
-   Das ist die eigentliche Sperre gegen automatische Merges und Workflow-Manipulation.
+7. **Branch-Schutz für `main`** (Ruleset): PR erforderlich, **Pflichtprüfungen `tests-linux` und `tests-windows`**, „Require review from Code Owners“ mit **0 erforderlichen Approvals**
+   (dann braucht nur ein PR mit Dateien aus `.github/CODEOWNERS` den Besitzer; alle anderen kann das Gate mergen), keine Direkt-Pushes, kein Force-Push.
+   Bei „1 Approval für alle PRs“ lehnt GitHub den Gate-Merge ab (HTTP 405, im PR-Statuskommentar sichtbar) – dann läuft nichts automatisch.
+8. **Auto-Merge einschalten** erst nach dem ersten grünen Trockenlauf (Statuskommentar „Bereit zum Merge“): Variablen `JARVIS_AUTO_MERGE_ENABLED=true` und `JARVIS_AUTO_CONTINUE_ENABLED=true`.
+   Start der Kette: Actions → „Trigger Claude Code Routine“ mit `auto_continue=true`, `chain_budget` (≤ 5). Notbremse: `JARVIS_AUTOMATION_HALT=true`.
 
 ## Erster Test (klein, nach dem Merge)
 
