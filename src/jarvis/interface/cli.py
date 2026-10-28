@@ -29,6 +29,7 @@ HELP = """Befehle:
   /audit [n]     Letzte Sicherheitsereignisse
   /revoke        Sitzungsfreigaben widerrufen
   /notaus        NOTAUS: sperrt sofort alle Aktionen/Ziele/Tool-Aufrufe und stoppt Komponenten (reset = aufheben, nur mit ausdrücklicher Bestätigung; status)
+  /budget        Sitzungsbudget (Tool-Aufrufe, Laufzeit): Verbrauch, nur lesend
   /computer      Status der Computersteuerung (stop = Notaus, resume = fortsetzen)
   /browser       Browser-Agent: Status | start | stop | pages | halt (Notaus) | resume (sonst: /run browser action=...)
   /coding        Coding-Agent: Status | halt (Notaus) | resume | stop (Sitzung beenden) (sonst: /run coding action=...)
@@ -92,6 +93,8 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
         return _tail_audit(core, arg)
     if cmd in ("/notaus", "/emergency"):
         return _emergency(core, arg)
+    if cmd == "/budget":
+        return _budget_status(core, arg)
     if cmd == "/revoke":
         return f"{core.permissions.revoke_session_grants('revoked by user')} Sitzungsfreigabe(n) widerrufen."
     if cmd == "/remember":
@@ -616,6 +619,19 @@ def _emergency(core: JarvisCore, arg: str) -> str:
         res = engine.reset_emergency_stop("cli")
         return res.detail + ("" if not res.problems else "\n  " + "\n  ".join(res.problems))
     return "Verwendung: /notaus | /notaus status | /notaus reset"
+
+
+def _budget_status(core: JarvisCore, arg: str) -> str:
+    """`/budget` shows the session budget read-only; there is no command to reset or raise it."""
+    if arg.strip():
+        return "Verwendung: /budget (nur Anzeige; das Budget lässt sich im laufenden Prozess nicht zurücksetzen oder erhöhen)"
+    b = getattr(core.permissions, "budget", None)
+    if b is None:
+        return "Sitzungsbudget nicht aktiviert ([budget] enabled = false)."
+    u = b.usage()
+    state = "ERSCHÖPFT: weitere Aktionen werden verweigert" if u["exhausted"] else "aktiv"
+    return (f"Sitzungsbudget ({state}): Tool-Aufrufe {u['calls']}/{u['max_calls']}, "
+            f"Laufzeit {u['elapsed_seconds']:.0f}s/{u['max_seconds']:.0f}s (beginnt mit der ersten Aktion)")
 
 
 def _describe_permissions(core: JarvisCore) -> str:

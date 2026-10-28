@@ -82,6 +82,14 @@ class SecuritySettings:
 
 
 @dataclass(frozen=True)
+class BudgetSettings:
+    """Session budget (Phase 14, sub-goal 4): total tool calls and run time for the whole process. OFF by default."""
+    enabled: bool = False
+    max_tool_calls: int = 500            # hard limit 100000
+    max_runtime_seconds: float = 3600.0  # hard limit 86400
+
+
+@dataclass(frozen=True)
 class ComputerSettings:
     """Computer control (mouse, keyboard, screen, windows, applications). Opt-in; every action is permission-checked."""
     enabled: bool = False              # off by default: moving the mouse / typing is a serious capability
@@ -257,6 +265,7 @@ class Settings:
     voice: VoiceSettings = field(default_factory=VoiceSettings)
     memory: MemorySettings = field(default_factory=MemorySettings)
     security: SecuritySettings = field(default_factory=SecuritySettings)
+    budget: BudgetSettings = field(default_factory=BudgetSettings)
     computer: ComputerSettings = field(default_factory=ComputerSettings)
     browser: BrowserSettings = field(default_factory=BrowserSettings)
     coding: CodingSettings = field(default_factory=CodingSettings)
@@ -310,6 +319,9 @@ class Settings:
             raise ConfigError("security.session_ttl_seconds must be positive")
         if any(not r.strip() for r in (*sec.allowed_roots, *sec.denied_paths)):
             raise ConfigError("security.allowed_roots/denied_paths must not contain empty entries")
+        bu = self.budget
+        if not 1 <= bu.max_tool_calls <= 100_000 or not 0 < bu.max_runtime_seconds <= 86_400:
+            raise ConfigError("budget.max_tool_calls 1..100000, max_runtime_seconds 0..86400 (positive)")
         c = self.computer
         if c.backend not in COMPUTER_BACKENDS:
             raise ConfigError(f"computer.backend must be one of {COMPUTER_BACKENDS}, got {c.backend!r}")

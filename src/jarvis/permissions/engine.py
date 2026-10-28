@@ -21,6 +21,7 @@ from jarvis.errors import InvalidRequestError, PermissionDeniedError, PolicyErro
 from jarvis.permissions.audit import AuditEvent, AuditEventType, AuditLogger, AuditSink
 from jarvis.permissions.confirmation import ConfirmationChoice, ConfirmationProvider, ConfirmationRequest
 from jarvis.permissions.decision import DecisionStatus, GrantScope, PermissionDecision
+from jarvis.permissions.budget import SessionBudget
 from jarvis.permissions.emergency import EmergencyStop, ResetResult
 from jarvis.permissions.grants import ExecutionGrant, SessionGrants, SessionKey, _SEAL, _enter_scope
 from jarvis.permissions.levels import PermissionLevel, max_level
@@ -75,7 +76,7 @@ class PermissionEngine:
                  allow_session_grants: bool = True, session_ttl: float = 3600.0,
                  trust_caller_confirmation: bool = False, undeclared_level: PermissionLevel = Level.YELLOW,
                  require_protected_tools: bool = True, audit_strict: bool = True, audit_green: bool = False,
-                 clock: Callable[[], float] = time.monotonic) -> None:
+                 clock: Callable[[], float] = time.monotonic, budget: SessionBudget | None = None) -> None:
         self._redactor = redactor or SecretDetector()
         self._guard = path_guard or PathGuard()
         self._policy = policy or Policy()
@@ -91,6 +92,7 @@ class PermissionEngine:
         self._require_protected_tools = require_protected_tools
         self._audit_strict, self._audit_green = audit_strict, audit_green
         self._clock = clock
+        self._budget = budget                 # total tool-call / run-time cap for this process (None = off); fixed at construction
         self._session = SessionGrants(session_ttl, clock)
         self._approved: dict[str, tuple[float, str | None, str | None, str, PermissionDecision]] = {}
         self._lock = threading.RLock()
@@ -118,6 +120,7 @@ class PermissionEngine:
     require_protected_tools = property(lambda self: self._require_protected_tools)
     audit_strict = property(lambda self: self._audit_strict)
     audit_green = property(lambda self: self._audit_green)
+    budget = property(lambda self: self._budget)
 
     def set_confirmation_provider(self, provider: ConfirmationProvider | None, source: str = "api") -> None:
         """Install the provider that asks the user (e.g. a voice or GUI one). Audited; None = nobody can be asked."""
@@ -181,6 +184,10 @@ class PermissionEngine:
     def _evaluate(self, request: Any) -> _Eval:
         if self.emergency.engaged:                                    # checked first: nothing is judged, nothing is approved while the stop is on
             return _Eval(self._deny(DecisionStatus.DENIED, f"emergency stop active ({self.emergency.reason}); everything is denied until it is reset", request))
+        if self._budget is not None:                                  # right after the stop: a spent budget denies everything new (dry run: nothing is booked)
+            why = self._budget.denial()
+            if why:
+                return _Eval(self._deny(DecisionStatus.DENIED, why, request, rule="invariant:budget"))
         if type(request) is not PermissionRequest:  # no subclasses: they could override validation or properties
             return _Eval(self._deny(DecisionStatus.INVALID_REQUEST, "not a PermissionRequest", None))
         try:
@@ -292,10 +299,23 @@ class PermissionEngine:
                                    request, level=d.level, resource=d.resolved_resource)
                     self._emit(AuditEventType.PERMISSION_DENIED, request, decision=d)
                     return d
+            if self._budget is not None:                       # booked only now, at the approval: declined/denied calls consume nothing
+                why = self._budget.book()
+                if why:
+                    d = self._deny(DecisionStatus.DENIED, why, request, level=d.level, rule="invariant:budget", resource=d.resolved_resource)
+                    self._emit(AuditEventType.PERMISSION_DENIED, request, decision=d)
+                    self._note_budget_exhausted(request)
+                    return d
             self._approve(request, d, ev.resource)
             return d
         self._emit(AuditEventType.PERMISSION_DENIED, request, decision=d)
+        if d.matched_rule == "invariant:budget":
+            self._note_budget_exhausted(request)
         return d
+
+    def _note_budget_exhausted(self, request: Any) -> None:
+        if self._budget is not None and self._budget.take_exhaustion_notice():
+            self._emit(AuditEventType.BUDGET_EXHAUSTED, request, detail=self.redact(str(self._budget.usage()))[:300])
 
     def _confirm(self, request: PermissionRequest, first: _Eval) -> PermissionDecision:
         with self._confirm_lock:
@@ -362,6 +382,11 @@ class PermissionEngine:
         if self.emergency.engaged:                                    # an approval issued just before the stop is void
             self._emit(AuditEventType.SECURITY_ERROR, request, detail="execution blocked: emergency stop active")
             raise PermissionDeniedError("emergency stop active")
+        if self._budget is not None:                                  # the run time may have run out since the approval
+            why = self._budget.time_denial()
+            if why:
+                self._emit(AuditEventType.SECURITY_ERROR, request, detail=f"execution blocked: {why}")
+                raise PermissionDeniedError(why)
         valid = False
         try:
             valid = (entry is not None and type(request) is PermissionRequest and decision == entry[4]
@@ -435,4 +460,5 @@ class PermissionEngine:
                 "rules": [r.to_dict() for r in self._policy.rules], "session_grants": self.session_grants(),
                 "confirmation": type(self._confirmation).__name__ if self._confirmation else None,
                 "session_grants_allowed": self._allow_session_grants, "policy_fingerprint": self._policy.fingerprint,
-                "emergency_stop": {"engaged": self.emergency.engaged, "reason": self.emergency.reason}}
+                "emergency_stop": {"engaged": self.emergency.engaged, "reason": self.emergency.reason},
+                "budget": self._budget.usage() if self._budget is not None else None}

@@ -36,7 +36,8 @@ class AuditEventType(str, Enum):
     CALLER_CONFIRMATION_IGNORED = "caller_confirmation_ignored"
     SECURITY_ERROR = "security_error"
     IMPROVEMENT = "improvement"     # self-improvement lifecycle event (tool="self_improvement")
-    EMERGENCY_STOP = "emergency_stop"      # the emergency stop was engaged / a stop report was produced / a reset was asked, denied or done
+    BUDGET_EXHAUSTED = "budget_exhausted"  # the session budget (tool calls / run time) ran out; logged once
+    EMERGENCY_STOP = "emergency_stop"     # the emergency stop was engaged / a stop report was produced / a reset was asked, denied or done
 
 
 @dataclass(frozen=True)

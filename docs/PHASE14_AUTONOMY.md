@@ -55,6 +55,14 @@ GUI-Reiter *Status*, Abschnitt "Laufende Arbeit": nicht beendete Ziele (`core.li
 
 Die Meldung gibt die **tatsaechliche Antwort** der Schnittstelle wieder: *Abgebrochen* nur, wenn sie den Abbruch angenommen hat und der Eintrag beendet ist; *Abbruch angefordert (kooperativ)*, wenn er angenommen wurde, die Arbeit aber noch laeuft; *Nicht abgebrochen* mit der Begruendung der Schnittstelle (z. B. Agent ohne Abbruchunterstuetzung, bereits beendet); *Abbruch fehlgeschlagen* bei einem Fehler. Eine nicht lesbare Quelle erscheint als Hinweis statt zu fehlen; ausgeschaltete Quellen (Standard fuer Ziele, Agenten, Self-Repair) werden benannt. Grenzen: der Abbruch bleibt kooperativ; eine laufende `core.handle`-/LLM-Anfrage taucht hier nicht auf und ist nicht abbrechbar (dafuer gibt es den Notaus); die Liste ist eine Momentaufnahme (Aktualisieren) und zeigt hoechstens 50 Eintraege je Art.
 
+## Gesamtbudget pro Sitzung (Teilziel 4) - umgesetzt, standardmaessig aus
+
+`permissions/budget.py` (`SessionBudget`), gehalten von der `PermissionEngine` (weiterhin die einzige Kontrollstelle). Gezaehlt werden **alle** genehmigten Tool-Aufrufe (auch GREEN) ueber alle Ziele und Agenten des Prozesses; die Laufzeit beginnt mit der ersten gebuchten Aktion (monotonic). Geprueft wird in `_evaluate` direkt nach dem Notaus (Notaus hat Vorrang; `evaluate()` bucht nichts), gebucht atomar erst bei der Genehmigung (verweigerte, abgelehnte oder RED-Aufrufe verbrauchen nichts; nie mehr als N gebucht, auch parallel), und `execution_scope` prueft die Laufzeit erneut. Ueberschreitung verweigert nur weitere Aktionen (Regel `invariant:budget`, Meldung mit Verbrauch) und bricht nichts ab; das Audit-Ereignis `budget_exhausted` wird einmal geschrieben. Kein Zuruecksetzen oder Erhoehen im laufenden Prozess: das Objekt hat keine solche Methode, die Engine zeigt es nur lesend, und kein Tool-, Agenten-, Ziel- oder Speichercode darf darauf zugreifen (Strukturtest). CLI `/budget` zeigt den Verbrauch nur lesend.
+
+Konfiguration `[budget]` (Umgebung `JARVIS_BUDGET_<FELD>`): `enabled = false` (Standard), `max_tool_calls = 500` (hart 1..100000), `max_runtime_seconds = 3600` (hart 1..86400); unbekannte Schluessel werden abgelehnt. Der Abschnitt steht noch **nicht** in `config/jarvis.toml` (die Datei darf nur der Besitzer aendern); die Code-Voreinstellung ist aus.
+
+Grenzen: Das Budget gilt je Prozess und wird bei einem Neustart neu begonnen; es zaehlt Aufrufe, keine Kosten (Tokens/Geld). Ein laufender `core.handle`-/LLM-Aufruf ist weiterhin nicht unterbrechbar. Ein Aufruf, der kurz vor Ablauf genehmigt wurde, laeuft nur, solange die Laufzeit nicht ueberschritten ist (Neupruefung im Scope), kann aber danach noch beenden.
+
 ## Weitere vorgeschlagene Teilziele (jeweils aus, bis ausdruecklich freigegeben; jeweils mit Abnahmetest)
 
 1. ~~**Gemeinsamer Notaus.**~~ *(umgesetzt, siehe oben)* Urspruengliche Vorgabe: eine Funktion `core.halt_all(reason)`, die alle Subsysteme mit `halt`, offene Ziele (`cancel`) und offene Bestaetigungen abbricht; CLI `/halt` und
@@ -64,6 +72,6 @@ Die Meldung gibt die **tatsaechliche Antwort** der Schnittstelle wieder: *Abgebr
    Knopf ruft ausschliesslich `cancel`/`halt`.
 3. ~~**Autonomie-Invarianten als Tests.**~~ *(umgesetzt: `tests/test_autonomy_invariants.py`, 140 Tests; Linux-Lauf: volle Suite 3669 passed / 76 skipped; Windows-Nachweis ausstehend bis zum CI-Windows-Lauf)* Urspruengliche Vorgabe: Tests, die die harten Limits und Voreinstellungen festnageln (`enabled=false`, Obergrenzen, Replanning-Verbote) und per AST pruefen,
    dass `goals/` und `agents/` Tools nur ueber `ToolRegistry` aufrufen. *Abnahme:* Tests schlagen an, wenn jemand ein Limit lockert oder die Kontrollstelle umgeht.
-4. **Gesamtbudget pro Sitzung (optional).** Obergrenze fuer Tool-Aufrufe/Laufzeit ueber alle Ziele; bei Ueberschreitung Stopp mit klarer Meldung. *Abnahme:* Tests mit Fake-Uhr.
+4. ~~**Gesamtbudget pro Sitzung (optional).**~~ *(umgesetzt, siehe unten; Windows-Nachweis ausstehend bis zum CI-Lauf)* Urspruengliche Vorgabe: Obergrenze fuer Tool-Aufrufe/Laufzeit ueber alle Ziele; bei Ueberschreitung Stopp mit klarer Meldung. *Abnahme:* Tests mit Fake-Uhr.
 5. **Nicht ohne neue, ausdrueckliche Entscheidung:** Hintergrund-/zeitgesteuerte Ziele, Selbststart, Fernsteuerung. Mindestvoraussetzungen waeren: `lockdown` oder
    `confirmation = "deny"`, Gesamtbudget (4), gemeinsamer Notaus (1) und Sichtbarkeit (2).
