@@ -1,5 +1,19 @@
 {
   "_comment": "Freigegebene Arbeitsschritte fuer die automatische Fortsetzung. Nur Eintraege mit approved=true werden je gestartet; done=true = bereits gemergt, wird nie erneut gestartet. Aenderungen nur per Pull Request, den du selbst mergst (.github/ ist geschuetzt). Quelle der Schritte: docs/PHASE14_AUTONOMY.md.",
+  "plan": {
+    "id": "pc-v1",
+    "approved": false,
+    "approved_items": [
+      "windows-capture-tests",
+      "coding-windows-process-tree",
+      "persistent-results",
+      "onboarding-windows",
+      "memory-semantic-search",
+      "voice-barge-in-hotword",
+      "docs-sync"
+    ],
+    "_hinweis": "EINMALIGE FREIGABE: nur 'approved' auf true setzen (Besitzer, CODEOWNERS). Die Liste approved_items ist im Test festgenagelt; sicherheitskritische Schritte (audit-hash-chain, cli-confirm-timeout, llm-goal-planning, coding-llm-edits, smartphone-api-design) stehen bewusst nicht darin."
+  },
   "items": [
     {
       "id": "autonomy-invariants",
@@ -21,7 +35,168 @@
       ],
       "max_attempts": 2,
       "timeout_minutes": 120,
-      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Setze Phase-14-Teilziel 4 um: ein Gesamtbudget fuer Tool-Aufrufe und Laufzeit pro Prozesssitzung, ueber alle Ziele und Agenten. Entscheidungen (verbindlich): (1) Die PermissionEngine bleibt die einzige Kontrollstelle: neues Modul src/jarvis/permissions/budget.py (SessionBudget, eigenes kleines Lock, injizierbare Uhr), geprueft in PermissionEngine._evaluate direkt nach dem Notaus, gebucht erst bei der Genehmigung; execution_scope prueft erneut. Verweigerte Aufrufe verbrauchen nichts, evaluate() bucht nichts. (2) Gezaehlt werden Tool-Aufrufe (auch GREEN); die Laufzeit beginnt mit der ersten gebuchten Aktion (monotonic). (3) Kein Zuruecksetzen und keine Erhoehung im laufenden Prozess; weder Tools, Agenten noch Ziele koennen das Budget veraendern (Strukturtest wie beim Notaus). (4) Bei Ueberschreitung werden nur weitere Aktionen verweigert (Regel invariant:budget, klare Meldung mit Verbrauch), nichts wird automatisch abgebrochen; der Notaus bleibt unveraendert und hat Vorrang. (5) Konfiguration in config/jarvis.toml, standardmaessig AUS (enabled=false), harte Obergrenzen in config.py, unbekannte Schluessel abgelehnt; keine Standardgrenze lockern. (6) Audit-Ereignis einmal bei Erschoepfung; CLI /budget zeigt den Verbrauch nur lesend. Tests: deterministisch mit Fake-Uhr, auch Nebenlaeufigkeit (nie mehr als N gebucht), Notaus-Vorrang, Strukturtest, Config-Grenzen. Fuehre die betroffenen Tests, tests/test_*security*.py, tests/test_emergency_stop.py und die Linux-faehige Suite aus und berichte ehrlich (Linux ist kein Windows-Nachweis). Hinweis: Aenderungen unter src/jarvis/permissions/ merged das Merge-Gate nie automatisch; der Besitzer prueft und merged selbst."
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Setze Phase-14-Teilziel 4 um: ein Gesamtbudget fuer Tool-Aufrufe und Laufzeit pro Prozesssitzung, ueber alle Ziele und Agenten. Entscheidungen (verbindlich): (1) Die PermissionEngine bleibt die einzige Kontrollstelle: neues Modul src/jarvis/permissions/budget.py (SessionBudget, eigenes kleines Lock, injizierbare Uhr), geprueft in PermissionEngine._evaluate direkt nach dem Notaus, gebucht erst bei der Genehmigung; execution_scope prueft erneut. Verweigerte Aufrufe verbrauchen nichts, evaluate() bucht nichts. (2) Gezaehlt werden Tool-Aufrufe (auch GREEN); die Laufzeit beginnt mit der ersten gebuchten Aktion (monotonic). (3) Kein Zuruecksetzen und keine Erhoehung im laufenden Prozess; weder Tools, Agenten noch Ziele koennen das Budget veraendern (Strukturtest wie beim Notaus). (4) Bei Ueberschreitung werden nur weitere Aktionen verweigert (Regel invariant:budget, klare Meldung mit Verbrauch), nichts wird automatisch abgebrochen; der Notaus bleibt unveraendert und hat Vorrang. (5) Konfiguration in config/jarvis.toml, standardmaessig AUS (enabled=false), harte Obergrenzen in config.py, unbekannte Schluessel abgelehnt; keine Standardgrenze lockern. (6) Audit-Ereignis einmal bei Erschoepfung; CLI /budget zeigt den Verbrauch nur lesend. Tests: deterministisch mit Fake-Uhr, auch Nebenlaeufigkeit (nie mehr als N gebucht), Notaus-Vorrang, Strukturtest, Config-Grenzen. Fuehre die betroffenen Tests, tests/test_*security*.py, tests/test_emergency_stop.py und die Linux-faehige Suite aus und berichte ehrlich (Linux ist kein Windows-Nachweis). Hinweis: Aenderungen unter src/jarvis/permissions/ merged das Merge-Gate nie automatisch; der Besitzer prueft und merged selbst.",
+      "done": true,
+      "_note": "Umgesetzt in PR #30 (Routine). Muss done bleiben, sonst wuerde der Schritt erneut gestartet. Nur setzen/belassen, wenn #30 gemergt wird."
+    },
+    {
+      "id": "windows-capture-tests",
+      "title": "Windows: echte Tests fuer Bildschirmaufnahme und Monitore",
+      "approved": false,
+      "depends_on": [],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Ergaenze tests/test_computer_win32_real.py (oder eine neue Datei tests/test_computer_capture_win32_real.py) um echte Windows-Tests fuer die mss-basierte Aufnahme und die Monitorliste des Computer-Providers: Monitore auflisten, Screenshot eines Monitors liefert Pixelbreite/-hoehe passend zur Monitorgroesse, Fehlerfall ohne Desktop. Nur Lesen: keine Maus-/Tastatureingabe, kein Start fremder Programme. Auf Nicht-Windows und ohne interaktiven Desktop ausdruecklich uebersprungen (skipif mit Grund, nie still). Falls der Provider-Code dabei einen echten Fehler zeigt, behebe ihn minimal. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Neue Windows-only-Tests fuer Monitorliste und Screenshot (mss), auf Linux mit Grund uebersprungen",
+        "Keine Maus-/Tastatureingabe, kein Start fremder Programme",
+        "tests-windows und tests-linux im PR gruen",
+        "Gefundene echte Fehler im Provider minimal behoben und benannt"
+      ]
+    },
+    {
+      "id": "coding-windows-process-tree",
+      "title": "Coding-Agent: Testlauf beendet unter Windows den ganzen Prozessbaum",
+      "approved": false,
+      "depends_on": [],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Der Coding-Test-Runner beendet unter Windows bei Timeout/Halt nur den Wurzelprozess (README 'Bekannte Grenzen'). Nutze das vorhandene Job-Object-Modul src/jarvis/self_improvement/winjob.py (nicht neu erfinden), damit Timeout/Halt/abort_running den gesamten Prozessbaum beenden. Windows-Code hinter sys.platform-Pruefung, Linux-Verhalten unveraendert; Tests: Linux-Regression plus Windows-only-Tests mit Kindprozessen (wie tests/test_self_improvement_process_tree.py), die Linux ausdruecklich ueberspringt. Keine Lockerung von Timeouts oder Allow-Listen. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Timeout/Halt/abort_running beendet unter Windows den ganzen Prozessbaum (Windows-Test mit Kindprozessen)",
+        "Linux-Verhalten und Allow-Liste unveraendert",
+        "Vorhandenes winjob-Modul wiederverwendet, keine neue Prozesskontrolle",
+        "tests-windows und tests-linux gruen"
+      ]
+    },
+    {
+      "id": "persistent-results",
+      "title": "Ergebnisse von Zielen, Reparaturen und Tasks ueberleben einen Neustart",
+      "approved": false,
+      "depends_on": [],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Heute liegen Ziele, Agenten-Aufgaben, Reparaturlaeufe und Task-Ergebnisse nur im Speicher (src/jarvis/tasks/manager.py, goals/, self_repair/, agents/). Persistiere abgeschlossene Eintraege (Status, Kurztext, Zeiten, Fehlergrund; keine Secrets, ueber vorhandenes redaction) hinter dem bestehenden Memory-Interface bzw. einem kleinen SQLite-Store, standardmaessig mit derselben Opt-in-Logik wie Memory. Nach einem Neustart sind nur Historie und Anzeige (CLI/GUI-Status) verfuegbar: laufende oder offene Arbeit wird NICHT automatisch fortgesetzt, nichts startet von selbst. Tests mit tmp_path, Neustart-Simulation, Datenschutz (keine Secrets im Store), Obergrenze fuer die Eintragszahl. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Abgeschlossene Ziele/Reparaturen/Task-Ergebnisse ueberleben einen Neustart (Test mit Neustart-Simulation)",
+        "Nach Neustart laeuft nichts automatisch weiter (Test)",
+        "Keine Secrets im Store (Test), Obergrenze fuer Eintraege",
+        "Standardverhalten ohne Opt-in unveraendert"
+      ]
+    },
+    {
+      "id": "onboarding-windows",
+      "title": "Erststart und Diagnose unter Windows (jarvis doctor)",
+      "approved": false,
+      "depends_on": [],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Ergaenze einen CLI-Befehl 'jarvis doctor' (und /doctor im Chat), der nur liest und berichtet: Python-Version, tkinter verfuegbar, sounddevice/numpy (voice), playwright, Konfigurationsdatei gueltig, Schluesselvariablen gesetzt (nur 'gesetzt/nicht gesetzt', nie der Wert), welche Subsysteme aktiv sind, Sicherheitsmodus. Exit-Code und klare deutsche Hinweise. Dazu einen kurzen Windows-Schnellstart im README (Installation, erster Start, GUI, was ausgeschaltet ist). Keine Aktivierung von Subsystemen, kein Schreiben ausser einer optional vorgeschlagenen Beispielkonfiguration auf ausdruecklichen Wunsch. Tests ohne Netz und ohne echte Schluessel. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "'jarvis doctor' und /doctor lesen nur und melden deutschsprachig; Schluessel nur als gesetzt/nicht gesetzt",
+        "Exit-Code und Tests ohne Netz und ohne echte Schluessel",
+        "Windows-Schnellstart im README",
+        "Kein Subsystem wird aktiviert"
+      ]
+    },
+    {
+      "id": "memory-semantic-search",
+      "title": "Memory: lokale semantische Suche",
+      "approved": false,
+      "depends_on": [],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Ergaenze hinter dem Interface MemoryStore ein lokales, netzfreies Suchverfahren (z. B. TF-IDF/Hashing-Vektoren ohne neue Pflichtabhaengigkeit; MemoryHit.score ist vorbereitet) als zusaetzliches Backend, per Konfiguration waehlbar; Standard bleibt wie heute. Secret-Schutz und 'nur auf ausdruecklichen Wunsch merken' unveraendert. Tests: Ranking-Beispiele deutsch/englisch, leere Menge, Obergrenzen, kein Netzwerk. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Zusaetzliches lokales Suchbackend hinter MemoryStore, per Konfiguration waehlbar, Standard unveraendert",
+        "Kein Netzwerk, keine neue Pflichtabhaengigkeit",
+        "Secret-Schutz und 'nur auf Wunsch merken' unveraendert (Tests)",
+        "Ranking-Tests deutsch/englisch"
+      ]
+    },
+    {
+      "id": "voice-barge-in-hotword",
+      "title": "Voice: Unterbrechen beim Sprechen und lokaler Hotword-Detektor",
+      "approved": false,
+      "depends_on": [],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Phase 2 'Offen': (1) Barge-in: waehrend der Wiedergabe kann ein neuer Sprachstart/Abbruch die Ausgabe stoppen (Schnittstelle AudioPlayer um stop erweitern, Fake-Player in Tests), (2) ein lokaler Hotword-Detektor als weiterer AudioSource/Listener-Baustein, austauschbar, ohne Cloud. Alles mit Fake-Audio testbar; echte Hardware bleibt manuell und wird in docs/TESTING.md so genannt. Wake-Word darf nie eine Aktion ausloesen, die Bestaetigung braucht. Notaus-Verhalten des GUI/Sprachmodus unveraendert. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Barge-in stoppt die Wiedergabe (Fake-Player-Test)",
+        "Lokaler Hotword-Detektor austauschbar, ohne Cloud, mit Fake-Audio getestet",
+        "Wake-Word loest nie eine bestaetigungspflichtige Aktion aus (Test)",
+        "Notaus-Verhalten unveraendert; echte Hardware als manuell dokumentiert"
+      ]
+    },
+    {
+      "id": "docs-sync",
+      "title": "Dokumentation mit dem Ist-Stand abgleichen",
+      "approved": false,
+      "depends_on": [
+        "persistent-results",
+        "onboarding-windows"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 60,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Gleiche README (Status-Zeile, Phase-Tabelle 'Zukuenftige Phasen', Phase 11), docs/TESTING.md (CI-Tabelle: pr-tests, Merge-Gate, aktuelle Branches/Ausloeser; Ergebnisliste nur mit belegten Laeufen) und docs/BACKLOG.md mit dem tatsaechlichen Stand ab. Keine erfundenen Zahlen: Laufergebnisse nur aus tatsaechlich ausgefuehrten Laeufen. Nur Dokumentation. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "README-Status und Phasentabelle stimmen mit dem Code ueberein",
+        "docs/TESTING.md nennt die aktuellen Workflows und nur belegte Laeufe",
+        "docs/BACKLOG.md aktualisiert",
+        "Nur Dokumentation geaendert"
+      ]
+    },
+    {
+      "id": "audit-hash-chain",
+      "title": "Audit-Log: Hash-Kette und Rotation",
+      "approved": false,
+      "depends_on": [],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). SICHERHEITSKRITISCH (permissions/): Erweitere das Audit-Log um eine Hash-Kette (jeder Eintrag enthaelt den Hash des vorigen) und Rotation, mit Pruefbefehl; fail-closed-Verhalten (audit_strict) bleibt. Keine Lockerung bestehender Defaults. Der PR wird nie automatisch gemergt. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt."
+    },
+    {
+      "id": "cli-confirm-timeout",
+      "title": "CLI-Bestaetigung mit Zeitlimit",
+      "approved": false,
+      "depends_on": [],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). SICHERHEITSKRITISCH (permissions/): Die CLI-Bestaetigung blockiert ohne Zeitlimit. Ergaenze ein konfigurierbares Zeitlimit (Standard: Ablehnung bei Ablauf), analog zur GUI. Keine Lockerung, Notaus-Vorrang unveraendert. Der PR wird nie automatisch gemergt. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt."
+    },
+    {
+      "id": "llm-goal-planning",
+      "title": "Goal Engine: LLM-gestuetzte Zielzerlegung",
+      "approved": false,
+      "depends_on": [
+        "persistent-results"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). AUTONOMIE-ENTSCHEIDUNG DES BESITZERS ERFORDERLICH: Ersetze die drei festen Planvorlagen durch eine LLM-gestuetzte Zerlegung, die jeden Kandidaten mit der bestehenden Planpruefung (Limits max_steps<=50, max_attempts_per_step<=5, keine neuen Faehigkeiten/Tools/Agenten, keine Berechtigungsumgehung) validiert und sonst auf die Vorlagen zurueckfaellt. Standard aus, keine Lockerung, kein Selbststart. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt."
+    },
+    {
+      "id": "coding-llm-edits",
+      "title": "Coding-Agent: eigene Aenderungsentwuerfe",
+      "approved": false,
+      "depends_on": [
+        "llm-goal-planning"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). AUTONOMIE-ENTSCHEIDUNG DES BESITZERS ERFORDERLICH: Der Coding-Agent soll Aenderungen selbst entwerfen (heute nur ausdruecklich uebergebene edits). Bedingungen: weiter nur im bestaetigten Workspace, hash-geschuetzt, jede Aenderung per Bestaetigung, Tests vor/nach, kein JARVIS-Repository, standardmaessig aus. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt."
+    },
+    {
+      "id": "smartphone-api-design",
+      "title": "Phase 12: Entwurf der Smartphone-Schnittstelle (nur Dokument)",
+      "approved": false,
+      "depends_on": [
+        "persistent-results"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 60,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). NUR ENTWURF, KEIN CODE, ENTSCHEIDUNG DES BESITZERS ERFORDERLICH: Beschreibe in docs/ eine Schnittstelle fuer ein spaeteres Smartphone (Authentisierung, Bedrohungsmodell, welche Befehle erlaubt waeren, Notaus, Audit, Netzwerkgrenzen). Fernsteuerung ist laut docs/PHASE14_AUTONOMY.md ohne neue Entscheidung ausgeschlossen: nichts implementieren. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt."
     }
   ]
 }

@@ -7,10 +7,16 @@ name: Trigger Claude Code Routine
 on:
   workflow_dispatch:
     inputs:
-      context:
-        description: "Begrenzter Auftrag für Claude (max. 50000 Zeichen)"
-        required: true
+      backlog_item:
+        description: "Freigegebenen Backlog-Schritt starten: Schritt-ID oder 'next' (der naechste offene). Zeitlimit und Abnahmekriterien kommen aus backlog.json; context wird dann ignoriert"
+        required: false
         type: string
+        default: ""
+      context:
+        description: "Begrenzter Auftrag für Claude (max. 50000 Zeichen); nur ohne backlog_item"
+        required: false
+        type: string
+        default: ""
       base_branch:
         description: "Basis-Branch (leer = Variable JARVIS_BASE_BRANCH bzw. claude/inspiring-ritchie-8ljinw)"
         required: false
@@ -60,6 +66,7 @@ jobs:
           ROUTINE_FIRE_URL: ${{ secrets.ROUTINE_FIRE_URL }}
           ROUTINE_FIRE_TOKEN: ${{ secrets.ROUTINE_FIRE_TOKEN }}
           CONTEXT: ${{ inputs.context }}
+          BACKLOG_ITEM: ${{ inputs.backlog_item }}
           BASE_BRANCH: ${{ inputs.base_branch }}
           AUTO_CONTINUE: ${{ inputs.auto_continue }}
           CHAIN_BUDGET: ${{ inputs.chain_budget }}

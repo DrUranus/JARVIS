@@ -54,6 +54,8 @@ MAX_CONTEXT_CHARS = 50_000        # Fire-API erlaubt 65.536 Zeichen; Rest fuer d
 HARD_MAX_CHAIN_JOBS = 5           # absolute Obergrenze, unabhaengig von Eingaben und Variablen
 HARD_MAX_ATTEMPTS = 3             # Versuche je Backlog-Schritt
 HARD_MAX_TIMEOUT_MIN = 240
+MAX_ACCEPTANCE_ITEMS = 10         # Abnahmekriterien je Backlog-Schritt
+MAX_ACCEPTANCE_CHARS = 400
 DEFAULT_TIMEOUT_MIN = 90
 QUEUED_GRACE_MIN = 15             # so lange darf ein Auftrag zwischen Anlage und Routinestart hoechstens "queued" sein
 MAX_REPORT_CHARS = 20_000
@@ -276,7 +278,39 @@ def load_backlog(path: Path) -> list[dict[str, Any]]:
         if not isinstance(it.get("depends_on", []), list) or any(d not in seen and d != it["id"] for d in it.get("depends_on", [])):
             # Abhaengigkeiten duerfen nur auf weiter oben stehende Eintraege zeigen (keine Zyklen)
             raise AutomationError(f"backlog.json: {it['id']}: depends_on muss auf frueher stehende Eintraege zeigen")
+        acc = it.get("acceptance")
+        if acc is not None and (not isinstance(acc, list) or not 1 <= len(acc) <= MAX_ACCEPTANCE_ITEMS
+                                or any(not isinstance(a, str) or not a.strip() or len(a) > MAX_ACCEPTANCE_CHARS for a in acc)):
+            raise AutomationError(f"backlog.json: {it['id']}: acceptance muss 1-{MAX_ACCEPTANCE_ITEMS} Texte (je max. {MAX_ACCEPTANCE_CHARS} Zeichen) enthalten")
+        it["approved"] = it.get("approved") is True
+    _apply_plan(data.get("plan"), items)
     return items
+
+
+def _apply_plan(plan: Any, items: list[dict[str, Any]]) -> None:
+    """Einmalig freigegebener Plan: Der Besitzer gibt ihn durch eine einzige Aenderung dieser (CODEOWNERS-geschuetzten) Datei frei. Die gelisteten Schritte
+    gelten dann als freigegeben (approved=true); jeder braucht Abnahmekriterien. Nichts ausserhalb der Liste wird je freigegeben."""
+    if plan is None:
+        return
+    if (not isinstance(plan, dict) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,40}", str(plan.get("id", ""))) or not isinstance(plan.get("approved"), bool)
+            or not isinstance(plan.get("approved_items"), list) or not all(isinstance(i, str) for i in plan["approved_items"])):
+        raise AutomationError("backlog.json: plan braucht id, approved (true/false) und approved_items (Liste von Schritt-IDs)")
+    by_id = {it["id"]: it for it in items}
+    for item_id in plan["approved_items"]:
+        if item_id not in by_id:
+            raise AutomationError(f"backlog.json: plan nennt unbekannten Schritt {item_id}")
+        if not by_id[item_id].get("acceptance"):
+            raise AutomationError(f"backlog.json: {item_id} steht im Plan, hat aber keine Abnahmekriterien (acceptance)")
+        if plan["approved"]:
+            by_id[item_id]["approved"] = True
+
+
+def item_task(item: dict[str, Any]) -> str:
+    """Auftragstext eines Backlog-Schritts: Aufgabe plus (falls vorhanden) die Abnahmekriterien des freigegebenen Plans."""
+    criteria = item.get("acceptance") or []
+    if not criteria:
+        return item["task"]
+    return item["task"] + "\n\nABNAHMEKRITERIEN (jedes einzeln im Bericht belegen):\n" + "\n".join(f"- {c}" for c in criteria)
 
 
 def select_next_item(items: list[dict[str, Any]], done: set[str], blocked: set[str]) -> dict[str, Any] | None:
@@ -299,7 +333,8 @@ def build_routine_text(*, repo: str, state: dict[str, Any], issue_number: int, t
                       "pushst du deine Korrekturen ohne Force direkt auf diesen Basis-Branch (kein neuer Branch, kein neuer PR).")
     elif chain.get("item_id"):
         extra_rule = ("\n7. Backlog-Schritt: Eroeffne am Ende einen Pull Request gegen main aus deinem Branch (Titel beginnt mit [JARVIS] und der Schritt-ID) "
-                      "und nenne ihn im Bericht (pr_url). Gemergt wird nur durch das Merge-Gate, nie durch dich.")
+                      "und nenne ihn im Bericht (pr_url). Gemergt wird nur durch das Merge-Gate, nie durch dich. "
+                      "Berichte status success nur, wenn jedes im Auftragstext genannte Abnahmekriterium belegt ist (je Kriterium ein Satz im summary); sonst partial.")
     else:
         extra_rule = ""
     return f"""JARVIS-AUTOMATISIERUNGSAUFTRAG (Protokoll v1)
@@ -668,13 +703,47 @@ def decide_followup(state: dict[str, Any], cfg: Config, issue: dict[str, Any], *
     return {"item": item, "attempt": 1, "retry": False}, "naechster Backlog-Schritt"
 
 
-def completed_item_ids(api: GitHubApi) -> set[str]:
+def completed_item_ids(api: GitHubApi, require_merge: bool = False) -> set[str]:
+    """Erledigte Schritte. Mit require_merge (Auto-Merge aktiv) zaehlt nur, was wirklich gemergt wurde; ein reiner Lese-Auftrag ohne Branch/PR gilt ohne Merge als erledigt."""
     done: set[str] = set()
     for issue in api.list_job_issues(state="all", pages=3):
         st = own_job_issue(issue)
-        if st and st["status"] == "completed" and st["chain"].get("item_id"):
-            done.add(st["chain"]["item_id"])
+        if not (st and st["status"] == "completed" and st["chain"].get("item_id")):
+            continue
+        report = st.get("report") or {}
+        if require_merge and not st.get("merged") and (report.get("pr_url") or report.get("branch")):
+            continue
+        done.add(st["chain"]["item_id"])
     return done
+
+
+def start_backlog_job(api: GitHubApi, cfg: Config, *, item_ref: str, backlog_path: Path, auto_continue: bool, chain_budget: int,
+                      run_id: str, run_attempt: str, fire_url: str, fire_token: str, fire=fire_routine,
+                      now: dt.datetime | None = None) -> dict[str, Any]:
+    """Startet einen freigegebenen Backlog-Schritt per ID ('next' = der naechste offene). Zeitlimit und Abnahmekriterien kommen aus dem Backlog;
+    ein nicht freigegebener, erledigter oder noch nicht entsperrter Schritt wird abgelehnt, ohne etwas anzulegen."""
+    items = load_backlog(backlog_path)
+    done = completed_item_ids(api, require_merge=cfg.auto_merge_enabled) | {i["id"] for i in items if i.get("done") is True}
+    if item_ref == "next":
+        item = select_next_item(items, done, set())
+        if not item:
+            raise AutomationError("Kein freigegebener Backlog-Schritt offen.")
+    else:
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,40}", item_ref):
+            raise AutomationError("Backlog-ID ungueltig.")
+        item = next((i for i in items if i["id"] == item_ref), None)
+        if not item:
+            raise AutomationError(f"Backlog-Schritt {item_ref} ist unbekannt.")
+        if item["id"] in done:
+            raise AutomationError(f"Backlog-Schritt {item_ref} ist bereits erledigt.")
+        if item.get("approved") is not True:
+            raise AutomationError(f"Backlog-Schritt {item_ref} ist nicht freigegeben.")
+        open_deps = [d for d in item.get("depends_on", []) if d not in done]
+        if open_deps:
+            raise AutomationError(f"Backlog-Schritt {item_ref}: Abhaengigkeit noch offen ({', '.join(open_deps)}).")
+    return start_job(api, cfg, task=item_task(item), base_branch=cfg.default_branch, auto_continue=auto_continue, chain_budget=chain_budget,
+                     timeout_minutes=clamp_int(item.get("timeout_minutes"), DEFAULT_TIMEOUT_MIN, 10, HARD_MAX_TIMEOUT_MIN),
+                     run_id=run_id, run_attempt=run_attempt, fire_url=fire_url, fire_token=fire_token, item_id=item["id"], fire=fire, now=now)
 
 
 def merge_gated(cfg: Config, state: dict[str, Any]) -> bool:
@@ -845,7 +914,7 @@ def run_controller(api: GitHubApi, cfg: Config, *, after_job: int, backlog_path:
     report = state.get("report") or {}
     branch = report.get("branch")
     plan, reason = decide_followup(
-        state, cfg, issue, items=items, done=completed_item_ids(api), day_count=jobs_last_24h(api, now),
+        state, cfg, issue, items=items, done=completed_item_ids(api, require_merge=cfg.auto_merge_enabled), day_count=jobs_last_24h(api, now),
         branch_exists=merged or bool(branch and api.branch_sha(branch)))
     # Entscheidung im Eltern-Issue festhalten (Idempotenz: ein zweiter Lauf sieht 'followup' und tut nichts)
     if state.get("followup"):
@@ -865,7 +934,7 @@ def run_controller(api: GitHubApi, cfg: Config, *, after_job: int, backlog_path:
         base = cfg.default_branch                         # die Arbeit des Vorgaengers ist gemergt; kein gestapelter Branch
     else:
         base = branch if branch and BRANCH_RE.match(branch) and api.branch_sha(branch) else state["base_branch"]
-    result = start_job(api, cfg, task=item["task"], base_branch=base, auto_continue=chain["auto_continue"],
+    result = start_job(api, cfg, task=item_task(item), base_branch=base, auto_continue=chain["auto_continue"],
                        chain_budget=chain["budget"], timeout_minutes=clamp_int(item.get("timeout_minutes"), DEFAULT_TIMEOUT_MIN, 10, HARD_MAX_TIMEOUT_MIN),
                        run_id=run_id, run_attempt=run_attempt, fire_url=fire_url, fire_token=fire_token,
                        chain=new_chain, parent_issue=after_job, item_id=item["id"], attempt=plan["attempt"], fire=fire, now=now)
@@ -890,7 +959,15 @@ def main(argv: list[str], env: dict[str, str] | None = None) -> int:
     cfg = Config(env)
     try:
         api = _api(cfg, env)
-        if cmd == "start":
+        if cmd == "start" and env.get("BACKLOG_ITEM", "").strip():
+            result = start_backlog_job(
+                api, cfg, item_ref=env["BACKLOG_ITEM"].strip(), backlog_path=Path(env.get("BACKLOG_PATH", ".github/automation/backlog.json")),
+                auto_continue=env.get("AUTO_CONTINUE", "").lower() == "true",
+                chain_budget=clamp_int(env.get("CHAIN_BUDGET"), 1, 1, HARD_MAX_CHAIN_JOBS),
+                run_id=env.get("GITHUB_RUN_ID", ""), run_attempt=env.get("GITHUB_RUN_ATTEMPT", "1"),
+                fire_url=env.get("ROUTINE_FIRE_URL", ""), fire_token=env.get("ROUTINE_FIRE_TOKEN", ""))
+            log(f"Backlog-Schritt {result['state']['chain']['item_id']}: Auftrag {result['state']['job_id']} laeuft (Issue #{result['issue']}).")
+        elif cmd == "start":
             result = start_job(
                 api, cfg, task=env.get("CONTEXT", ""), base_branch=env.get("BASE_BRANCH", "").strip() or None,
                 auto_continue=env.get("AUTO_CONTINUE", "").lower() == "true",

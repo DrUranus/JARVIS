@@ -7,6 +7,7 @@ Aktiv nur mit Variable JARVIS_AUTO_MERGE_ENABLED=true; sonst nur Statusbericht (
 """
 from __future__ import annotations
 
+import datetime as dt
 import os
 import re
 import sys
@@ -250,6 +251,31 @@ def continue_after_merge(api: Any, cfg: ja.Config, pr: dict[str, Any], sha: str)
     return f"Auftrag #{number}: Folgeauftrag angefordert" if sent else f"Auftrag #{number}: kein Anstoss noetig"
 
 
+MERGED_LOOKBACK_DAYS = 14
+
+
+def advance_merged(api: Any, cfg: ja.Config, now=None) -> list[str]:
+    """Auch ein vom Besitzer selbst gemergter PR (geschuetzte Pfade!) setzt die Kette fort: abgeschlossene Auftraege mit einem gemergten PR dieses Repos
+    gegen den Standard-Branch (gemeldeter Branch = Branch des PR) werden als gemergt vermerkt und stossen den Controller einmal an. Nur im Auto-Merge-Betrieb."""
+    if cfg.halted or not cfg.auto_merge_enabled:
+        return []
+    now = now or ja.utcnow()
+    out: list[str] = []
+    for issue in api.list_job_issues(state="all", pages=2):
+        st = ja.own_job_issue(issue)
+        if not st or st["status"] != "completed" or st.get("merged") or not (st.get("chain") or {}).get("auto_continue") or st["chain"].get("repair_of"):
+            continue
+        report = st.get("report") or {}
+        m = re.fullmatch(rf"https://github\.com/{re.escape(cfg.repo)}/pull/(\d+)", report.get("pr_url") or "")
+        if not m or not report.get("branch") or ja.parse_iso(st["created_at"]) < now - dt.timedelta(days=MERGED_LOOKBACK_DAYS):
+            continue
+        pr = get_pr(api, int(m.group(1)))
+        if not pr or not pr.get("merged") or pr["base"]["ref"] != cfg.default_branch or pr["head"]["ref"] != report["branch"]:
+            continue
+        out.append(f"#{pr['number']}: gemergt (von aussen); {continue_after_merge(api, cfg, pr, pr['head']['sha'])}")
+    return out
+
+
 def run_gate(api: Any, cfg: ja.Config, *, backlog_path: Path, only: int | None = None, dispatch=None) -> list[str]:
     """Bewertet offene PRs (oder genau einen), schreibt Statusberichte, merged freigegebene PRs, stoesst Korrekturen an."""
     gcfg = GateConfig(cfg)
@@ -286,6 +312,11 @@ def run_gate(api: Any, cfg: ja.Config, *, backlog_path: Path, only: int | None =
             note = "Automatische Korrektur ist nicht aktiviert (`JARVIS_AUTO_CONTINUE_ENABLED`)."
         upsert_status(api, pr["number"], render_status(v, pr["number"], gcfg, note))
         log.append(f"#{pr['number']}: {v.action}")
+    if only is None:
+        try:
+            log += advance_merged(api, cfg)
+        except ja.AutomationError as exc:                    # die naechste Planung holt es nach (Gate laeuft alle 20 min)
+            log.append(f"Fortsetzung nach externem Merge nicht geprueft ({type(exc).__name__})")
     return log
 
 

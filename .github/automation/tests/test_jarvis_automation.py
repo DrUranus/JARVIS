@@ -500,12 +500,23 @@ def test_unapproved_and_unmet_items_never_selected():
     assert ja.select_next_item(items, {"first"}, set())["id"] == "second"
 
 
+PINNED_PLAN = ["windows-capture-tests", "coding-windows-process-tree", "persistent-results", "onboarding-windows", "memory-semantic-search",
+               "voice-barge-in-hotword", "docs-sync"]
+
+
 def test_shipped_backlog_approvals_are_exactly_the_owner_approved_steps():
-    """Jede neue Freigabe im echten Backlog ist eine bewusste, vom Besitzer gemergte Aenderung - und muss hier mit eingetragen werden."""
+    """Freigaben sind bewusste, vom Besitzer gemergte Aenderungen: einzelne Schritte (approved) und der EINE Plan (plan.approved). Welche Schritte ein Plan
+    ueberhaupt freigeben kann, ist hier festgenagelt; ein weiterer Schritt im Plan oder eine neue Einzelfreigabe schlaegt an."""
+    raw = json.loads((ROOT / ".github/automation/backlog.json").read_text(encoding="utf-8"))
     items = ja.load_backlog(ROOT / ".github/automation/backlog.json")
-    assert [i["id"] for i in items if i["approved"]] == ["autonomy-invariants", "session-budget"]
-    assert [i["id"] for i in items if i.get("done")] == ["autonomy-invariants"]
-    assert ja.select_next_item(items, set(), set())["id"] == "session-budget"          # Teilziel 3 ist erledigt, Teilziel 4 ist der naechste Schritt
+    plan = raw["plan"]
+    assert plan["approved_items"] == PINNED_PLAN and isinstance(plan["approved"], bool)
+    assert [i["id"] for i in raw["items"] if i.get("approved") is True] == ["autonomy-invariants", "session-budget"]       # Einzelfreigaben ausserhalb des Plans
+    assert [i["id"] for i in items if i["approved"]] == ["autonomy-invariants", "session-budget"] + (PINNED_PLAN if plan["approved"] else [])
+    assert [i["id"] for i in items if i.get("done")] == ["autonomy-invariants", "session-budget"]
+    expected_next = PINNED_PLAN[0] if plan["approved"] else None
+    nxt = ja.select_next_item(items, set(), set())
+    assert (nxt["id"] if nxt else None) == expected_next          # Teilziel 3 und 4 sind erledigt; ohne freigegebenen Plan gibt es keinen naechsten Schritt
 
 
 def test_retry_after_failure_is_bounded():
