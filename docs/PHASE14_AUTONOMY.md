@@ -27,7 +27,7 @@ implementiert** und nirgends spezifiziert (weder im Repository noch in der lesba
 ## Luecken (keine Behauptung von Sicherheit)
 
 - Ein einzelner `core.handle`-Aufruf laesst sich nicht unterbrechen.
-- Kein Gesamtbudget (Aktionen/Zeit/Kosten) ueber mehrere Ziele hinweg.
+- Gesamtbudget (Teilziel 4) deckt Tool-Aufrufe und Laufzeit ab, **nicht Kosten/Token**; es ist standardmaessig aus und wird nur in der Konfiguration beim Start eingeschaltet.
 - Windows-Prozesskontrolle ist Eindaemmung, keine Isolation (siehe README Phase 15).
 
 ## Gemeinsamer Notaus (Teilziel 1) - umgesetzt
@@ -55,6 +55,12 @@ GUI-Reiter *Status*, Abschnitt "Laufende Arbeit": nicht beendete Ziele (`core.li
 
 Die Meldung gibt die **tatsaechliche Antwort** der Schnittstelle wieder: *Abgebrochen* nur, wenn sie den Abbruch angenommen hat und der Eintrag beendet ist; *Abbruch angefordert (kooperativ)*, wenn er angenommen wurde, die Arbeit aber noch laeuft; *Nicht abgebrochen* mit der Begruendung der Schnittstelle (z. B. Agent ohne Abbruchunterstuetzung, bereits beendet); *Abbruch fehlgeschlagen* bei einem Fehler. Eine nicht lesbare Quelle erscheint als Hinweis statt zu fehlen; ausgeschaltete Quellen (Standard fuer Ziele, Agenten, Self-Repair) werden benannt. Grenzen: der Abbruch bleibt kooperativ; eine laufende `core.handle`-/LLM-Anfrage taucht hier nicht auf und ist nicht abbrechbar (dafuer gibt es den Notaus); die Liste ist eine Momentaufnahme (Aktualisieren) und zeigt hoechstens 50 Eintraege je Art.
 
+## Gesamtbudget pro Sitzung (Teilziel 4) - umgesetzt
+
+`permissions/budget.py` (`SessionBudget`, eigenes kleines Lock, injizierbare Uhr), gehalten von der `PermissionEngine` (einzige Kontrollstelle), gebaut in `permissions/factory.py` aus `[budget]` (`enabled = false` Standard; `max_tool_calls` 1..100000, `max_runtime_seconds` 0..86400; unbekannte Schluessel werden abgelehnt). Geprueft in `_evaluate` direkt nach dem Notaus (Notaus hat Vorrang), gebucht atomar erst bei der Genehmigung in `_authorize`; `execution_scope` prueft erneut nur die Laufzeit (ein bereits gebuchter letzter Aufruf darf laufen). Gezaehlt wird jeder genehmigte Aufruf (auch GREEN); verweigerte Aufrufe, abgelehnte Rueckfragen und `evaluate()` verbrauchen nichts; die Laufzeit beginnt mit der ersten gebuchten Aktion (monotonic).
+
+Bei Ueberschreitung: weitere Aktionen werden verweigert (Regel `invariant:budget`, Meldung mit Verbrauch), ein Audit-Ereignis `budget_exhausted` einmalig; **nichts wird abgebrochen** (dafuer gibt es den Notaus). Kein Zuruecksetzen, keine Erhoehung, kein Einschalten im laufenden Prozess; weder Tools, Agenten noch Ziele erreichen das Budget (Strukturtest). CLI `/budget` zeigt nur den Verbrauch. Tests: `tests/test_session_budget.py` (39 Tests, Fake-Uhr, Nebenlaeufigkeit, Notaus-Vorrang, Strukturtest, Config-Grenzen). Linux-Lauf: volle Suite 3708 passed / 76 skipped; Windows-Nachweis ausstehend bis zum CI-Windows-Lauf. **Offen:** der kommentierte `[budget]`-Abschnitt in `config/jarvis.toml` fehlt noch (die Routine durfte `config/` nicht aendern); die Code-Standardwerte (aus) gelten, der Besitzer ergaenzt ihn. Grenzen: gezaehlt werden Tool-Aufrufe, keine LLM-Aufrufe/Kosten/Token; eine laufende Anfrage laeuft nach Ueberschreitung zu Ende; ein Neustart des Prozesses beginnt ein neues Budget.
+
 ## Weitere vorgeschlagene Teilziele (jeweils aus, bis ausdruecklich freigegeben; jeweils mit Abnahmetest)
 
 1. ~~**Gemeinsamer Notaus.**~~ *(umgesetzt, siehe oben)* Urspruengliche Vorgabe: eine Funktion `core.halt_all(reason)`, die alle Subsysteme mit `halt`, offene Ziele (`cancel`) und offene Bestaetigungen abbricht; CLI `/halt` und
@@ -64,6 +70,6 @@ Die Meldung gibt die **tatsaechliche Antwort** der Schnittstelle wieder: *Abgebr
    Knopf ruft ausschliesslich `cancel`/`halt`.
 3. ~~**Autonomie-Invarianten als Tests.**~~ *(umgesetzt: `tests/test_autonomy_invariants.py`, 140 Tests; Linux-Lauf: volle Suite 3669 passed / 76 skipped; Windows-Nachweis ausstehend bis zum CI-Windows-Lauf)* Urspruengliche Vorgabe: Tests, die die harten Limits und Voreinstellungen festnageln (`enabled=false`, Obergrenzen, Replanning-Verbote) und per AST pruefen,
    dass `goals/` und `agents/` Tools nur ueber `ToolRegistry` aufrufen. *Abnahme:* Tests schlagen an, wenn jemand ein Limit lockert oder die Kontrollstelle umgeht.
-4. **Gesamtbudget pro Sitzung (optional).** Obergrenze fuer Tool-Aufrufe/Laufzeit ueber alle Ziele; bei Ueberschreitung Stopp mit klarer Meldung. *Abnahme:* Tests mit Fake-Uhr.
+4. ~~**Gesamtbudget pro Sitzung (optional).**~~ *(umgesetzt, siehe oben)* Urspruengliche Vorgabe: Obergrenze fuer Tool-Aufrufe/Laufzeit ueber alle Ziele; bei Ueberschreitung Stopp mit klarer Meldung. *Abnahme:* Tests mit Fake-Uhr.
 5. **Nicht ohne neue, ausdrueckliche Entscheidung:** Hintergrund-/zeitgesteuerte Ziele, Selbststart, Fernsteuerung. Mindestvoraussetzungen waeren: `lockdown` oder
    `confirmation = "deny"`, Gesamtbudget (4), gemeinsamer Notaus (1) und Sichtbarkeit (2).

@@ -862,6 +862,14 @@ ein Fehler macht den Notaus *unvollständig*. **Nicht rückgängig** gemacht und
 `core.handle`-Anfrage lässt sich nicht unterbrechen. Aufheben nur mit `/notaus reset` bzw. „Notaus aufheben …“ und ausdrücklicher Bestätigung (nur *Einmal erlauben*; mit
 `security.confirmation = "deny"` ist ein Aufheben im laufenden Prozess nicht möglich). Der Notaus ist kein Tool und nicht persistent. Details und Grenzen: `docs/PHASE14_AUTONOMY.md`.
 
+## Sitzungsbudget (Phase 14, Teilziel 4)
+
+Optional (`[budget] enabled = true`, Standard **aus**): eine gemeinsame Obergrenze für Tool-Aufrufe (`max_tool_calls`, hart 100000) und Laufzeit (`max_runtime_seconds`, hart 86400)
+über alle Ziele und Agenten des Prozesses. Die Berechtigungs-Engine prüft sie direkt nach dem Notaus und bucht erst bei der Genehmigung (jeder genehmigte Aufruf zählt, auch GREEN;
+verweigerte und `evaluate()` verbrauchen nichts); die Laufzeit beginnt mit der ersten genehmigten Aktion. Bei Überschreitung werden weitere Aktionen verweigert (Regel `invariant:budget`,
+Meldung mit Verbrauch, ein Audit-Ereignis `budget_exhausted`); nichts Laufendes wird abgebrochen, der Notaus hat Vorrang. Kein Zurücksetzen, keine Erhöhung im laufenden Prozess, kein
+Tool kann es verändern; `/budget` zeigt den Verbrauch nur lesend. Ein Neustart beginnt eine neue Sitzung. Details: `docs/PHASE14_AUTONOMY.md`.
+
 ## Grafische Oberfläche (Phase 11)
 
 Ein Tkinter-Fenster um denselben Core wie die CLI (kein zweiter Core, keine zweite Berechtigungslogik): Gespräch per Text oder Sprache, sichtbare Zustände, ein
