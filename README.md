@@ -179,6 +179,17 @@ Diese Anfragen werden lokal bearbeitet, gehen nie an das LLM und landen nicht im
 Künftige Agenten/Tools bekommen ein `MemoryStore` injiziert (z. B. `core.memory`) und rufen `add(..., type="task_result", source="agent:coding", metadata={"path": ...})`,
 `search`, `recent`. Sie hängen nur von `jarvis.memory.base`/`models` ab, nie von SQLite.
 
+## Verlauf abgeschlossener Arbeit (`[history]`, optional)
+
+Ziele, Agenten-Tasks, Reparaturläufe und gespeicherte Pläne liegen im laufenden Betrieb nur im Speicher. Mit `history.enabled = true` (bzw. `JARVIS_HISTORY_ENABLED=true`) übernimmt ein kleiner lokaler SQLite-Speicher (`history.path`, Standard `data/history.db`, Datei entsteht erst beim ersten Schreiben) **nur abgeschlossene** Einträge: Art, ID, Status, Kurztext, Zeiten und Fehlergrund. Standard: **aus** (keine Datei, Verhalten unverändert).
+
+- **Nur Historie und Anzeige.** Nach einem Neustart wird nichts fortgesetzt und nichts gestartet; offene Arbeit gilt als verloren. Angezeigt wird der Verlauf mit `/history [n]` (CLI) und im GUI-Reiter *Status* (Abschnitt "Laufende Arbeit", Zeilen "Verlauf"). Der Speicher liest nur (`list`/`result`), er startet, erstellt, setzt fort oder bricht nichts ab (Strukturtest).
+- **Aufgenommen** wird beim Ende von `run_goal`/`run_repair`, nach `cancel_goal`/`cancel_repair`, beim Lesen der Historie, beim GUI-Status und bei `/exit`. Ein Absturz verliert höchstens, was seit der letzten Aufnahme endete.
+- **Datenschutz.** Jeder Text läuft vor dem Schreiben durch die gemeinsame Redaktion (`jarvis.redaction`: bekannte Schlüsselformate, "password=…", Werte aus Konfiguration/Umgebung) und wird auf `history.max_text_length` (Standard 300) gekürzt; IDs mit Secrets werden abgelehnt. Es werden weder Schritt-Ergebnisse noch Ausgaben noch Bilder gespeichert.
+- **Obergrenze.** `history.max_entries` (Standard 500, hart 100000): die ältesten Einträge fallen zuerst weg.
+- **Fehler.** Eine kaputte oder fremde Datei wird nie überschrieben; Lese-/Schreibfehler brechen weder Core noch GUI ab (Warnung im Log).
+- Verdrahtung nur in `bootstrap.py`; der Core kennt den Speicher nur als `core.history` (duck-typed). Tests: `tests/test_history_store.py`. Ein `[history]`-Abschnitt in `config/jarvis.toml` fehlt noch (die Routine durfte `config/` nicht ändern); die Code-Standardwerte (aus) gelten.
+
 ## Permissions & Security (Phase 13)
 
 Die Berechtigungsschicht sitzt zwischen JARVIS und jedem mächtigen Werkzeug und ist unabhängig von Voice, Memory, LLM-Anbietern und konkreten Tools
