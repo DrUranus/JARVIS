@@ -41,7 +41,7 @@ Bedienung: CLI `/notaus`, `/notaus status`, `/notaus reset`; GUI: roter Knopf *N
 | Komponente | Wirkung | Garantie |
 |---|---|---|
 | Alle Tool-Aufrufe, `core.handle`, `core.plan`/`chat`, Gedaechtnis-Aenderungen (`remember`/`forget`), neue Ziele/Reparaturen, CLI `/voice`, `/improve` (ausser `list`/`show`) | sofort verweigert | **sofort**, durch den Latch bzw. die Einstiegspruefung (lesende Befehle wie `/tasks`, `/permissions`, `/audit`, `/memory` bleiben nutzbar) |
-| `computer`, `browser`, `coding` | `halt()`: weitere Schritte werden verweigert; `coding` bricht einen laufenden Testlauf ab (`abort_running`) | sofort fuer weitere Schritte; ein Testprozess wird ueber den Provider beendet (unter Windows beendet der Coding-Provider nur den Wurzelprozess - bekannte Einschraenkung) |
+| `computer`, `browser`, `coding` | `halt()`: weitere Schritte werden verweigert; `coding` bricht einen laufenden Testlauf ab (`abort_running`) | sofort fuer weitere Schritte; ein Testprozess wird ueber den Provider beendet (unter Windows beendet der Coding-Provider den ganzen Prozessbaum ueber ein Job Object (`winjob`, in `bootstrap` verdrahtet; ohne Job nur den Wurzelprozess); Windows-Nachweis: CI) |
 | Ziele, Agenten-Tasks, Reparaturlaeufe | `cancel` fuer alle nicht beendeten | **kooperativ**: *requested* - der Agent muss den Abbruch bemerken; Agenten ohne Abbruchunterstuetzung werden als *failed* ("nicht abbrechbar") gemeldet |
 | GUI | offene Bestaetigungen abgelehnt, Eingabe gesperrt, Sprachmodus beendet nach der laufenden Aufnahme (hoechstens `voice.max_record_seconds`) | die Wiedergabe laesst sich nicht unterbrechen |
 | Laufende `core.handle`-/LLM-Anfrage | **nicht unterbrechbar**; sie findet nur alle Tool-Aufrufe verweigert vor | nur als *requested* gemeldet |

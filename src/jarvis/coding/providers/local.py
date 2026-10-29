@@ -17,7 +17,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
 from jarvis.coding.backend import CodingProvider
 from jarvis.coding.errors import CodingError, CodingErrorCode as EC
@@ -80,8 +80,11 @@ class _Capture(threading.Thread):
 class LocalProvider(CodingProvider):
     name = "local"
 
-    def __init__(self) -> None:
+    def __init__(self, job_factory: Callable[[int], Any] | None = None, resume: Callable[[int], None] | None = None) -> None:
         self._abort = threading.Event()
+        # Windows: `bootstrap` injects the existing Job Object module (jarvis.self_improvement.winjob: attach / resume); this package must not import it itself. With a job,
+        # every started process is contained and a timeout/flood/abort ends the WHOLE tree, not just the root. None = no job (other platforms, plain LocalProvider()).
+        self._job_factory, self._resume = job_factory, resume
 
     def abort_running(self) -> None:
         self._abort.set()
@@ -196,7 +199,9 @@ class LocalProvider(CodingProvider):
         self._abort.clear()
         kwargs: dict[str, Any] = {}
         if sys.platform == "win32":
-            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            # started SUSPENDED when a resume hook exists: the process is put into its job before any code of it (or a child) has run
+            kwargs["creationflags"] = (getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                                       | (0x00000004 if self._resume is not None else 0))
         else:
             kwargs["start_new_session"] = True
         started = time.monotonic()
@@ -205,6 +210,7 @@ class LocalProvider(CodingProvider):
                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
         except OSError as exc:
             raise CodingError(EC.RUNNER_UNAVAILABLE, f"the program could not be started ({errno.errorcode.get(exc.errno or 0, 'OSError')})") from None
+        job = self._contain(proc)
         flood = threading.Event()
         out, err = _Capture(proc.stdout, spec.max_output_bytes, flood), _Capture(proc.stderr, spec.max_output_bytes, flood)
         out.start()
@@ -215,22 +221,43 @@ class LocalProvider(CodingProvider):
             if flood.is_set() or self._abort.is_set() or time.monotonic() >= deadline:
                 aborted = self._abort.is_set()
                 timed_out = not flood.is_set() and not aborted
-                self._terminate(proc)
+                self._terminate(proc, job)
                 break
             time.sleep(0.02)
         proc.wait()
+        if job is not None:
+            job.close()                                    # kill-on-close: also ends anything the process left running after a normal exit
         out.join(2)
         err.join(2)
         return CommandResult(None if (timed_out or aborted) else proc.returncode, _text(out.data), _text(err.data), timed_out,
                              out.truncated or err.truncated, time.monotonic() - started, aborted)
 
+    def _contain(self, proc: "subprocess.Popen[bytes]") -> Any:
+        """Put the started process into its job (None = no containment: the documented fallback is ending the root only) and, if it was started suspended, let it run.
+        If resuming fails the process is ended - it must never stay behind frozen."""
+        job = None
+        try:
+            job = self._job_factory(proc.pid) if self._job_factory is not None else None
+            if self._resume is not None:
+                self._resume(proc.pid)
+        except BaseException as exc:
+            self._terminate(proc, job)
+            if job is not None:
+                job.close()
+            proc.wait()
+            if isinstance(exc, Exception):
+                raise CodingError(EC.RUNNER_UNAVAILABLE, "the program could not be contained and started") from None
+            raise
+        return job
+
     @staticmethod
-    def _terminate(proc: "subprocess.Popen[bytes]") -> None:
-        """Stop OUR child (and, where the OS lets us, its process group). Nothing else is ever touched."""
+    def _terminate(proc: "subprocess.Popen[bytes]", job: Any = None) -> None:
+        """Stop OUR child. Windows: the whole Job Object (falling back to the root process if there is none or the OS refuses). Elsewhere: its process group.
+        Nothing else is ever touched."""
         try:
             if sys.platform != "win32":
                 os.killpg(proc.pid, signal.SIGKILL)
-            else:
+            elif job is None or not job.terminate():
                 proc.kill()
         except (OSError, ProcessLookupError):
             try:
