@@ -1,6 +1,7 @@
 """Composition root: the only place that wires concrete implementations together."""
 from __future__ import annotations
 
+import sys
 from typing import Any, Callable
 
 from jarvis.config import Settings
@@ -36,7 +37,12 @@ def build_core(settings: Settings) -> JarvisCore:
     core.subsystems["browser"] = build_browser(settings, tools, permissions)
     # The coding agent is a third, equally opt-in subsystem with its own controller. It reuses the Core's LLM abstraction (only for
     # the explicit, confirmed `plan` action) and never drives the browser or the PC.
-    from jarvis.coding.factory import build_coding
+    from jarvis.coding.factory import build_coding, register_provider
+    if sys.platform == "win32":
+        # Windows: the local provider ends the whole process tree (timeout / flood / halt) through the existing Job Object module instead of only the root process.
+        from jarvis.coding.providers.local import LocalProvider
+        from jarvis.self_improvement import winjob
+        register_provider("local", lambda _s: LocalProvider(job_factory=winjob.attach, resume=winjob.resume))
     core.subsystems["coding"] = build_coding(settings, tools, permissions, llm=provider)
     # Multi-agent orchestration sits ABOVE those subsystems: agents only use their tools through the registry (and so the permission engine).
     from jarvis.agents.factory import build_agents

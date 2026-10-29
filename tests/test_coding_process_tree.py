@@ -139,7 +139,7 @@ def test_a_failing_job_factory_does_not_break_the_run(tmp_path):
 
 
 def test_posix_behaviour_is_unchanged_by_the_job_support(tmp_path):
-    assert LocalProvider()._job_factory is None or WIN
+    assert LocalProvider()._job_factory is None and LocalProvider()._resume is None   # a plain provider has no job on any platform
     r = LocalProvider().run_command(spec_of([sys.executable, "-c", "import time; time.sleep(30)"], str(tmp_path), 0.5))
     assert r.timed_out and r.exit_code is None
 
@@ -183,20 +183,34 @@ def test_abort_running_ends_the_whole_tree(tmp_path):
 
 
 # ---- WINDOWS ONLY ---------------------------------------------------------------------------------------------------------------------------------------
-@windows_only
-def test_win_the_default_provider_uses_the_winjob_module_and_the_child_is_in_a_job(tmp_path):
+def win_provider() -> LocalProvider:
     from jarvis.self_improvement import winjob
-    assert LocalProvider()._job_factory is winjob.attach
+    return LocalProvider(job_factory=winjob.attach, resume=winjob.resume)
+
+
+@windows_only
+def test_win_bootstrap_wires_the_winjob_module_into_the_local_provider(tmp_path):
+    from jarvis.bootstrap import build_core
+    from jarvis.config import load_settings
+    from jarvis.self_improvement import winjob
+    core = build_core(load_settings(env={"JARVIS_CODING_ENABLED": "true", "JARVIS_CODING_PROVIDER": "local", "JARVIS_MEMORY_PATH": ":memory:",
+                                         "JARVIS_LOG_DIR": str(tmp_path), "JARVIS_WORKSPACE": str(tmp_path)}))
+    prov = core.subsystems["coding"].controller._provider
+    assert prov._job_factory is winjob.attach and prov._resume is winjob.resume
+
+
+@windows_only
+def test_win_a_child_of_the_provider_is_in_a_job(tmp_path):
     probe = ("import ctypes\nk = ctypes.windll.kernel32\nk.GetCurrentProcess.restype = ctypes.c_void_p\nb = ctypes.c_int(0)\n"
              "ok = k.IsProcessInJob(ctypes.c_void_p(k.GetCurrentProcess()), None, ctypes.byref(b))\nprint('INJOB=%d OK=%d' % (b.value, ok))\n")
-    r = LocalProvider().run_command(spec_of([sys.executable, "-c", probe], str(tmp_path), 30.0))
+    r = win_provider().run_command(spec_of([sys.executable, "-c", probe], str(tmp_path), 30.0))
     assert r.exit_code == 0 and "INJOB=1 OK=1" in r.stdout, r.stdout + r.stderr
 
 
 @windows_only
 def test_win_halt_via_abort_running_and_timeout_kill_child_and_grandchild_of_run_test(tmp_path):
     spec, pidfile = chain_spec(tmp_path, "exit", timeout=3.0)
-    res = LocalProvider().run_test(spec)
+    res = win_provider().run_test(spec)
     assert res.timed_out and not res.passed and wait_file(pidfile)
     assert wait_dead(int(pidfile.read_text()), 10), "the orphaned grandchild survived run_test's timeout on Windows"
 
@@ -206,6 +220,16 @@ def test_win_processes_left_after_a_normal_exit_are_ended_when_the_run_returns(t
     (tmp_path / "leaf.py").write_text("import os, sys, time\nopen(sys.argv[1], 'w').write(str(os.getpid()))\ntime.sleep(25)\n")
     pidfile = tmp_path / "left.pid"
     code = f"import subprocess, sys; subprocess.Popen([sys.executable, r'{tmp_path / 'leaf.py'}', r'{pidfile}'])"
-    r = LocalProvider().run_command(spec_of([sys.executable, "-c", code], str(tmp_path), 30.0))
+    r = win_provider().run_command(spec_of([sys.executable, "-c", code], str(tmp_path), 30.0))
     assert r.exit_code == 0 and wait_file(pidfile)
     assert wait_dead(int(pidfile.read_text()), 10), "kill-on-close did not end the process left behind"
+
+
+@windows_only
+def test_win_abort_running_kills_child_and_grandchild_even_when_the_middle_process_has_exited(tmp_path):
+    spec, pidfile = chain_spec(tmp_path, "exit", timeout=30.0)
+    prov = win_provider()
+    threading.Timer(2.0, lambda: (wait_file(pidfile), prov.abort_running())).start()
+    r = prov.run_command(spec)
+    assert r.aborted and wait_file(pidfile)
+    assert wait_dead(int(pidfile.read_text()), 10), "the orphaned grandchild survived abort_running on Windows"
