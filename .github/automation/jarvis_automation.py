@@ -783,10 +783,28 @@ def completed_item_ids(api: GitHubApi, require_merge: bool = False) -> set[str]:
         if not (st and st["status"] == "completed" and st["chain"].get("item_id")):
             continue
         report = st.get("report") or {}
-        if require_merge and not st.get("merged") and (report.get("pr_url") or report.get("branch")):
-            continue
+        if (require_merge or st.get("ci_gated")) and not st.get("merged") and (report.get("pr_url") or report.get("branch")):
+            continue                                     # ein Auftrag, der auf die CI gewartet hat (ci_gated), zaehlt immer erst nach dem Merge
         done.add(st["chain"]["item_id"])
     return done
+
+
+def pending_item_ids(api: GitHubApi, exclude: int | None = None) -> dict[str, str]:
+    """Schritte, die schon einen Auftrag haben, der noch laeuft oder auf den Merge seines PR wartet (Schritt-ID -> Grund). Verhindert, dass derselbe Schritt
+    ein zweites Mal gestartet wird, bevor sein Ergebnis gemergt (oder der PR ohne Merge geschlossen) ist."""
+    out: dict[str, str] = {}
+    for issue in api.list_job_issues(state="all", pages=3):
+        if exclude is not None and issue["number"] == exclude:
+            continue
+        st = own_job_issue(issue)
+        if not st or not st["chain"].get("item_id") or st["chain"].get("repair_of"):
+            continue
+        item, pr_url = st["chain"]["item_id"], (st.get("report") or {}).get("pr_url")
+        if st["status"] in NONTERMINAL:
+            out.setdefault(item, f"laeuft bereits (Auftrag {st['job_id']})")
+        elif st["status"] == "completed" and pr_url and not st.get("merged") and not st.get("abandoned"):
+            out.setdefault(item, f"wartet auf den Merge von {pr_url}")
+    return out
 
 
 def start_backlog_job(api: GitHubApi, cfg: Config, *, item_ref: str, backlog_path: Path, auto_continue: bool, chain_budget: int,
@@ -813,6 +831,9 @@ def start_backlog_job(api: GitHubApi, cfg: Config, *, item_ref: str, backlog_pat
         open_deps = [d for d in item.get("depends_on", []) if d not in done]
         if open_deps:
             raise AutomationError(f"Backlog-Schritt {item_ref}: Abhaengigkeit noch offen ({', '.join(open_deps)}).")
+    pending = pending_item_ids(api).get(item["id"])
+    if pending:
+        raise AutomationError(f"Backlog-Schritt {item['id']} {pending}.")
     return start_job(api, cfg, task=item_task(item), base_branch=cfg.default_branch, auto_continue=auto_continue, chain_budget=chain_budget,
                      timeout_minutes=clamp_int(item.get("timeout_minutes"), DEFAULT_TIMEOUT_MIN, 10, HARD_MAX_TIMEOUT_MIN),
                      run_id=run_id, run_attempt=run_attempt, fire_url=fire_url, fire_token=fire_token, item_id=item["id"], fire=fire, now=now,
@@ -835,6 +856,19 @@ def mark_merged(api: GitHubApi, issue_number: int, *, pr_number: int, sha: str, 
         return False
     merged = {"pr": pr_number, "sha": sha, "at": iso(now)}
     api.update_issue(issue_number, body=render_body({**state, "merged": merged, "updated_at": iso(now)}, f"PR #{pr_number} gemergt ({sha[:12]})."))
+    return True
+
+
+def mark_abandoned(api: GitHubApi, issue_number: int, *, pr_number: int, now: dt.datetime | None = None) -> bool:
+    """Vermerkt einmalig, dass der PR eines abgeschlossenen Auftrags ohne Merge geschlossen wurde: nichts wird fortgesetzt, der Schritt ist NICHT erledigt,
+    gilt aber nicht mehr als wartend (er kann bewusst erneut gestartet werden)."""
+    now = now or utcnow()
+    issue = api.get_issue(issue_number)
+    state = own_job_issue(issue) if issue else None
+    if not state or state["status"] != "completed" or state.get("merged") or state.get("abandoned"):
+        return False
+    api.update_issue(issue_number, body=render_body({**state, "abandoned": {"pr": pr_number, "at": iso(now)}, "updated_at": iso(now)},
+                                                    f"PR #{pr_number} wurde ohne Merge geschlossen; die Kette endet hier."))
     return True
 
 
@@ -998,6 +1032,10 @@ def run_controller(api: GitHubApi, cfg: Config, *, after_job: int, backlog_path:
     plan, reason = decide_followup(
         state, cfg, issue, items=items, done=completed_item_ids(api, require_merge=cfg.auto_merge_enabled), day_count=jobs_last_24h(api, now),
         branch_exists=merged or bool(branch and api.branch_sha(branch)))
+    if plan:
+        waiting = pending_item_ids(api, exclude=after_job).get(plan["item"]["id"])
+        if waiting:                                          # kein zweiter Auftrag fuer einen Schritt, der schon laeuft oder auf seinen Merge wartet
+            plan, reason = None, f"Schritt {plan['item']['id']} {waiting}"
     # Entscheidung im Eltern-Issue festhalten (Idempotenz: ein zweiter Lauf sieht 'followup' und tut nichts)
     if state.get("followup"):
         log(f"#{after_job}: Folgeentscheidung bereits getroffen: {state['followup']}")

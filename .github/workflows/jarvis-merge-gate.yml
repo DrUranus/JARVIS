@@ -1,10 +1,12 @@
 # Merge-Gate: bewertet PRs von claude/*-Branches, schreibt einen Statusbericht in den PR, mergt NUR bei vollstaendig erfolgreichen
 # Pflichtpruefungen fuer den freigegebenen Commit (siehe .github/automation/merge_gate.py) und stoesst bei Fehlern begrenzte
 # Korrekturauftraege an (ueber jarvis-controller.yml). Merge nur mit Variable JARVIS_AUTO_MERGE_ENABLED=true; Standard: nur Bericht.
-# Laeuft ausschliesslich mit dem Code des Standard-Branches (workflow_run/schedule/dispatch), checkt nie PR-Code aus, keine Fire-Secrets.
+# Laeuft ausschliesslich mit dem Code des Standard-Branches (push auf main/workflow_run/schedule/dispatch), checkt nie PR-Code aus, keine Fire-Secrets.
 name: JARVIS merge gate
 
 on:
+  push:
+    branches: [main]     # jeder Merge nach main (auch der des Besitzers) wird sofort bemerkt; Zeitplaene laufen auf GitHub nur unregelmaessig (Stunden-Abstaende beobachtet)
   workflow_run:
     workflows: [pr-tests]
     types: [completed]
