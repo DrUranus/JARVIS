@@ -502,6 +502,7 @@ def test_unapproved_and_unmet_items_never_selected():
 
 PINNED_PLAN = ["windows-capture-tests", "coding-windows-process-tree", "persistent-results", "onboarding-windows", "memory-semantic-search",
                "voice-barge-in-hotword", "docs-sync"]
+PINNED_DONE = ["windows-capture-tests"]          # Planschritte, die bereits gemergt sind (PR #34)
 
 
 def test_shipped_backlog_approvals_are_exactly_the_owner_approved_steps():
@@ -513,8 +514,8 @@ def test_shipped_backlog_approvals_are_exactly_the_owner_approved_steps():
     assert plan["approved_items"] == PINNED_PLAN and isinstance(plan["approved"], bool)
     assert [i["id"] for i in raw["items"] if i.get("approved") is True] == ["autonomy-invariants", "session-budget"]       # Einzelfreigaben ausserhalb des Plans
     assert [i["id"] for i in items if i["approved"]] == ["autonomy-invariants", "session-budget"] + (PINNED_PLAN if plan["approved"] else [])
-    assert [i["id"] for i in items if i.get("done")] == ["autonomy-invariants", "session-budget"]
-    expected_next = PINNED_PLAN[0] if plan["approved"] else None
+    assert [i["id"] for i in items if i.get("done")] == ["autonomy-invariants", "session-budget"] + PINNED_DONE          # erledigt (gemergt); bleibt Teil des Plans
+    expected_next = next(i for i in PINNED_PLAN if i not in PINNED_DONE) if plan["approved"] else None
     nxt = ja.select_next_item(items, set(), set())
     assert (nxt["id"] if nxt else None) == expected_next          # Teilziel 3 und 4 sind erledigt; ohne freigegebenen Plan gibt es keinen naechsten Schritt
 

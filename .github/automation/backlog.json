@@ -43,6 +43,7 @@
       "id": "windows-capture-tests",
       "title": "Windows: echte Tests fuer Bildschirmaufnahme und Monitore",
       "approved": false,
+      "done": true,
       "depends_on": [],
       "max_attempts": 2,
       "timeout_minutes": 120,
