@@ -1,8 +1,8 @@
 """Merge-Gate und Korrekturschleife fuer Pull Requests von claude/*-Branches.
 
 Ein PR wird nur gemergt, wenn ALLE Bedingungen gelten (evaluate_pr): freigegeben (Besitzer-Review oder freigegebener Backlog-Schritt,
-jeweils fuer genau diesen Commit), Pflichtpruefungen der GitHub-Actions-App fuer genau diesen Commit erfolgreich, keine geschuetzten
-Pfade, nicht hinter main, mergebar. Der Merge nennt den geprueften Commit (API lehnt ab, wenn der Branch inzwischen weiterging).
+jeweils fuer genau diesen Commit), Pflichtpruefungen der GitHub-Actions-App fuer genau diesen Commit erfolgreich, sensible Pfade nur mit
+konkreter Freigabe im genehmigten Auftrag (sensitive_edits, im Patch geprueft), nicht hinter main, mergebar. Der Merge nennt den geprueften Commit (API lehnt ab, wenn der Branch inzwischen weiterging).
 Aktiv nur mit Variable JARVIS_AUTO_MERGE_ENABLED=true; sonst nur Statusbericht ("Trockenlauf"). Kein Zugriff auf Fire-Secrets.
 """
 from __future__ import annotations
@@ -20,9 +20,10 @@ import jarvis_automation as ja
 
 REQUIRED_CHECKS = ("tests-linux", "tests-windows")        # Jobnamen in .github/workflows/pr-tests.yml
 CHECK_APP = "github-actions"
-# nie automatisch mergen: Automatisierung, Regeln, Konfiguration und alles, was die Sicherheitsgrenzen (Berechtigungen, Notaus, Verdrahtung) oder deren Tests betrifft
-PROTECTED_PATHS = (".github/", "CLAUDE.md", ".claude/", "config/jarvis.toml", "src/jarvis/permissions/", "src/jarvis/bootstrap.py",
-                   "tests/test_emergency_stop.py", "tests/test_security_", "tests/test_autonomy_invariants.py")
+# Sensible Pfade: ohne konkrete Freigabe im genehmigten Auftrag (sensitive_edits) wird nicht automatisch gemergt. Die Freigabe-Instanzen (NEVER_DECLARABLE) nie.
+PROTECTED_PATHS = ja.SENSITIVE_PATHS
+# Workflow-/Automatisierungsaenderungen duerfen auch bei deklarierter Freigabe keine Secret-Zugriffe, pull_request_target oder Schreibrechte neu hinzufuegen
+ESCALATION_WORDS = re.compile(r"secrets\.|pull_request_target|:\s*write\b|ROUTINE_FIRE", re.I)
 # Zeilen mit diesen Woertern darf auch eine freigegebene Verdrahtung nie hinzufuegen: Berechtigungen, Not-Aus, Budget, Bestaetigung, Audit, Geheimnisse, Prozess/Netz/Datei-Zugriff
 SECURITY_WORDS = re.compile(r"permission|emergency|budget|confirm|audit|secret|token|password|credential|api[_-]?key|environ|getenv|subprocess|os\.system|popen|\beval\b|\bexec\b|"
                             r"__import__|importlib|socket|urllib|requests|ctypes|pickle|\bopen\(|lockdown|policy|halt|reset", re.I)
@@ -112,6 +113,18 @@ def is_protected(path: str) -> bool:
     return any(path == p or path.startswith(p) for p in PROTECTED_PATHS)
 
 
+def is_never(path: str) -> bool:
+    return any(path == n or (n.endswith("/") and path.startswith(n)) for n in ja.NEVER_DECLARABLE)
+
+
+def rule_for(allow: dict[str, Any], path: str) -> dict[str, Any] | None:
+    """Freigabe fuer diese Datei: genauer Pfad, sonst der laengste passende Verzeichnis-Praefix."""
+    if path in allow:
+        return allow[path]
+    best = max((k for k in allow if k.endswith("/") and path.startswith(k)), key=len, default=None)
+    return allow[best] if best else None
+
+
 def owner_approval(reviews: list[dict[str, Any]], head_sha: str, trusted: set[str]) -> str:
     """Login des vertrauenswuerdigen Pruefers, dessen letztes Votum 'APPROVED' fuer genau diesen Commit ist, sonst ''."""
     last: dict[str, dict[str, Any]] = {}
@@ -125,29 +138,48 @@ def owner_approval(reviews: list[dict[str, Any]], head_sha: str, trusted: set[st
     return ""
 
 
-def verify_protected_edits(details: list[dict[str, Any]], allow: dict[str, Any]) -> list[str]:
-    """Probleme (leer = alles gedeckt), wenn die geschuetzten Dateien eines PR durch die Freigabe des Schritts abgedeckt sein sollen. Streng: nur bootstrap.py,
-    nur eine einfache Aenderung, nur hinzugefuegte Zeilen, jede Codezeile muss einem freigegebenen Muster entsprechen und darf kein Sicherheitswort enthalten.
-    Alle anderen geschuetzten Pfade (Berechtigungen, Not-Aus, Sicherheitstests, Konfiguration, Automatisierung) sind nie durch eine Freigabe gedeckt."""
+def verify_sensitive_edits(details: list[dict[str, Any]], allow: dict[str, Any]) -> list[str]:
+    """Probleme (leer = alles gedeckt), wenn die sensiblen Dateien eines PR durch die konkrete Freigabe des genehmigten Schritts gedeckt sein sollen. Geprueft wird der echte Patch:
+    'additive' = nur Hinzufuegen, hoechstens max_added Zeilen, jede Codezeile passt zu einem Muster und enthaelt kein Sicherheitswort; 'free' = beliebige Aenderung der deklarierten
+    Datei, aber kein Loeschen/Umbenennen, hoechstens max_changed Zeilen, Sicherheitstests nur additiv, keine neuen Secret-/Schreibrechte in Workflows/Automatisierung.
+    Die Freigabe-Instanzen (Backlog, CODEOWNERS, CLAUDE.md, .claude) sind nie gedeckt."""
     problems: list[str] = []
     for d in details:
         names = [n for n in (d.get("filename"), d.get("previous_filename")) if n]
         if not any(is_protected(n) for n in names):
             continue
-        path, rule = d.get("filename", "?"), allow.get(d.get("filename"))
-        if rule is None or path not in ja.ALLOWABLE_PROTECTED:
+        path = d.get("filename", "?")
+        if any(is_never(n) for n in names):
+            problems.append(f"{path}: Freigabe-Instanz (Backlog/CODEOWNERS/CLAUDE.md/.claude) nie per Auftrag freigebbar")
+            continue
+        rule = rule_for(allow, path)
+        if rule is None:
             problems.append(f"{path}: nicht freigegeben")
             continue
-        if d.get("status") != "modified" or d.get("previous_filename"):
-            problems.append(f"{path}: nur eine einfache Aenderung ist freigegeben (Status {d.get('status')})")
+        status, patch, renamed = d.get("status"), d.get("patch"), d.get("previous_filename")
+        free = rule.get("mode") == "free"
+        if free and (renamed or status not in ("modified", "added")):
+            problems.append(f"{path}: Loeschen/Umbenennen ist nicht freigegeben (Status {status})")
             continue
-        patch = d.get("patch")
+        if not free and (status != "modified" or renamed):
+            problems.append(f"{path}: nur eine einfache Aenderung ist freigegeben (Status {status})")
+            continue
         if not patch:
             problems.append(f"{path}: kein Patch verfuegbar (zu gross?)")
             continue
         lines = patch.splitlines()
         added = [l[1:] for l in lines if l.startswith("+") and not l.startswith("+++")]
         removed = [l for l in lines if l.startswith("-") and not l.startswith("---")]
+        if free:
+            limit = rule.get("max_changed", ja.DEFAULT_MAX_CHANGED)
+            if len(added) + len(removed) > limit:
+                problems.append(f"{path}: mehr als {limit} geaenderte Zeilen ({len(added) + len(removed)})")
+            if removed and any(path.startswith(t) for t in ja.SECURITY_TEST_PATHS):
+                problems.append(f"{path}: Sicherheitstest, nur Hinzufuegen ist freigegeben ({len(removed)} Zeilen entfernt)")
+            in_tests = path.startswith(".github/automation/tests/")
+            if (path.startswith(".github/workflows/") or (path.startswith(".github/automation/") and not in_tests)) and any(ESCALATION_WORDS.search(l) for l in added):
+                problems.append(f"{path}: fuegt Secret-Zugriff, pull_request_target oder Schreibrechte hinzu (nie automatisch)")
+            continue
         if removed:
             problems.append(f"{path}: {len(removed)} Zeilen entfernt (nur Hinzufuegen ist freigegeben)")
         if len(added) > rule["max_added"]:
@@ -271,16 +303,28 @@ def evaluate_pr(api: Any, gcfg: GateConfig, pr: dict[str, Any], items: list[dict
     job = approved_job(api, items, head_ref, head_sha, base=cfg.default_branch)
     approver = owner_approval(pr_reviews(api, pr["number"]), head_sha, cfg.trusted_reporters) or (job[0] if job else "")
     v.approved_by = approver
+    item = job[1] if job else None
+    active = bool(item and item.get("_scopes_active"))
+    allow = item.get("sensitive_edits") if active else None
     if protected:
-        allow = job[1].get("protected_edits") if job else None
-        problems = verify_protected_edits(details, allow) if allow else []
-        if allow and not problems:                          # Verdrahtung ist fuer GENAU diesen freigegebenen Schritt deklariert und geprueft additiv
-            v.reasons.append("geschuetzte Verdrahtung (" + ", ".join(protected[:5]) + ") durch den freigegebenen Schritt gedeckt und als rein additiv geprueft")
+        problems = verify_sensitive_edits(details, allow) if allow else []
+        if allow and not problems:                          # die sensible Aenderung ist fuer GENAU diesen genehmigten Schritt konkret freigegeben und im Patch geprueft
+            v.reasons.append("sensible Dateien (" + ", ".join(protected[:5]) + ") durch die Freigabe des genehmigten Schritts gedeckt und im Patch geprueft")
             protected = []
         else:
-            v.reasons.append("geschuetzte Pfade geaendert (" + ", ".join(protected[:5]) + "): der Besitzer mergt selbst")
+            v.reasons.append("geschuetzte Pfade geaendert (" + ", ".join(protected[:5]) + "): keine Freigabe im genehmigten Auftrag, der Besitzer entscheidet")
             if allow:
                 v.reasons.append("Freigabe des Schritts deckt die Aenderung nicht: " + "; ".join(problems[:3]))
+            elif item and item.get("sensitive_edits"):
+                v.reasons.append("Freigaben des Plans sind noch nicht aktiviert (plan.scopes_approved)")
+    if active and item.get("scope"):                        # Aufgabenbereich: alles ausserhalb (ausser den deklarierten sensiblen Dateien) gehoert nicht zum Auftrag
+        names = [d.get("filename") for d in details if d.get("filename")]
+        declared = list((item.get("sensitive_edits") or {}))
+        outside = [n for n in names if not any(n == k or n.startswith(k) for k in [*item["scope"], *declared])]
+        if outside:
+            v.reasons.append("Dateien ausserhalb des Auftrags (scope): " + ", ".join(sorted(outside)[:5]))
+            protected = [*protected, *outside]
+
     if not approver:
         v.reasons.append("keine Freigabe fuer diesen Commit (Besitzer-Review 'Approve' oder freigegebener Backlog-Schritt mit Bericht zu diesem Commit)")
 

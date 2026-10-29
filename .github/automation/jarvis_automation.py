@@ -57,9 +57,15 @@ MAX_CONTEXT_CHARS = 50_000        # Fire-API erlaubt 65.536 Zeichen; Rest fuer d
 HARD_MAX_CHAIN_JOBS = 5           # absolute Obergrenze, unabhaengig von Eingaben und Variablen
 HARD_MAX_ATTEMPTS = 3             # Versuche je Backlog-Schritt
 HARD_MAX_TIMEOUT_MIN = 240
-ALLOWABLE_PROTECTED = ("src/jarvis/bootstrap.py",)     # einzige geschuetzte Datei, die ein Plan fuer einen Schritt freigeben kann (Kompositionswurzel)
-MAX_PROTECTED_PATTERNS, MAX_PROTECTED_ADDED = 5, 20
-# Muster, die eine Freigabe NIE zulassen darf (sonst waere sie ein Freibrief): jedes Muster, das eine dieser Zeilen akzeptiert, wird abgelehnt
+# Sensible Pfade: eine Aenderung daran braucht eine KONKRETE Freigabe im genehmigten Auftrag (sensitive_edits im Plan), keine pauschale Dateisperre und keinen Besitzer-Merge je PR.
+SENSITIVE_PATHS = (".github/", "CLAUDE.md", ".claude/", "config/jarvis.toml", "src/jarvis/permissions/", "src/jarvis/bootstrap.py",
+                   "tests/test_emergency_stop.py", "tests/test_security_", "tests/test_autonomy_invariants.py")
+# Dateien, die festlegen WER WAS genehmigen darf bzw. was Claude darf: nie per Auftrag freigebbar (sonst koennte die Automatik ihre eigenen Genehmigungen/Rechte erweitern)
+NEVER_DECLARABLE = (".github/automation/backlog.json", ".github/CODEOWNERS", "CLAUDE.md", ".claude/")
+SECURITY_TEST_PATHS = ("tests/test_emergency_stop.py", "tests/test_security_", "tests/test_autonomy_invariants.py")   # Sicherheitstests: nur Hinzufuegen
+MAX_SENSITIVE_ENTRIES, MAX_PROTECTED_PATTERNS, MAX_PROTECTED_ADDED = 10, 5, 20
+DEFAULT_MAX_CHANGED, HARD_MAX_CHANGED, MAX_SCOPE_ENTRIES = 200, 1000, 30
+# Muster, die eine additive Freigabe NIE zulassen darf (sonst waere sie ein Freibrief): jedes Muster, das eine dieser Zeilen akzeptiert, wird abgelehnt
 PROTECTED_PROBES = ("import subprocess", "import socket", "subprocess.run(x)", "os.system(x)", "exec(x)", "eval(x)", "core.permissions = x", "permissions = None",
                     "register_emergency_components = x", "x = os.environ['K']", "open(x)")
 MAX_ACCEPTANCE_ITEMS = 10         # Abnahmekriterien je Backlog-Schritt
@@ -307,29 +313,51 @@ def load_backlog(path: Path) -> list[dict[str, Any]]:
         if acc is not None and (not isinstance(acc, list) or not 1 <= len(acc) <= MAX_ACCEPTANCE_ITEMS
                                 or any(not isinstance(a, str) or not a.strip() or len(a) > MAX_ACCEPTANCE_CHARS for a in acc)):
             raise AutomationError(f"backlog.json: {it['id']}: acceptance muss 1-{MAX_ACCEPTANCE_ITEMS} Texte (je max. {MAX_ACCEPTANCE_CHARS} Zeichen) enthalten")
-        if "protected_edits" in it:
-            _check_protected_edits(it["id"], it["protected_edits"])
+        if "sensitive_edits" in it:
+            _check_sensitive_edits(it["id"], it["sensitive_edits"])
+        if "scope" in it:
+            _check_scope(it["id"], it["scope"])
         it["approved"] = it.get("approved") is True
+        it["_scopes_active"] = it["approved"]            # Einzelfreigabe durch den Besitzer: ihre Deklarationen gelten; Plan-Schritte: siehe _apply_plan
     _apply_plan(data.get("plan"), items)
     return items
 
 
-def _check_protected_edits(item_id: str, edits: Any) -> None:
-    """Freigabe geschuetzter Verdrahtung fuer einen Schritt: nur bootstrap.py, nur zusaetzliche Zeilen, jede muss einem engen Muster entsprechen. Der Besitzer legt das mit
-    dem Plan fest (CODEOWNERS-geschuetzte Datei); die Routine kann es nicht aendern. Unsichere Freigaben fuehren zu einem Ladefehler statt zu einem Freibrief."""
-    where = f"backlog.json: {item_id}: protected_edits"
-    if not isinstance(edits, dict) or not edits:
-        raise AutomationError(f"{where} muss ein Objekt {{Pfad: Freigabe}} sein")
+def _overlaps_never(path: str) -> bool:
+    return any(path == n or (n.endswith("/") and path.startswith(n)) for n in NEVER_DECLARABLE)
+
+
+def _check_sensitive_edits(item_id: str, edits: Any) -> None:
+    """Konkrete Freigabe sensibler Dateien fuer einen Schritt (Besitzer im Plan; die Routine kann das nicht aendern). Pfad = Datei oder Verzeichnis-Praefix innerhalb der sensiblen
+    Bereiche (nie breiter, nie die Freigabe-Instanzen selbst). Modus 'additive': nur hinzugefuegte Zeilen, jede passend zu einem engen Muster; Modus 'free': beliebige
+    Aenderung dieser Dateien (ohne Loeschen/Umbenennen, mit Obergrenze, Sicherheitstests nur additiv, Workflows ohne neue Secret-/Schreibrechte). Unsichere Deklarationen
+    fuehren zu einem Ladefehler statt zu einem Freibrief."""
+    where = f"backlog.json: {item_id}: sensitive_edits"
+    if not isinstance(edits, dict) or not 1 <= len(edits) <= MAX_SENSITIVE_ENTRIES:
+        raise AutomationError(f"{where} muss ein Objekt mit 1-{MAX_SENSITIVE_ENTRIES} Eintraegen {{Pfad: Freigabe}} sein")
     for path, rule in edits.items():
-        if path not in ALLOWABLE_PROTECTED:
-            raise AutomationError(f"{where}: nur {ALLOWABLE_PROTECTED[0]} (Kompositionswurzel bootstrap) ist freigebbar, nicht {path}")
-        if not isinstance(rule, dict) or set(rule) != {"added", "max_added"}:
-            raise AutomationError(f"{where}: {path} braucht genau 'added' (Muster) und 'max_added'")
+        if not isinstance(path, str) or not path or path.startswith("/") or ".." in path or "*" in path or "\\" in path:
+            raise AutomationError(f"{where}: ungueltiger Pfad")
+        if not any(path.startswith(s) for s in SENSITIVE_PATHS):
+            raise AutomationError(f"{where}: {path} liegt nicht in einem sensiblen Bereich (Freigabe waere breiter als noetig)")
+        if _overlaps_never(path):
+            raise AutomationError(f"{where}: {path} ist nie per Auftrag freigebbar (Freigabe-Instanz: Backlog, CODEOWNERS, CLAUDE.md, .claude)")
+        if not isinstance(rule, dict) or rule.get("mode") not in ("additive", "free"):
+            raise AutomationError(f"{where}: {path} braucht mode 'additive' oder 'free'")
+        if rule["mode"] == "free":
+            if set(rule) - {"mode", "max_changed"}:
+                raise AutomationError(f"{where}: {path}: 'free' kennt nur max_changed")
+            limit = rule.get("max_changed", DEFAULT_MAX_CHANGED)
+            if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= HARD_MAX_CHANGED:
+                raise AutomationError(f"{where}: {path}: max_changed muss 1-{HARD_MAX_CHANGED} sein")
+            continue
+        if set(rule) != {"mode", "added", "max_added"}:
+            raise AutomationError(f"{where}: {path}: 'additive' braucht genau added (Muster) und max_added")
         added, limit = rule["added"], rule["max_added"]
         if not isinstance(added, list) or not 1 <= len(added) <= MAX_PROTECTED_PATTERNS or any(not isinstance(a, str) or not a or len(a) > 200 for a in added):
-            raise AutomationError(f"{where}: 'added' braucht 1-{MAX_PROTECTED_PATTERNS} Muster (je hoechstens 200 Zeichen)")
+            raise AutomationError(f"{where}: {path}: 'added' braucht 1-{MAX_PROTECTED_PATTERNS} Muster (je hoechstens 200 Zeichen)")
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= MAX_PROTECTED_ADDED:
-            raise AutomationError(f"{where}: max_added muss 1-{MAX_PROTECTED_ADDED} sein")
+            raise AutomationError(f"{where}: {path}: max_added muss 1-{MAX_PROTECTED_ADDED} sein")
         for pattern in added:
             try:
                 rx = re.compile(pattern)
@@ -339,14 +367,22 @@ def _check_protected_edits(item_id: str, edits: Any) -> None:
                 raise AutomationError(f"{where}: Muster ist zu weit (wuerde sicherheitsrelevante Zeilen zulassen)")
 
 
+def _check_scope(item_id: str, scope: Any) -> None:
+    """Aufgabenbereich eines Schritts: nur diese Pfade/Praefixe darf sein PR aendern (zusaetzlich zu den deklarierten sensiblen Dateien)."""
+    if (not isinstance(scope, list) or not 1 <= len(scope) <= MAX_SCOPE_ENTRIES
+            or any(not isinstance(s, str) or not s or s.startswith("/") or ".." in s or "*" in s or "\\" in s for s in scope)):
+        raise AutomationError(f"backlog.json: {item_id}: scope braucht 1-{MAX_SCOPE_ENTRIES} Pfade/Praefixe ohne '..', '*' und fuehrenden '/'")
+
+
 def _apply_plan(plan: Any, items: list[dict[str, Any]]) -> None:
     """Einmalig freigegebener Plan: Der Besitzer gibt ihn durch eine einzige Aenderung dieser (CODEOWNERS-geschuetzten) Datei frei. Die gelisteten Schritte
     gelten dann als freigegeben (approved=true); jeder braucht Abnahmekriterien. Nichts ausserhalb der Liste wird je freigegeben."""
     if plan is None:
         return
     if (not isinstance(plan, dict) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,40}", str(plan.get("id", ""))) or not isinstance(plan.get("approved"), bool)
-            or not isinstance(plan.get("approved_items"), list) or not all(isinstance(i, str) for i in plan["approved_items"])):
-        raise AutomationError("backlog.json: plan braucht id, approved (true/false) und approved_items (Liste von Schritt-IDs)")
+            or not isinstance(plan.get("approved_items"), list) or not all(isinstance(i, str) for i in plan["approved_items"])
+            or not isinstance(plan.get("scopes_approved", False), bool)):
+        raise AutomationError("backlog.json: plan braucht id, approved (true/false), approved_items (Liste von Schritt-IDs) und optional scopes_approved (true/false)")
     by_id = {it["id"]: it for it in items}
     for item_id in plan["approved_items"]:
         if item_id not in by_id:
@@ -355,6 +391,8 @@ def _apply_plan(plan: Any, items: list[dict[str, Any]]) -> None:
             raise AutomationError(f"backlog.json: {item_id} steht im Plan, hat aber keine Abnahmekriterien (acceptance)")
         if plan["approved"]:
             by_id[item_id]["approved"] = True
+            if plan.get("scopes_approved") is True:          # die konkreten Freigaben der Schritte (sensitive_edits, scope) wirken erst mit diesem einen Schalter des Besitzers
+                by_id[item_id]["_scopes_active"] = True
 
 
 def item_task(item: dict[str, Any]) -> str:

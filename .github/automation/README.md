@@ -40,8 +40,8 @@ Mit `JARVIS_AUTO_MERGE_ENABLED=true` und `auto_continue` startet ein Folgeauftra
 stoßen den Controller vorher nicht an. Wird der PR nie gemergt (rot, Konflikt, geschützter Pfad, kein Merge-Recht), endet die Kette sichtbar am PR-Statuskommentar und am
 Auftrags-Issue; es wird nichts erraten oder umgangen. Erledigte Schritte stehen mit `"done": true` im Backlog und werden nie erneut gestartet.
 
-**Nie automatisch gemergt** (immer Besitzer): `.github/`, `CLAUDE.md`, `.claude/`, `config/jarvis.toml`, `src/jarvis/permissions/`, `src/jarvis/bootstrap.py`,
-`tests/test_emergency_stop.py`, `tests/test_security_*`, `tests/test_autonomy_invariants.py` (`PROTECTED_PATHS`).
+**Sensible Pfade** (`.github/`, `CLAUDE.md`, `.claude/`, `config/jarvis.toml`, `src/jarvis/permissions/`, `src/jarvis/bootstrap.py`, Sicherheits-/Notaus-/Invariantentests) haben **keine pauschale Dateisperre mehr**:
+sie werden automatisch gemergt, wenn der genehmigte Auftrag sie konkret freigibt (siehe „Sensible Pfade im genehmigten Auftrag“). `backlog.json`, `.github/CODEOWNERS`, `CLAUDE.md` und `.claude/**` sind nie per Auftrag freigebbar.
 Grenzen der Kette: `chain_budget` hart ≤ 5 Aufträge je Kette, `JARVIS_MAX_JOBS_PER_DAY` (Standard 10, hart ≤ 50), ein aktiver Auftrag, höchstens 3 Versuche je Schritt,
 Stopp per `JARVIS_AUTOMATION_HALT=true` oder Label `jarvis:stop`. Neustart-fest: der Zustand liegt in den Tracking-Issues; der Watchdog (15 min) holt verlorene Berichte,
 Timeouts und verlorene Controller-Anstöße (≤ 2 h) nach.
@@ -56,7 +56,7 @@ Sicherheitskritische Schritte stehen nicht im Plan und bleiben `approved: false`
 Start: Actions → „Trigger Claude Code Routine“ mit `backlog_item = next` (oder einer Schritt-ID), `auto_continue = true`, `chain_budget = 5`. Der Auftragstext samt Abnahmekriterien kommt aus
 dem Backlog (nie aus Berichten). Weitere Schritte folgen automatisch nach Merge (Variablen `JARVIS_AUTO_CONTINUE_ENABLED` und `JARVIS_AUTO_MERGE_ENABLED`); eine Kette hat höchstens 5 Aufträge,
 bei 7 Plan-Schritten ist deshalb ein zweiter Start nötig. Ein Schritt gilt mit Auto-Merge erst als erledigt, wenn sein PR gemergt ist (`merged`); auch ein vom Besitzer selbst gemergter PR
-setzt die Kette fort (das Gate prüft alle 20 min). Schritte, die geschützte Pfade berühren, mergt weiter nur der Besitzer; die Kette wartet dann.
+setzt die Kette fort (das Gate prüft alle 20 min). Sensible Pfade ohne konkrete Freigabe im Auftrag mergt der Besitzer; die Kette wartet dann.
 
 ## Bericht vor Abschluss der CI (`awaiting_ci`)
 
@@ -79,23 +79,29 @@ Ein Auftrag, der `awaiting_ci` durchlaufen hat, setzt **immer erst nach dem Merg
 Abnahmekriterien (`awaiting_ci`-Kriterien zählen erst nach dem Merge). Kettenbudget, Tageslimit, ein aktiver Auftrag und höchstens 3 Versuche gelten unverändert. Beachte: Die Kriterien selbst bewertet
 die Routine; maschinell geprüft werden Vollständigkeit, `not_met`, CI je Commit, Branch/PR-Zuordnung und geschützte Pfade, nicht der Inhalt eines Kriteriums.
 
-## Geschützte Pfade im genehmigten Schritt
+## Sensible Pfade im genehmigten Auftrag (statt pauschaler Dateisperre)
 
-Das Gate mergt nie automatisch, wenn ein PR einen geschützten Pfad ändert (`PROTECTED_PATHS`). Die einzige Ausnahme ist **Verdrahtung in `src/jarvis/bootstrap.py`** (Kompositionswurzel), und nur so:
-
-- Der Besitzer **deklariert sie im Plan** für genau diesen Schritt (`protected_edits` in `backlog.json`, eine CODEOWNERS-geschützte Datei; die Routine kann das nicht ändern). Ohne Deklaration bleibt alles beim Besitzer.
-- Das Gate prüft den **tatsächlichen Patch** (nicht den Pfad): nur eine einfache Änderung der Datei, **keine entfernte Zeile**, höchstens `max_added` hinzugefügte Zeilen, jede Codezeile muss einem deklarierten engen Muster entsprechen
-  und darf kein Sicherheitswort enthalten (Berechtigung, Not-Aus, Budget, Bestätigung, Audit, Geheimnis/Token/Passwort, `environ`, Prozess-/Netz-/Datei-Zugriff, Policy, Lockdown, Halt/Reset). Kommentare und Leerzeilen sind frei.
-- Der Backlog lehnt unsichere Deklarationen schon beim Laden ab: andere Dateien als `bootstrap.py`, zu weite Muster (alles, was `import subprocess`, `core.permissions = x` oder `exec(x)` zuließe), mehr als 5 Muster oder 20 Zeilen.
-- **Immer beim Besitzer, auch mit Deklaration:** alles unter `src/jarvis/permissions/` (PermissionEngine, Not-Aus, Audit, Budget), `config/jarvis.toml`, Sicherheits-/Notaus-/Invariantentests, `CLAUDE.md`, `.claude/`, `.github/` (Automatisierung selbst).
-  Sobald ein PR auch nur eine dieser Dateien berührt, ist der ganze PR Besitzer-Sache. Ein Besitzer-Review allein öffnet geschützte Pfade ebenfalls nicht.
-- Weiter nötig: freigegebener Schritt mit Bericht zum Commit, `tests-linux` und `tests-windows` für genau diesen Commit, Branch aktuell, Merge mit geprüfter SHA.
-
-Beispiel (Vorschlag für `persistent-results`; **nicht eingetragen**, das ist eine Besitzerentscheidung):
+Ein PR darf sensible Dateien nur ändern, wenn der **genehmigte Backlog-Schritt, zu dem er gehört,** das konkret freigibt. Die Freigabe steht im Plan (`backlog.json`) beim Schritt, nicht in einer Pfadliste des Gates:
 
 ```json
-"protected_edits": {"src/jarvis/bootstrap.py": {"added": ["from jarvis\\.history\\.factory import build_history", "core\\.history = build_history\\(settings, core, guard\\)"], "max_added": 6}}
+"sensitive_edits": {
+  "src/jarvis/bootstrap.py":            {"mode": "additive", "added": ["<Zeilenmuster>"], "max_added": 6},
+  "src/jarvis/permissions/audit.py":    {"mode": "free", "max_changed": 150},
+  ".github/workflows/pr-tests.yml":     {"mode": "free"}
+},
+"scope": ["src/jarvis/history/", "tests/test_history"]      // optional: nur diese Pfade darf der PR ändern (plus die deklarierten sensiblen Dateien)
 ```
+
+- **`additive`:** nur hinzugefügte Zeilen, höchstens `max_added`; jede Codezeile muss einem deklarierten engen Muster entsprechen und darf kein Sicherheitswort enthalten (Berechtigung, Not-Aus, Budget, Bestätigung, Audit, Geheimnis/Token/Passwort, `environ`, Prozess-/Netz-/Datei-Zugriff, Policy, Lockdown, Halt/Reset).
+- **`free`:** beliebige Änderung genau dieser Datei (oder dieses Verzeichnis-Präfixes), aber: kein Löschen/Umbenennen, höchstens `max_changed` Zeilen (Standard 200, hart 1000), **Sicherheitstests nur additiv** (kein Test wird abgeschwächt),
+  und Workflows/Automatisierungscode dürfen **keine neuen Secret-Zugriffe, `pull_request_target` oder Schreibrechte** hinzufügen. Das gilt auch für freigegebene Schritte.
+- Das Gate prüft den **echten Patch** gegen genau diese Freigabe, bei jedem Kopf neu. Eine sensible Datei, die der Schritt nicht deklariert, macht den ganzen PR zur Besitzer-Sache; ein PR ohne genehmigten Auftrag
+  (z. B. eine Änderung an der Automatisierung selbst) ebenso, und ein Besitzer-Review allein ersetzt die Auftragsbindung nicht.
+- **Nie per Auftrag freigebbar** (sie legen fest, wer was genehmigen darf bzw. was Claude darf; sonst könnte die Automatik ihre eigenen Genehmigungen erweitern): `.github/automation/backlog.json`, `.github/CODEOWNERS`, `CLAUDE.md`, `.claude/**`.
+  Sie sind auch beim Laden des Backlogs nicht deklarierbar, und das Gate lässt einen PR mit diesen Dateien nie automatisch durch.
+- Der Backlog lehnt unsichere Deklarationen schon beim Laden ab: Pfade außerhalb der sensiblen Bereiche oder zu breit, unbekannte Felder, zu weite Muster (alles, was `import subprocess`, `core.permissions = x` oder `exec(x)` zuließe), > 5 Muster, > 20 Zeilen, > 10 Einträge.
+- **Aktivierung (einmalig, Besitzer):** Die Deklarationen der Plan-Schritte wirken erst, wenn `plan.scopes_approved` auf `true` steht. Die Datei liefert die geprüfte Deklaration für `persistent-results` mit `scopes_approved: false`, es ist nichts aktiv.
+- Weiter nötig wie immer: freigegebener Schritt mit Bericht zum Commit, `tests-linux`/`tests-windows` für genau diesen Commit, Branch aktuell, Merge mit geprüfter SHA.
 
 ## Veralteter PR-Branch (`behind`)
 
