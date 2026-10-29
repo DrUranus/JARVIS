@@ -79,6 +79,18 @@ Ein Auftrag, der `awaiting_ci` durchlaufen hat, setzt **immer erst nach dem Merg
 Abnahmekriterien (`awaiting_ci`-Kriterien zählen erst nach dem Merge). Kettenbudget, Tageslimit, ein aktiver Auftrag und höchstens 3 Versuche gelten unverändert. Beachte: Die Kriterien selbst bewertet
 die Routine; maschinell geprüft werden Vollständigkeit, `not_met`, CI je Commit, Branch/PR-Zuordnung und geschützte Pfade, nicht der Inhalt eines Kriteriums.
 
+## Nach einem Merge (Besitzer oder Gate)
+
+Das Merge-Gate läuft jetzt auch bei **jedem Push auf `main`** (zusätzlich zu `pr-tests`-Ende, Zeitplan und manuellem Start). Grund: Ein Merge erzeugte bisher kein Ereignis für das Gate, und die
+Zeitpläne laufen auf GitHub unregelmäßig (beobachtet: Abstände von 3 bis 6 Stunden statt 15/20 Minuten). Ein Merge durch den Besitzer (geschützte Pfade!) setzt die Kette deshalb sofort fort.
+
+Ablauf: PR gemergt → Gate prüft Repository, Basis `main`, Branch und PR-Nummer gegen den Bericht → vermerkt `merged` im Auftrags-Issue → stößt den Controller einmal an → Controller wählt den nächsten
+freigegebenen, offenen Schritt. Ein ohne Merge geschlossener PR vermerkt `abandoned` (Kette endet, Schritt **nicht** erledigt, darf bewusst erneut gestartet werden).
+
+**„Erledigt“ ist abgeleitet, nicht in `backlog.json` geschrieben:** Ein Schritt gilt als erledigt, wenn sein Auftrag `completed` ist **und** sein PR als gemergt vermerkt ist (bei Aufträgen, die auf die CI
+gewartet haben, immer). `backlog.json` ist CODEOWNERS-geschützt; ein automatisch erzeugter Änderungs-PR bräuchte bei jedem Schritt einen Besitzer-Merge und würde die Pin-Tests brechen. Das Flag `done: true` in der Datei bleibt
+ein manueller Override (Besitzer). Ein Schritt, der schon einen laufenden Auftrag hat oder auf den Merge seines PR wartet, wird weder per `backlog_item` noch vom Controller ein zweites Mal gestartet.
+
 ## Folgeaufträge (nur wenn **alle** Bedingungen gelten – `decide_followup`)
 
 - Start mit `auto_continue=true` **und** Repository-Variable `JARVIS_AUTO_CONTINUE_ENABLED=true`

@@ -331,7 +331,12 @@ def advance_merged(api: Any, cfg: ja.Config, now=None) -> list[str]:
         if not num or not report.get("branch") or ja.parse_iso(st["created_at"]) < now - dt.timedelta(days=MERGED_LOOKBACK_DAYS):
             continue
         pr = get_pr(api, num)
-        if not pr or not pr.get("merged") or pr["base"]["ref"] != cfg.default_branch or pr["head"]["ref"] != report["branch"]:
+        if (not pr or pr["base"]["ref"] != cfg.default_branch or pr["head"]["ref"] != report["branch"]
+                or (pr["head"].get("repo") or {}).get("full_name") != cfg.repo):
+            continue                                         # PR nicht eindeutig der gemeldete: nichts vermerken, nichts fortsetzen
+        if not pr.get("merged"):
+            if pr["state"] == "closed" and ja.mark_abandoned(api, issue["number"], pr_number=pr["number"], now=now):
+                out.append(f"#{pr['number']}: ohne Merge geschlossen; Auftrag #{issue['number']} endet hier")
             continue
         out.append(f"#{pr['number']}: gemergt (von aussen); {continue_after_merge(api, cfg, pr, pr['head']['sha'])}")
     return out
