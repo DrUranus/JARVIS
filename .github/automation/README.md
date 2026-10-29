@@ -21,6 +21,8 @@ Routine arbeitet, führt Tests aus und postet GENAU EINEN Bericht-Kommentar im T
 ```
 
 Zustände: `queued → running → completed | partial | failed | blocked | timeout | stopped`, `queued → start_failed | stopped`.
+Zwischenzustand `awaiting_ci` (`running → awaiting_ci → completed | blocked | timeout | stopped`): Ein Bericht vor dem CI-Ergebnis seines PR beendet die Kette nicht mehr.
+
 Endzustände sind endgültig (Statusautomat in `set_state`, getestet). Jeder Auftrag ist über sein Issue vom Start bis zum Ende nachvollziehbar
 (Zustandsblock, Statuskommentare, Session-Link, Berichtskommentar, Eltern-/Kind-Verweise).
 
@@ -55,6 +57,27 @@ Start: Actions → „Trigger Claude Code Routine“ mit `backlog_item = next` (
 dem Backlog (nie aus Berichten). Weitere Schritte folgen automatisch nach Merge (Variablen `JARVIS_AUTO_CONTINUE_ENABLED` und `JARVIS_AUTO_MERGE_ENABLED`); eine Kette hat höchstens 5 Aufträge,
 bei 7 Plan-Schritten ist deshalb ein zweiter Start nötig. Ein Schritt gilt mit Auto-Merge erst als erledigt, wenn sein PR gemergt ist (`merged`); auch ein vom Besitzer selbst gemergter PR
 setzt die Kette fort (das Gate prüft alle 20 min). Schritte, die geschützte Pfade berühren, mergt weiter nur der Besitzer; die Kette wartet dann.
+
+## Bericht vor Abschluss der CI (`awaiting_ci`)
+
+Die Routine berichtet direkt nach dem Öffnen des PR, die CI läuft dann noch. Früher wurde das als `partial / needs_human` gewertet und beendete die Kette endgültig (Issue #33).
+Jetzt gilt: Berichtet die Routine `status success`, `next_action.type = await_ci`, PR, Branch, Commits und (bei Schritten mit Abnahmekriterien) jedes Kriterium im Feld `acceptance`
+(`met` | `awaiting_ci` | `not_met`), wechselt der Auftrag nach `awaiting_ci`: Er hält den einen Auftrags-Platz, löst keinen Folgeauftrag aus und hat eine Frist (`CI_WAIT_MIN` = 180 min, danach `timeout`).
+Ein ungültiger `await_ci`-Bericht (z. B. ein Kriterium `not_met`, Kriterien unvollständig, kein PR) fällt sicher auf `partial / needs_human` zurück.
+
+Das Merge-Gate (alle 20 min und nach jedem `pr-tests`-Lauf) löst `awaiting_ci` selbst auf, ausschließlich anhand der Prüfungen der GitHub-Actions-App für den **gemeldeten Commit**:
+
+| Lage | Folge |
+|---|---|
+| CI läuft / fehlt noch | weiter warten (bis zur Frist) |
+| `tests-linux` und `tests-windows` erfolgreich | Auftrag `completed` (`ci.result = success`); das Gate mergt nur mit `JARVIS_AUTO_MERGE_ENABLED` und ohne geschützte Pfade, mit der geprüften SHA; danach startet der Controller den nächsten Schritt |
+| CI fehlgeschlagen | Auftrag `completed` (`ci.result = failed`), kein Merge; die begrenzte Korrekturschleife (höchstens 3) übernimmt; danach hält die Kette sicher an (nie gemergt = nie fortgesetzt) |
+| PR vom Besitzer gemergt | Auftrag `completed` (`owner_merged`), die Kette setzt fort |
+| PR geschlossen, Branch seit dem Bericht verändert, PR nicht gefunden | Auftrag `blocked`, Kette endet |
+
+Ein Auftrag, der `awaiting_ci` durchlaufen hat, setzt **immer erst nach dem Merge** fort (`ci_gated`), auch ohne `JARVIS_AUTO_MERGE_ENABLED`. Die Fortsetzung verlangt außerdem vollständig belegte
+Abnahmekriterien (`awaiting_ci`-Kriterien zählen erst nach dem Merge). Kettenbudget, Tageslimit, ein aktiver Auftrag und höchstens 3 Versuche gelten unverändert. Beachte: Die Kriterien selbst bewertet
+die Routine; maschinell geprüft werden Vollständigkeit, `not_met`, CI je Commit, Branch/PR-Zuordnung und geschützte Pfade, nicht der Inhalt eines Kriteriums.
 
 ## Folgeaufträge (nur wenn **alle** Bedingungen gelten – `decide_followup`)
 

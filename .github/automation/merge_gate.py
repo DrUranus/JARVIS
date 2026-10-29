@@ -254,22 +254,83 @@ def continue_after_merge(api: Any, cfg: ja.Config, pr: dict[str, Any], sha: str)
 MERGED_LOOKBACK_DAYS = 14
 
 
+def _pr_of(cfg: ja.Config, report: dict[str, Any]) -> int | None:
+    m = re.fullmatch(rf"https://github\.com/{re.escape(cfg.repo)}/pull/(\d+)", report.get("pr_url") or "")
+    return int(m.group(1)) if m else None
+
+
+def ci_outcome(api: Any, cfg: ja.Config, pr: dict[str, Any] | None, report: dict[str, Any]) -> tuple[str | None, str]:
+    """Wie steht es um einen Auftrag in awaiting_ci? (Ergebnis, Begruendung): success | failed | owner_merged -> abschliessen, blocked -> anhalten,
+    None -> weiter warten. Massgeblich sind nur Pruefungen der GitHub-Actions-App fuer genau den gemeldeten Commit, nie der Berichtstext."""
+    if not pr:
+        return "blocked", "Der gemeldete Pull Request wurde nicht gefunden."
+    if pr.get("merged"):
+        return "owner_merged", f"PR #{pr['number']} wurde bereits gemergt (vom Besitzer); die Kette setzt dort an."
+    if pr["state"] != "open":
+        return "blocked", f"PR #{pr['number']} wurde ohne Merge geschlossen."
+    if pr["base"]["ref"] != cfg.default_branch or pr["head"]["ref"] != report.get("branch"):
+        return "blocked", f"PR #{pr['number']} passt nicht mehr zum gemeldeten Branch oder Basis-Branch."
+    head = pr["head"]["sha"]
+    if not any(len(c) >= 7 and head.startswith(c) for c in report.get("commits", [])):
+        return "blocked", "Der Branch hat nach dem Bericht neue Commits; der Nachweis gilt nicht fuer den gemeldeten Stand."
+    runs = {r["name"]: r for r in check_runs(api, head) if (r.get("app") or {}).get("slug") == CHECK_APP and r.get("head_sha", head) == head}
+    if any(r.get("conclusion") in FAIL_CONCLUSIONS for r in runs.values()):
+        return "failed", "Pflichtpruefung fehlgeschlagen; die begrenzte Korrekturschleife uebernimmt."
+    if any(n not in runs or runs[n].get("status") != "completed" for n in REQUIRED_CHECKS):
+        return None, ""
+    if any(runs[n].get("conclusion") != "success" for n in REQUIRED_CHECKS):
+        return "failed", "Pflichtpruefung nicht erfolgreich; die begrenzte Korrekturschleife uebernimmt."
+    return "success", "Windows- und Linux-CI fuer den gemeldeten Commit erfolgreich."
+
+
+def resolve_awaiting_ci(api: Any, cfg: ja.Config, now=None) -> list[str]:
+    """Loest Auftraege in awaiting_ci auf, sobald das CI-Ergebnis feststeht: completed (mit Ergebnis) oder blocked. Idempotent: nur ein noch
+    wartender Auftrag wird angefasst, der Statusautomat verbietet jeden anderen Uebergang. Nicht bei JARVIS_AUTOMATION_HALT."""
+    if cfg.halted:
+        return []
+    now = now or ja.utcnow()
+    out: list[str] = []
+    for issue in api.list_job_issues(state="open", pages=1):
+        st = ja.own_job_issue(issue)
+        if not st or st["status"] != "awaiting_ci":
+            continue
+        n, report = issue["number"], st.get("report") or {}
+        num = _pr_of(cfg, report)
+        verdict, why = ci_outcome(api, cfg, get_pr(api, num) if num else None, report)
+        if verdict is None:
+            continue
+        fresh = api.get_issue(n)
+        fst = ja.own_job_issue(fresh) if fresh else None
+        if not fst or fst["status"] != "awaiting_ci":
+            continue
+        if verdict == "blocked":
+            ja.set_state(api, fresh, fst, "blocked", note=why)
+            api.add_comment(n, f"Kette angehalten: {why}")
+            out.append(f"#{n}: blockiert ({why})")
+            continue
+        promoted = {**(fst.get("report") or {}), "next_action": "continue", "promoted_by": "ci"}
+        ja.set_state(api, fresh, fst, "completed", note=f"CI-Ergebnis: {verdict}. {why}",
+                     extra={"report": promoted, "ci": {"result": verdict, "at": ja.iso(now)}, "ci_gated": True})
+        out.append(f"#{n}: CI {verdict}")
+    return out
+
+
 def advance_merged(api: Any, cfg: ja.Config, now=None) -> list[str]:
     """Auch ein vom Besitzer selbst gemergter PR (geschuetzte Pfade!) setzt die Kette fort: abgeschlossene Auftraege mit einem gemergten PR dieses Repos
     gegen den Standard-Branch (gemeldeter Branch = Branch des PR) werden als gemergt vermerkt und stossen den Controller einmal an. Nur im Auto-Merge-Betrieb."""
-    if cfg.halted or not cfg.auto_merge_enabled:
+    if cfg.halted:
         return []
     now = now or ja.utcnow()
     out: list[str] = []
     for issue in api.list_job_issues(state="all", pages=2):
         st = ja.own_job_issue(issue)
-        if not st or st["status"] != "completed" or st.get("merged") or not (st.get("chain") or {}).get("auto_continue") or st["chain"].get("repair_of"):
+        if not st or st["status"] != "completed" or st.get("merged") or not ja.merge_gated(cfg, st):
             continue
         report = st.get("report") or {}
-        m = re.fullmatch(rf"https://github\.com/{re.escape(cfg.repo)}/pull/(\d+)", report.get("pr_url") or "")
-        if not m or not report.get("branch") or ja.parse_iso(st["created_at"]) < now - dt.timedelta(days=MERGED_LOOKBACK_DAYS):
+        num = _pr_of(cfg, report)
+        if not num or not report.get("branch") or ja.parse_iso(st["created_at"]) < now - dt.timedelta(days=MERGED_LOOKBACK_DAYS):
             continue
-        pr = get_pr(api, int(m.group(1)))
+        pr = get_pr(api, num)
         if not pr or not pr.get("merged") or pr["base"]["ref"] != cfg.default_branch or pr["head"]["ref"] != report["branch"]:
             continue
         out.append(f"#{pr['number']}: gemergt (von aussen); {continue_after_merge(api, cfg, pr, pr['head']['sha'])}")
@@ -282,6 +343,11 @@ def run_gate(api: Any, cfg: ja.Config, *, backlog_path: Path, only: int | None =
     items = ja.load_backlog(backlog_path)
     prs = [get_pr(api, only)] if only else list_open_prs(api)
     log: list[str] = []
+    if only is None:
+        try:
+            log += resolve_awaiting_ci(api, cfg)             # zuerst: ein Auftrag mit feststehendem CI-Ergebnis wird abgeschlossen, dann wird der PR bewertet
+        except ja.AutomationError as exc:
+            log.append(f"CI-Aufloesung nicht geprueft ({type(exc).__name__})")
     for pr in prs:
         if not pr or not ja.BRANCH_RE.match(pr["head"]["ref"]):
             continue
