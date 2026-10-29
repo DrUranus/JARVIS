@@ -40,8 +40,8 @@ Mit `JARVIS_AUTO_MERGE_ENABLED=true` und `auto_continue` startet ein Folgeauftra
 stoßen den Controller vorher nicht an. Wird der PR nie gemergt (rot, Konflikt, geschützter Pfad, kein Merge-Recht), endet die Kette sichtbar am PR-Statuskommentar und am
 Auftrags-Issue; es wird nichts erraten oder umgangen. Erledigte Schritte stehen mit `"done": true` im Backlog und werden nie erneut gestartet.
 
-**Nie automatisch gemergt** (immer Besitzer): `.github/`, `CLAUDE.md`, `.claude/`, `config/jarvis.toml`, `src/jarvis/permissions/`, `src/jarvis/bootstrap.py`,
-`tests/test_emergency_stop.py`, `tests/test_security_*`, `tests/test_autonomy_invariants.py` (`PROTECTED_PATHS`).
+**Sensible Pfade** (`.github/`, `CLAUDE.md`, `.claude/`, `config/jarvis.toml`, `src/jarvis/permissions/`, `src/jarvis/bootstrap.py`, Sicherheits-/Notaus-/Invariantentests) haben **keine pauschale Dateisperre mehr**:
+sie werden automatisch gemergt, wenn der genehmigte Auftrag sie konkret freigibt (siehe „Sensible Pfade im genehmigten Auftrag“). `backlog.json`, `.github/CODEOWNERS`, `CLAUDE.md` und `.claude/**` sind nie per Auftrag freigebbar.
 Grenzen der Kette: `chain_budget` hart ≤ 5 Aufträge je Kette, `JARVIS_MAX_JOBS_PER_DAY` (Standard 10, hart ≤ 50), ein aktiver Auftrag, höchstens 3 Versuche je Schritt,
 Stopp per `JARVIS_AUTOMATION_HALT=true` oder Label `jarvis:stop`. Neustart-fest: der Zustand liegt in den Tracking-Issues; der Watchdog (15 min) holt verlorene Berichte,
 Timeouts und verlorene Controller-Anstöße (≤ 2 h) nach.
@@ -56,7 +56,7 @@ Sicherheitskritische Schritte stehen nicht im Plan und bleiben `approved: false`
 Start: Actions → „Trigger Claude Code Routine“ mit `backlog_item = next` (oder einer Schritt-ID), `auto_continue = true`, `chain_budget = 5`. Der Auftragstext samt Abnahmekriterien kommt aus
 dem Backlog (nie aus Berichten). Weitere Schritte folgen automatisch nach Merge (Variablen `JARVIS_AUTO_CONTINUE_ENABLED` und `JARVIS_AUTO_MERGE_ENABLED`); eine Kette hat höchstens 5 Aufträge,
 bei 7 Plan-Schritten ist deshalb ein zweiter Start nötig. Ein Schritt gilt mit Auto-Merge erst als erledigt, wenn sein PR gemergt ist (`merged`); auch ein vom Besitzer selbst gemergter PR
-setzt die Kette fort (das Gate prüft alle 20 min). Schritte, die geschützte Pfade berühren, mergt weiter nur der Besitzer; die Kette wartet dann.
+setzt die Kette fort (das Gate prüft alle 20 min). Sensible Pfade ohne konkrete Freigabe im Auftrag mergt der Besitzer; die Kette wartet dann.
 
 ## Bericht vor Abschluss der CI (`awaiting_ci`)
 
@@ -78,6 +78,45 @@ Das Merge-Gate (alle 20 min und nach jedem `pr-tests`-Lauf) löst `awaiting_ci` 
 Ein Auftrag, der `awaiting_ci` durchlaufen hat, setzt **immer erst nach dem Merge** fort (`ci_gated`), auch ohne `JARVIS_AUTO_MERGE_ENABLED`. Die Fortsetzung verlangt außerdem vollständig belegte
 Abnahmekriterien (`awaiting_ci`-Kriterien zählen erst nach dem Merge). Kettenbudget, Tageslimit, ein aktiver Auftrag und höchstens 3 Versuche gelten unverändert. Beachte: Die Kriterien selbst bewertet
 die Routine; maschinell geprüft werden Vollständigkeit, `not_met`, CI je Commit, Branch/PR-Zuordnung und geschützte Pfade, nicht der Inhalt eines Kriteriums.
+
+## Sensible Pfade im genehmigten Auftrag (statt pauschaler Dateisperre)
+
+Ein PR darf sensible Dateien nur ändern, wenn der **genehmigte Backlog-Schritt, zu dem er gehört,** das konkret freigibt. Die Freigabe steht im Plan (`backlog.json`) beim Schritt, nicht in einer Pfadliste des Gates:
+
+```json
+"sensitive_edits": {
+  "src/jarvis/bootstrap.py":            {"mode": "additive", "added": ["<Zeilenmuster>"], "max_added": 6},
+  "src/jarvis/permissions/audit.py":    {"mode": "free", "max_changed": 150},
+  ".github/workflows/pr-tests.yml":     {"mode": "free"}
+},
+"scope": ["src/jarvis/history/", "tests/test_history"]      // optional: nur diese Pfade darf der PR ändern (plus die deklarierten sensiblen Dateien)
+```
+
+- **`additive`:** nur hinzugefügte Zeilen, höchstens `max_added`; jede Codezeile muss einem deklarierten engen Muster entsprechen und darf kein Sicherheitswort enthalten (Berechtigung, Not-Aus, Budget, Bestätigung, Audit, Geheimnis/Token/Passwort, `environ`, Prozess-/Netz-/Datei-Zugriff, Policy, Lockdown, Halt/Reset).
+- **`free`:** beliebige Änderung genau dieser Datei (oder dieses Verzeichnis-Präfixes), aber: kein Löschen/Umbenennen, höchstens `max_changed` Zeilen (Standard 200, hart 1000), **Sicherheitstests nur additiv** (kein Test wird abgeschwächt),
+  und Workflows/Automatisierungscode dürfen **keine neuen Secret-Zugriffe, `pull_request_target` oder Schreibrechte** hinzufügen. Das gilt auch für freigegebene Schritte.
+- Das Gate prüft den **echten Patch** gegen genau diese Freigabe, bei jedem Kopf neu. Eine sensible Datei, die der Schritt nicht deklariert, macht den ganzen PR zur Besitzer-Sache; ein PR ohne genehmigten Auftrag
+  (z. B. eine Änderung an der Automatisierung selbst) ebenso, und ein Besitzer-Review allein ersetzt die Auftragsbindung nicht.
+- **Nie per Auftrag freigebbar** (sie legen fest, wer was genehmigen darf bzw. was Claude darf; sonst könnte die Automatik ihre eigenen Genehmigungen erweitern): `.github/automation/backlog.json`, `.github/CODEOWNERS`, `CLAUDE.md`, `.claude/**`.
+  Sie sind auch beim Laden des Backlogs nicht deklarierbar, und das Gate lässt einen PR mit diesen Dateien nie automatisch durch.
+- Der Backlog lehnt unsichere Deklarationen schon beim Laden ab: Pfade außerhalb der sensiblen Bereiche oder zu breit, unbekannte Felder, zu weite Muster (alles, was `import subprocess`, `core.permissions = x` oder `exec(x)` zuließe), > 5 Muster, > 20 Zeilen, > 10 Einträge.
+- **Aktivierung (einmalig, Besitzer):** Die Deklarationen der Plan-Schritte wirken erst, wenn `plan.scopes_approved` auf `true` steht. Die Datei liefert die geprüfte Deklaration für `persistent-results` mit `scopes_approved: false`, es ist nichts aktiv.
+- Weiter nötig wie immer: freigegebener Schritt mit Bericht zum Commit, `tests-linux`/`tests-windows` für genau diesen Commit, Branch aktuell, Merge mit geprüfter SHA.
+
+## Veralteter PR-Branch (`behind`)
+
+Das Ruleset „Jarvis main protection“ verlangt **aktuelle Branches** (`strict_required_status_checks_policy`) und die Pflichtprüfungen `tests-linux` und `tests-windows` der GitHub-Actions-App. Ein PR, der nach einem
+anderen Merge hinter `main` liegt, ist deshalb nicht mergebar, bis er aktualisiert und neu getestet ist. Das Gate erledigt das für **freigegebene** PRs selbst (auch für geschützte Pfade, die der Besitzer dann ohne
+„Branch aktualisieren“ mergen kann):
+
+1. `PUT /pulls/{n}/update-branch` mit dem erwarteten Kopf (`expected_head_sha`); bei Konflikt oder verändertem Kopf Stopp mit GitHubs Meldung im Statuskommentar (kein Raten, keine Schleife).
+2. Die Aktualisierung ist asynchron: das Gate wartet bis zu 60 s auf den neuen Kopf.
+3. Ein Push mit `GITHUB_TOKEN` löst **kein** `pull_request`-Ereignis aus. Das Gate startet deshalb `pr-tests` für den neuen Kopf selbst (`workflow_dispatch`, nur für `claude/*`-Branches; höchstens einmal je Kopf).
+4. Erst wenn beide Pflichtprüfungen für genau diesen neuen Kopf erfolgreich sind, mergt das Gate (mit dieser SHA), sofern der PR keine geschützten Pfade berührt. Danach startet der Controller den nächsten Schritt.
+
+Die Freigabe bleibt an den gemeldeten Stand gebunden: Ein neuer Kopf gilt nur, wenn er höchstens `MAX_BRANCH_UPDATES` (3) reine Merges des Standard-Branches auf den gemeldeten Commit sind (zwei Eltern, das zweite
+schon in `main`). Zusätzliche Commits oder fremde Eltern heben die Freigabe auf. Höchstens 3 Aktualisierungen je Auftrag, danach „Besitzer muss eingreifen“. Bei fehlgeschlagener CI hat die Korrekturschleife
+(≤ 3) Vorrang vor der Aktualisierung. Fehlermeldungen der GitHub-API (z. B. warum ein Merge abgelehnt wurde) stehen als Daten im Statuskommentar.
 
 ## Nach einem Merge (Besitzer oder Gate)
 

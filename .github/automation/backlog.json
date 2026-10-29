@@ -12,7 +12,8 @@
       "voice-barge-in-hotword",
       "docs-sync"
     ],
-    "_hinweis": "EINMALIGE FREIGABE: nur 'approved' auf true setzen (Besitzer, CODEOWNERS). Die Liste approved_items ist im Test festgenagelt; sicherheitskritische Schritte (audit-hash-chain, cli-confirm-timeout, llm-goal-planning, coding-llm-edits, smartphone-api-design) stehen bewusst nicht darin."
+    "_hinweis": "EINMALIGE FREIGABE: nur 'approved' auf true setzen (Besitzer, CODEOWNERS). Die Liste approved_items ist im Test festgenagelt; sicherheitskritische Schritte (audit-hash-chain, cli-confirm-timeout, llm-goal-planning, coding-llm-edits, smartphone-api-design) stehen bewusst nicht darin. scopes_approved: wirkt erst, wenn der Besitzer es auf true setzt (einmalig); dann gelten die sensitive_edits/scope-Deklarationen der Plan-Schritte. Freigabe-Instanzen (backlog.json, CODEOWNERS, CLAUDE.md, .claude) sind nie deklarierbar.",
+    "scopes_approved": false
   },
   "items": [
     {
@@ -83,7 +84,17 @@
         "Nach Neustart laeuft nichts automatisch weiter (Test)",
         "Keine Secrets im Store (Test), Obergrenze fuer Eintraege",
         "Standardverhalten ohne Opt-in unveraendert"
-      ]
+      ],
+      "sensitive_edits": {
+        "src/jarvis/bootstrap.py": {
+          "mode": "additive",
+          "added": [
+            "from jarvis\\.history\\.factory import build_history",
+            "core\\.history = build_history\\(settings, core, guard\\)"
+          ],
+          "max_added": 6
+        }
+      }
     },
     {
       "id": "onboarding-windows",
