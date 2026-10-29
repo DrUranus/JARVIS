@@ -79,6 +79,21 @@ Ein Auftrag, der `awaiting_ci` durchlaufen hat, setzt **immer erst nach dem Merg
 Abnahmekriterien (`awaiting_ci`-Kriterien zählen erst nach dem Merge). Kettenbudget, Tageslimit, ein aktiver Auftrag und höchstens 3 Versuche gelten unverändert. Beachte: Die Kriterien selbst bewertet
 die Routine; maschinell geprüft werden Vollständigkeit, `not_met`, CI je Commit, Branch/PR-Zuordnung und geschützte Pfade, nicht der Inhalt eines Kriteriums.
 
+## Veralteter PR-Branch (`behind`)
+
+Das Ruleset „Jarvis main protection“ verlangt **aktuelle Branches** (`strict_required_status_checks_policy`) und die Pflichtprüfungen `tests-linux` und `tests-windows` der GitHub-Actions-App. Ein PR, der nach einem
+anderen Merge hinter `main` liegt, ist deshalb nicht mergebar, bis er aktualisiert und neu getestet ist. Das Gate erledigt das für **freigegebene** PRs selbst (auch für geschützte Pfade, die der Besitzer dann ohne
+„Branch aktualisieren“ mergen kann):
+
+1. `PUT /pulls/{n}/update-branch` mit dem erwarteten Kopf (`expected_head_sha`); bei Konflikt oder verändertem Kopf Stopp mit GitHubs Meldung im Statuskommentar (kein Raten, keine Schleife).
+2. Die Aktualisierung ist asynchron: das Gate wartet bis zu 60 s auf den neuen Kopf.
+3. Ein Push mit `GITHUB_TOKEN` löst **kein** `pull_request`-Ereignis aus. Das Gate startet deshalb `pr-tests` für den neuen Kopf selbst (`workflow_dispatch`, nur für `claude/*`-Branches; höchstens einmal je Kopf).
+4. Erst wenn beide Pflichtprüfungen für genau diesen neuen Kopf erfolgreich sind, mergt das Gate (mit dieser SHA), sofern der PR keine geschützten Pfade berührt. Danach startet der Controller den nächsten Schritt.
+
+Die Freigabe bleibt an den gemeldeten Stand gebunden: Ein neuer Kopf gilt nur, wenn er höchstens `MAX_BRANCH_UPDATES` (3) reine Merges des Standard-Branches auf den gemeldeten Commit sind (zwei Eltern, das zweite
+schon in `main`). Zusätzliche Commits oder fremde Eltern heben die Freigabe auf. Höchstens 3 Aktualisierungen je Auftrag, danach „Besitzer muss eingreifen“. Bei fehlgeschlagener CI hat die Korrekturschleife
+(≤ 3) Vorrang vor der Aktualisierung. Fehlermeldungen der GitHub-API (z. B. warum ein Merge abgelehnt wurde) stehen als Daten im Statuskommentar.
+
 ## Nach einem Merge (Besitzer oder Gate)
 
 Das Merge-Gate läuft jetzt auch bei **jedem Push auf `main`** (zusätzlich zu `pr-tests`-Ende, Zeitplan und manuellem Start). Grund: Ein Merge erzeugte bisher kein Ereignis für das Gate, und die

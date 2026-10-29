@@ -57,7 +57,9 @@ class GateApi(FakeApi):
         if "/annotations?" in path:
             return self.annots.get(int(path.split("/check-runs/")[1].split("/")[0]), [])
         if "/compare/" in path:
-            return {"behind_by": self.behind}
+            return {"behind_by": self.behind, "ahead_by": 1}
+        if method == "GET" and re.search(r"/commits/[0-9a-f]+$", path):
+            return {"parents": [{"sha": s} for s in getattr(self, "commit_parents", {}).get(path.rsplit("/", 1)[1], [])]}
         if method == "PUT" and path.endswith("/merge"):
             if self.merge_error:
                 raise ja.ApiError("x", status=self.merge_error)
@@ -318,7 +320,7 @@ def test_pr_tests_run_both_platforms_on_exact_head_commit():
     assert set(doc["jobs"]) == {"tests-linux", "tests-windows"} and tuple(doc["jobs"]) == mg.REQUIRED_CHECKS
     assert doc["jobs"]["tests-linux"]["runs-on"] == "ubuntu-latest" and doc["jobs"]["tests-windows"]["runs-on"] == "windows-latest"
     assert doc["permissions"] == {"contents": "read"} and "secrets." not in text
-    assert text.count("ref: ${{ github.event.pull_request.head.sha }}") == 2 and "-m pytest" in text
+    assert text.count("ref: ${{ github.event.pull_request.head.sha || github.sha }}") == 2 and "-m pytest" in text
     assert "pull_request_target" not in text
 
 
@@ -339,7 +341,7 @@ def test_only_merge_gate_may_write_contents():
 
 def test_merge_only_through_checked_sha_api_call():
     src = (ROOT / ".github/automation/merge_gate.py").read_text(encoding="utf-8")
-    assert src.count('"PUT"') == 1 and '{"sha": sha, "merge_method": method}' in src
+    assert src.count('"PUT"') == 2 and '{"sha": sha, "merge_method": method}' in src and '{"expected_head_sha": old}' in src       # merge (checked sha) + update-branch (expected head)
     for p in (ROOT / ".github/automation").glob("*.py"):
         assert "/merge\"" not in p.read_text(encoding="utf-8") or p.name == "merge_gate.py"
 

@@ -72,9 +72,10 @@ class AutomationError(Exception):
 class ApiError(AutomationError):
     """GitHub-API-Fehler; status=None bedeutet ungewisses Ergebnis."""
 
-    def __init__(self, message: str, status: int | None = None):
+    def __init__(self, message: str, status: int | None = None, detail: str = ""):
         super().__init__(message)
         self.status = status
+        self.detail = detail            # GitHubs eigene Fehlermeldung (gekuerzt; Daten, nie Anweisung)
 
     @property
     def definitely_rejected(self) -> bool:
@@ -422,7 +423,12 @@ class GitHubApi:
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 return None
-            raise ApiError(f"GitHub-API {method} {path.split('?')[0]}: HTTP {exc.code}", status=exc.code) from None
+            detail = ""
+            try:
+                detail = str(json.loads(exc.read() or b"{}").get("message", ""))[:200]
+            except Exception:  # noqa: BLE001 - nur Diagnose
+                pass
+            raise ApiError(f"GitHub-API {method} {path.split('?')[0]}: HTTP {exc.code}", status=exc.code, detail=detail) from None
         return json.loads(raw) if raw else {}
 
     def get_issue(self, number: int) -> dict[str, Any] | None:

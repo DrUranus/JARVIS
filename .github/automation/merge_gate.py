@@ -11,6 +11,7 @@ import datetime as dt
 import os
 import re
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,10 @@ CHECK_APP = "github-actions"
 PROTECTED_PATHS = (".github/", "CLAUDE.md", ".claude/", "config/jarvis.toml", "src/jarvis/permissions/", "src/jarvis/bootstrap.py",
                    "tests/test_emergency_stop.py", "tests/test_security_", "tests/test_autonomy_invariants.py")
 MAX_REPAIRS = 3                                             # Korrekturschleifen je PR (hart)
+MAX_BRANCH_UPDATES = 3                                      # Branch-Aktualisierungen je Auftrag (hart); danach braucht es den Besitzer
+PR_TESTS_WORKFLOW = "pr-tests.yml"
+POLL_SECONDS, POLL_TRIES = 5, 12                            # so lange wartet das Gate auf den (asynchronen) neuen Kopf nach "Branch aktualisieren"
+_sleep = time.sleep
 GATE_MARKER = "<!-- JARVIS-GATE v1 -->"
 FAIL_CONCLUSIONS = {"failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"}
 ID_RE = re.compile(r"[A-Za-z0-9_./:\[\]-]{1,200}")
@@ -35,6 +40,7 @@ class Verdict:
     head_sha: str = ""
     analysis: list[str] = field(default_factory=list)      # fehlgeschlagene Tests laut CI (Daten)
     approved_by: str = ""
+    needs_ci: bool = False                                  # freigegeben, aber fuer diesen Kopf fehlen die Pflichtpruefungen ganz
 
 
 class GateConfig:
@@ -101,14 +107,43 @@ def owner_approval(reviews: list[dict[str, Any]], head_sha: str, trusted: set[st
     return ""
 
 
-def job_approval(api: Any, items: list[dict[str, Any]], head_ref: str, head_sha: str) -> str:
-    """Freigabe ueber den Backlog: abgeschlossener Auftrag fuer genau diesen Branch und Commit, Schritt mit approved=true."""
+def commit_parents(api: Any, sha: str) -> list[str]:
+    c = api.request("GET", f"/repos/{api.repo}/commits/{sha}") or {}
+    return [p["sha"] for p in c.get("parents", [])]
+
+
+def in_base(api: Any, base: str, sha: str) -> bool:
+    """Ist dieser Commit schon im Standard-Branch enthalten? (compare base...sha: nichts, was nur in sha liegt)"""
+    cmp = api.request("GET", f"/repos/{api.repo}/compare/{base}...{sha}") or {}
+    return int(cmp.get("ahead_by", 1)) == 0
+
+
+def update_chain_ok(api: Any, base: str, head_sha: str, reported: list[str]) -> bool:
+    """Der Kopf ist der gemeldete Commit oder (hoechstens MAX_BRANCH_UPDATES mal) ein reiner Merge des Standard-Branches in einen gemeldeten Stand:
+    genau zwei Eltern, das erste ein gemeldeter bzw. so verifizierter Stand, das zweite schon im Standard-Branch. Alles andere (zusaetzliche Commits, fremde
+    Eltern) gilt nicht als der freigegebene Stand."""
+    cur = head_sha
+    for _ in range(MAX_BRANCH_UPDATES + 1):
+        if any(len(c) >= 7 and cur.startswith(c) for c in reported):
+            return True
+        parents = commit_parents(api, cur)
+        if len(parents) != 2 or not in_base(api, base, parents[1]):
+            return False
+        cur = parents[0]
+    return False
+
+
+def job_approval(api: Any, items: list[dict[str, Any]], head_ref: str, head_sha: str, base: str | None = None) -> str:
+    """Freigabe ueber den Backlog: abgeschlossener Auftrag fuer genau diesen Branch und Commit (oder dessen verifizierte Aktualisierung mit dem Standard-Branch),
+    Schritt mit approved=true."""
     approved = {i["id"] for i in items if i.get("approved") is True}
     for issue in api.list_job_issues(state="all", pages=3):
         st = ja.own_job_issue(issue)
         rep = (st or {}).get("report") or {}
-        if (st and st["status"] == "completed" and rep.get("branch") == head_ref and st["chain"].get("item_id") in approved
-                and any(len(c) >= 7 and head_sha.startswith(c) for c in rep.get("commits", []))):
+        if not (st and st["status"] == "completed" and rep.get("branch") == head_ref and st["chain"].get("item_id") in approved):
+            continue
+        commits = rep.get("commits", [])
+        if any(len(c) >= 7 and head_sha.startswith(c) for c in commits) or (base and update_chain_ok(api, base, head_sha, commits)):
             return f"Backlog-Schritt {st['chain']['item_id']} ({st['job_id']})"
     return ""
 
@@ -124,6 +159,32 @@ def failure_analysis(api: Any, runs: list[dict[str, Any]]) -> list[str]:
             if not any(o.startswith(f"{r['name']}:") for o in out):
                 out.append(f"{r['name']}: {r.get('conclusion')} (kein einzelner Test benannt, siehe Lauf)")
     return out[:20]
+
+
+def origin_state(api: Any, head_ref: str) -> tuple[int, dict[str, Any]] | None:
+    """(Issue-Nummer, Zustand) des abgeschlossenen Auftrags (kein Korrekturauftrag), dessen Bericht diesen Branch meldet."""
+    for issue in api.list_job_issues(state="all", pages=3):
+        st = ja.own_job_issue(issue)
+        if st and st["status"] == "completed" and not st["chain"].get("repair_of") and (st.get("report") or {}).get("branch") == head_ref:
+            return issue["number"], st
+    return None
+
+
+def count_branch_updates(api: Any, head_ref: str) -> int:
+    found = origin_state(api, head_ref)
+    return len(found[1].get("branch_updates", [])) if found else 0
+
+
+def note_in_job(api: Any, head_ref: str, key: str, entry: dict[str, Any], note: str, now=None) -> None:
+    """Haengt einen Eintrag an eine Liste im Zustand des Auftrags dieses Branches (nachvollziehbar und Grundlage der Begrenzung)."""
+    found = origin_state(api, head_ref)
+    if not found:
+        return
+    number, _ = found
+    issue = api.get_issue(number)
+    state = ja.own_job_issue(issue) if issue else None
+    if state:
+        api.update_issue(number, body=ja.render_body({**state, key: [*state.get(key, []), entry], "updated_at": ja.iso(now or ja.utcnow())}, note))
 
 
 def count_repairs(api: Any, pr_number: int) -> int:
@@ -148,7 +209,7 @@ def evaluate_pr(api: Any, gcfg: GateConfig, pr: dict[str, Any], items: list[dict
     if protected:
         v.reasons.append("geschuetzte Pfade geaendert (" + ", ".join(sorted(set(protected))[:5]) + "): der Besitzer mergt selbst")
 
-    approver = owner_approval(pr_reviews(api, pr["number"]), head_sha, cfg.trusted_reporters) or job_approval(api, items, head_ref, head_sha)
+    approver = owner_approval(pr_reviews(api, pr["number"]), head_sha, cfg.trusted_reporters) or job_approval(api, items, head_ref, head_sha, base=cfg.default_branch)
     v.approved_by = approver
     if not approver:
         v.reasons.append("keine Freigabe fuer diesen Commit (Besitzer-Review 'Approve' oder freigegebener Backlog-Schritt mit Bericht zu diesem Commit)")
@@ -167,6 +228,7 @@ def evaluate_pr(api: Any, gcfg: GateConfig, pr: dict[str, Any], items: list[dict
         v.reasons.append("Pflichtpruefung nicht erfolgreich")
         return v
 
+    v.needs_ci = bool(approver and missing and not failing)
     if failing:
         n = count_repairs(api, pr["number"])
         if protected or not approver:
@@ -178,13 +240,20 @@ def evaluate_pr(api: Any, gcfg: GateConfig, pr: dict[str, Any], items: list[dict
             v.action = "repair"
             v.reasons.append(f"Korrekturversuch {n + 1}/{MAX_REPAIRS} moeglich")
         return v
+    if approver:
+        behind = behind_by(api, cfg.default_branch, head_sha)
+        if behind > 0:                                      # das Ruleset verlangt einen aktuellen Branch: erst aktualisieren, dann die CI neu abwarten
+            done = count_branch_updates(api, head_ref)
+            if done >= MAX_BRANCH_UPDATES:
+                v.reasons.append(f"Branch liegt {behind} Commit(s) hinter {cfg.default_branch}; Aktualisierungen ausgeschoepft ({done}/{MAX_BRANCH_UPDATES}): Besitzer muss eingreifen")
+                return v
+            v.action = "update"
+            v.reasons.append(f"Branch liegt {behind} Commit(s) hinter {cfg.default_branch}: wird aktualisiert ({done + 1}/{MAX_BRANCH_UPDATES}), danach laeuft die CI neu")
+            return v
     if missing or pending:
         v.action = "wait" if not protected and approver else "blocked"
         return v
     if protected or not approver:
-        return v
-    if behind_by(api, cfg.default_branch, head_sha) > 0:
-        v.reasons.append("Branch liegt hinter dem Standard-Branch; Pruefungen gelten nur fuer den eigenen Stand")
         return v
     if pr.get("mergeable") is False or pr.get("mergeable_state") in {"dirty", "blocked", "behind"}:
         v.reasons.append(f"nicht mergebar (mergeable_state={pr.get('mergeable_state')}; z. B. Konflikt oder Branch-Schutz)")
@@ -197,7 +266,7 @@ def evaluate_pr(api: Any, gcfg: GateConfig, pr: dict[str, Any], items: list[dict
 # ---- Statusbericht und Ausfuehrung ---------------------------------------------------------------------------------
 
 def render_status(v: Verdict, pr_number: int, gcfg: GateConfig, note: str = "") -> str:
-    head = {"merge": "Bereit zum Merge", "repair": "Pruefung fehlgeschlagen - Korrektur wird versucht", "wait": "Wartet",
+    head = {"update": "Branch ist veraltet - wird aktualisiert", "merge": "Bereit zum Merge", "repair": "Pruefung fehlgeschlagen - Korrektur wird versucht", "wait": "Wartet",
             "blocked": "Blockiert - Besitzer noetig", "skip": "Nicht zustaendig"}[v.action]
     lines = [GATE_MARKER, f"**JARVIS Merge-Gate: {head}** (Commit `{v.head_sha[:12]}`)"]
     lines += [f"- {r}" for r in v.reasons]
@@ -342,6 +411,41 @@ def advance_merged(api: Any, cfg: ja.Config, now=None) -> list[str]:
     return out
 
 
+def update_pr_branch(api: Any, cfg: ja.Config, pr: dict[str, Any], dispatch, now=None) -> str:
+    """Bringt den Standard-Branch in den PR-Branch (API 'update-branch' mit erwartetem Kopf; Konflikt -> Stopp mit Grund) und startet die CI fuer den neuen Kopf selbst,
+    weil ein Push mit GITHUB_TOKEN keinen Workflow ausloest. Die Aktualisierung ist asynchron: bis zu POLL_TRIES x POLL_SECONDS auf den neuen Kopf warten."""
+    old, ref = pr["head"]["sha"], pr["head"]["ref"]
+    try:
+        api.request("PUT", f"/repos/{api.repo}/pulls/{pr['number']}/update-branch", {"expected_head_sha": old})
+    except ja.ApiError as exc:
+        why = "Konflikt mit dem Standard-Branch oder Kopf hat sich geaendert" if exc.status in (409, 422) else f"HTTP {exc.status}"
+        return f"Branch-Aktualisierung abgelehnt ({why}: {ja.quote_untrusted(exc.detail, 160)}); der Besitzer muss den Branch aktualisieren oder den Konflikt loesen"
+    note_in_job(api, ref, "branch_updates", {"from": old, "at": ja.iso(now or ja.utcnow())}, f"Branch von PR #{pr['number']} mit {cfg.default_branch} aktualisiert (Kopf {old[:12]}).", now)
+    for _ in range(POLL_TRIES):
+        fresh = get_pr(api, pr["number"])
+        new = fresh["head"]["sha"] if fresh else old
+        if new != old:
+            return start_ci(api, cfg, ref, new, dispatch, now, prefix=f"Branch aktualisiert (neuer Kopf {new[:12]}). ")
+        _sleep(POLL_SECONDS)
+    return "Branch-Aktualisierung angenommen; der neue Kopf ist noch nicht sichtbar, der naechste Lauf startet die CI."
+
+
+def start_ci(api: Any, cfg: ja.Config, head_ref: str, head_sha: str, dispatch, now=None, prefix: str = "") -> str:
+    """Startet pr-tests fuer den Kopf des Branches (hoechstens einmal je Kopf, hoechstens MAX_BRANCH_UPDATES + 1 mal je Auftrag)."""
+    found = origin_state(api, head_ref)
+    if not found or dispatch is None:
+        return prefix + "CI-Start nicht moeglich (kein zugehoeriger Auftrag)."
+    done = found[1].get("ci_dispatched", [])
+    if head_sha in done or len(done) > MAX_BRANCH_UPDATES:
+        return prefix + "CI wurde fuer diesen Stand bereits angefordert."
+    try:
+        dispatch(PR_TESTS_WORKFLOW, head_ref, {})
+    except ja.ApiError as exc:
+        return prefix + f"CI konnte nicht gestartet werden (HTTP {exc.status})."
+    note_in_job(api, head_ref, "ci_dispatched", head_sha, f"pr-tests fuer {head_sha[:12]} angefordert.", now)
+    return prefix + "pr-tests fuer den neuen Stand angefordert; das Gate wartet auf Windows und Linux."
+
+
 def run_gate(api: Any, cfg: ja.Config, *, backlog_path: Path, only: int | None = None, dispatch=None) -> list[str]:
     """Bewertet offene PRs (oder genau einen), schreibt Statusberichte, merged freigegebene PRs, stoesst Korrekturen an."""
     gcfg = GateConfig(cfg)
@@ -371,8 +475,17 @@ def run_gate(api: Any, cfg: ja.Config, *, backlog_path: Path, only: int | None =
                 except ja.AutomationError as exc:                 # der Merge steht; die Fortsetzung holt der Watchdog nach
                     log.append(f"#{pr['number']}: Fortsetzung nicht angestossen ({type(exc).__name__})")
             except ja.ApiError as exc:
-                v = Verdict("blocked", [f"Merge abgelehnt (HTTP {exc.status}); der Branch hat sich evtl. geaendert"], v.head_sha)
+                why = f": {ja.quote_untrusted(exc.detail, 200)}" if exc.detail else ""
+                v = Verdict("blocked", [f"Merge abgelehnt (HTTP {exc.status}{why}); der Branch hat sich evtl. geaendert oder eine Regel verlangt mehr"], v.head_sha)
                 log.append(f"#{pr['number']}: Merge abgelehnt")
+        elif v.action == "update":
+            note = update_pr_branch(api, cfg, pr, dispatch)
+            log.append(f"#{pr['number']}: {note}")
+        elif v.needs_ci and v.action in ("wait", "blocked"):
+            found = origin_state(api, pr["head"]["ref"])
+            reported = (found[1].get("report") or {}).get("commits", []) if found else []
+            if found and not any(len(c) >= 7 and v.head_sha.startswith(c) for c in reported):       # Kopf aus einer Aktualisierung: dort startete kein Workflow von selbst
+                note = start_ci(api, cfg, pr["head"]["ref"], v.head_sha, dispatch)
         elif v.action == "repair" and dispatch is not None and cfg.auto_continue_enabled:
             try:
                 dispatch("jarvis-controller.yml", cfg.default_branch, {"repair_pr": str(pr["number"]), "repair_sha": v.head_sha})
