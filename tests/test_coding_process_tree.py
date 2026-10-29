@@ -165,17 +165,26 @@ def chain_spec(tmp_path: Path, mode: str, timeout: float = 4.0) -> tuple[Command
     return spec_of([*write_chain(tmp_path), str(pidfile), mode], str(tmp_path), timeout), pidfile
 
 
+def wired_provider() -> LocalProvider:
+    """The provider as `bootstrap` builds it on this platform: Windows gets the Job Object wiring (a bare LocalProvider() there is the documented root-only fallback and
+    is NOT what the application runs); elsewhere the process-group mechanism is built in."""
+    if WIN:
+        from jarvis.self_improvement import winjob
+        return LocalProvider(job_factory=winjob.attach, resume=winjob.resume)
+    return LocalProvider()
+
+
 @pytest.mark.parametrize("mode", ["stay", "exit"])
 def test_timeout_ends_the_whole_tree_including_an_orphaned_grandchild(tmp_path, mode):
     spec, pidfile = chain_spec(tmp_path, mode)
-    r = LocalProvider().run_command(spec)
+    r = wired_provider().run_command(spec)
     assert r.timed_out and wait_file(pidfile), "the leaf never started"
     assert wait_dead(int(pidfile.read_text()), 10), f"a grandchild survived the timeout ({mode})"
 
 
 def test_abort_running_ends_the_whole_tree(tmp_path):
     spec, pidfile = chain_spec(tmp_path, "stay", timeout=30.0)
-    prov = LocalProvider()
+    prov = wired_provider()
     threading.Timer(1.5, lambda: (wait_file(pidfile), prov.abort_running())).start()
     r = prov.run_command(spec)
     assert r.aborted and wait_file(pidfile)
@@ -219,7 +228,14 @@ def test_win_halt_via_abort_running_and_timeout_kill_child_and_grandchild_of_run
 def test_win_processes_left_after_a_normal_exit_are_ended_when_the_run_returns(tmp_path):
     (tmp_path / "leaf.py").write_text("import os, sys, time\nopen(sys.argv[1], 'w').write(str(os.getpid()))\ntime.sleep(25)\n")
     pidfile = tmp_path / "left.pid"
-    code = f"import subprocess, sys; subprocess.Popen([sys.executable, r'{tmp_path / 'leaf.py'}', r'{pidfile}'])"
+    # The root must not exit before the leaf is really running (it records its pid): otherwise the end of the run closes the job while the leaf is still starting up
+    # and the test would race against interpreter start-up. The root then exits NORMALLY (exit code 0), leaving the leaf behind.
+    code = (f"import subprocess, sys, time, pathlib\n"
+            f"subprocess.Popen([sys.executable, r'{tmp_path / 'leaf.py'}', r'{pidfile}'])\n"
+            f"p = pathlib.Path(r'{pidfile}')\n"
+            f"end = time.monotonic() + 20\n"
+            f"while time.monotonic() < end and not (p.exists() and p.read_text().strip()):\n"
+            f"    time.sleep(0.05)\n")
     r = win_provider().run_command(spec_of([sys.executable, "-c", code], str(tmp_path), 30.0))
     assert r.exit_code == 0 and wait_file(pidfile)
     assert wait_dead(int(pidfile.read_text()), 10), "kill-on-close did not end the process left behind"
