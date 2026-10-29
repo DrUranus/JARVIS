@@ -7,12 +7,13 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:       # vom Merge-Gate nach "Branch aktualisieren": Pushes mit GITHUB_TOKEN loesen kein pull_request-Ereignis aus; nur fuer claude/*-Branches
 
 permissions:
   contents: read
 
 concurrency:
-  group: pr-tests-${{ github.event.pull_request.number }}
+  group: pr-tests-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 defaults:
@@ -22,13 +23,13 @@ defaults:
 jobs:
   tests-linux:
     name: tests-linux
-    if: ${{ startsWith(github.head_ref, 'claude/') && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'claude/')) || (startsWith(github.head_ref, 'claude/') && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}      # genau der Commit, den das Merge-Gate pruefen wird
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}      # genau der Commit, den das Merge-Gate pruefen wird (Dispatch: Kopf des gewaehlten Branches)
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -42,7 +43,7 @@ jobs:
       - name: Summary und Nachweis
         if: ${{ !cancelled() }}
         env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           EVIDENCE_NAME: tests-linux
         run: python .github/automation/junit_summary.py reports/junit.xml reports/evidence.json >> "$GITHUB_STEP_SUMMARY"
       - name: Berichte hochladen
@@ -56,13 +57,13 @@ jobs:
 
   tests-windows:
     name: tests-windows
-    if: ${{ startsWith(github.head_ref, 'claude/') && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'claude/')) || (startsWith(github.head_ref, 'claude/') && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -76,7 +77,7 @@ jobs:
       - name: Summary und Nachweis
         if: ${{ !cancelled() }}
         env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           EVIDENCE_NAME: tests-windows
         run: python .github/automation/junit_summary.py reports/junit.xml reports/evidence.json >> "$GITHUB_STEP_SUMMARY"
       - name: Berichte hochladen
