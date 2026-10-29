@@ -49,7 +49,7 @@ class GateApi(FakeApi):
         if method == "GET" and re.fullmatch(rf"/repos/{REPO}/pulls/\d+", path):
             return self.pr
         if "/files?" in path:
-            return [{"filename": f} for f in self.files]
+            return [{"filename": f, "status": getattr(self, "file_status", {}).get(f, "modified"), "patch": getattr(self, "file_patches", {}).get(f)} for f in self.files]
         if "/reviews?" in path:
             return self.reviews
         if "/check-runs?" in path:

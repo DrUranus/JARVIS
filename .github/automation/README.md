@@ -79,6 +79,24 @@ Ein Auftrag, der `awaiting_ci` durchlaufen hat, setzt **immer erst nach dem Merg
 Abnahmekriterien (`awaiting_ci`-Kriterien zählen erst nach dem Merge). Kettenbudget, Tageslimit, ein aktiver Auftrag und höchstens 3 Versuche gelten unverändert. Beachte: Die Kriterien selbst bewertet
 die Routine; maschinell geprüft werden Vollständigkeit, `not_met`, CI je Commit, Branch/PR-Zuordnung und geschützte Pfade, nicht der Inhalt eines Kriteriums.
 
+## Geschützte Pfade im genehmigten Schritt
+
+Das Gate mergt nie automatisch, wenn ein PR einen geschützten Pfad ändert (`PROTECTED_PATHS`). Die einzige Ausnahme ist **Verdrahtung in `src/jarvis/bootstrap.py`** (Kompositionswurzel), und nur so:
+
+- Der Besitzer **deklariert sie im Plan** für genau diesen Schritt (`protected_edits` in `backlog.json`, eine CODEOWNERS-geschützte Datei; die Routine kann das nicht ändern). Ohne Deklaration bleibt alles beim Besitzer.
+- Das Gate prüft den **tatsächlichen Patch** (nicht den Pfad): nur eine einfache Änderung der Datei, **keine entfernte Zeile**, höchstens `max_added` hinzugefügte Zeilen, jede Codezeile muss einem deklarierten engen Muster entsprechen
+  und darf kein Sicherheitswort enthalten (Berechtigung, Not-Aus, Budget, Bestätigung, Audit, Geheimnis/Token/Passwort, `environ`, Prozess-/Netz-/Datei-Zugriff, Policy, Lockdown, Halt/Reset). Kommentare und Leerzeilen sind frei.
+- Der Backlog lehnt unsichere Deklarationen schon beim Laden ab: andere Dateien als `bootstrap.py`, zu weite Muster (alles, was `import subprocess`, `core.permissions = x` oder `exec(x)` zuließe), mehr als 5 Muster oder 20 Zeilen.
+- **Immer beim Besitzer, auch mit Deklaration:** alles unter `src/jarvis/permissions/` (PermissionEngine, Not-Aus, Audit, Budget), `config/jarvis.toml`, Sicherheits-/Notaus-/Invariantentests, `CLAUDE.md`, `.claude/`, `.github/` (Automatisierung selbst).
+  Sobald ein PR auch nur eine dieser Dateien berührt, ist der ganze PR Besitzer-Sache. Ein Besitzer-Review allein öffnet geschützte Pfade ebenfalls nicht.
+- Weiter nötig: freigegebener Schritt mit Bericht zum Commit, `tests-linux` und `tests-windows` für genau diesen Commit, Branch aktuell, Merge mit geprüfter SHA.
+
+Beispiel (Vorschlag für `persistent-results`; **nicht eingetragen**, das ist eine Besitzerentscheidung):
+
+```json
+"protected_edits": {"src/jarvis/bootstrap.py": {"added": ["from jarvis\\.history\\.factory import build_history", "core\\.history = build_history\\(settings, core, guard\\)"], "max_added": 6}}
+```
+
 ## Veralteter PR-Branch (`behind`)
 
 Das Ruleset „Jarvis main protection“ verlangt **aktuelle Branches** (`strict_required_status_checks_policy`) und die Pflichtprüfungen `tests-linux` und `tests-windows` der GitHub-Actions-App. Ein PR, der nach einem

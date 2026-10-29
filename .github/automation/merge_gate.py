@@ -23,6 +23,9 @@ CHECK_APP = "github-actions"
 # nie automatisch mergen: Automatisierung, Regeln, Konfiguration und alles, was die Sicherheitsgrenzen (Berechtigungen, Notaus, Verdrahtung) oder deren Tests betrifft
 PROTECTED_PATHS = (".github/", "CLAUDE.md", ".claude/", "config/jarvis.toml", "src/jarvis/permissions/", "src/jarvis/bootstrap.py",
                    "tests/test_emergency_stop.py", "tests/test_security_", "tests/test_autonomy_invariants.py")
+# Zeilen mit diesen Woertern darf auch eine freigegebene Verdrahtung nie hinzufuegen: Berechtigungen, Not-Aus, Budget, Bestaetigung, Audit, Geheimnisse, Prozess/Netz/Datei-Zugriff
+SECURITY_WORDS = re.compile(r"permission|emergency|budget|confirm|audit|secret|token|password|credential|api[_-]?key|environ|getenv|subprocess|os\.system|popen|\beval\b|\bexec\b|"
+                            r"__import__|importlib|socket|urllib|requests|ctypes|pickle|\bopen\(|lockdown|policy|halt|reset", re.I)
 MAX_REPAIRS = 3                                             # Korrekturschleifen je PR (hart)
 MAX_BRANCH_UPDATES = 3                                      # Branch-Aktualisierungen je Auftrag (hart); danach braucht es den Besitzer
 PR_TESTS_WORKFLOW = "pr-tests.yml"
@@ -70,6 +73,21 @@ def pr_files(api: Any, number: int) -> list[str]:
     raise ja.AutomationError("PR hat mehr als 1000 Dateien")
 
 
+def pr_file_details(api: Any, number: int) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for page in range(1, 11):
+        chunk = api.request("GET", f"/repos/{api.repo}/pulls/{number}/files?per_page=100&page={page}") or []
+        out += chunk
+        if len(chunk) < 100:
+            return out
+    raise ja.AutomationError("PR hat mehr als 1000 Dateien")
+
+
+def latest_by_name(runs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Je Pruefungsname der zuletzt gestartete Lauf (ein Commit kann einen pull_request- und einen Dispatch-Lauf haben; GitHub wertet den neuesten)."""
+    return {r["name"]: r for r in sorted(runs, key=lambda r: (r.get("started_at") or "", r.get("id", 0)))}
+
+
 def pr_reviews(api: Any, number: int) -> list[dict[str, Any]]:
     return api.request("GET", f"/repos/{api.repo}/pulls/{number}/reviews?per_page=100") or []
 
@@ -107,6 +125,43 @@ def owner_approval(reviews: list[dict[str, Any]], head_sha: str, trusted: set[st
     return ""
 
 
+def verify_protected_edits(details: list[dict[str, Any]], allow: dict[str, Any]) -> list[str]:
+    """Probleme (leer = alles gedeckt), wenn die geschuetzten Dateien eines PR durch die Freigabe des Schritts abgedeckt sein sollen. Streng: nur bootstrap.py,
+    nur eine einfache Aenderung, nur hinzugefuegte Zeilen, jede Codezeile muss einem freigegebenen Muster entsprechen und darf kein Sicherheitswort enthalten.
+    Alle anderen geschuetzten Pfade (Berechtigungen, Not-Aus, Sicherheitstests, Konfiguration, Automatisierung) sind nie durch eine Freigabe gedeckt."""
+    problems: list[str] = []
+    for d in details:
+        names = [n for n in (d.get("filename"), d.get("previous_filename")) if n]
+        if not any(is_protected(n) for n in names):
+            continue
+        path, rule = d.get("filename", "?"), allow.get(d.get("filename"))
+        if rule is None or path not in ja.ALLOWABLE_PROTECTED:
+            problems.append(f"{path}: nicht freigegeben")
+            continue
+        if d.get("status") != "modified" or d.get("previous_filename"):
+            problems.append(f"{path}: nur eine einfache Aenderung ist freigegeben (Status {d.get('status')})")
+            continue
+        patch = d.get("patch")
+        if not patch:
+            problems.append(f"{path}: kein Patch verfuegbar (zu gross?)")
+            continue
+        lines = patch.splitlines()
+        added = [l[1:] for l in lines if l.startswith("+") and not l.startswith("+++")]
+        removed = [l for l in lines if l.startswith("-") and not l.startswith("---")]
+        if removed:
+            problems.append(f"{path}: {len(removed)} Zeilen entfernt (nur Hinzufuegen ist freigegeben)")
+        if len(added) > rule["max_added"]:
+            problems.append(f"{path}: mehr als {rule['max_added']} Zeilen hinzugefuegt ({len(added)})")
+        patterns = [re.compile(x) for x in rule["added"]]
+        for line in added:
+            code = line.strip()
+            if not code or code.startswith("#"):
+                continue                                    # Leerzeilen und Kommentare koennen nichts ausfuehren
+            if SECURITY_WORDS.search(code) or not any(rx.fullmatch(code) for rx in patterns):
+                problems.append(f"{path}: Zeile nicht freigegeben: {code[:80]}")
+    return problems
+
+
 def commit_parents(api: Any, sha: str) -> list[str]:
     c = api.request("GET", f"/repos/{api.repo}/commits/{sha}") or {}
     return [p["sha"] for p in c.get("parents", [])]
@@ -134,8 +189,13 @@ def update_chain_ok(api: Any, base: str, head_sha: str, reported: list[str]) -> 
 
 
 def job_approval(api: Any, items: list[dict[str, Any]], head_ref: str, head_sha: str, base: str | None = None) -> str:
+    found = approved_job(api, items, head_ref, head_sha, base)
+    return found[0] if found else ""
+
+
+def approved_job(api: Any, items: list[dict[str, Any]], head_ref: str, head_sha: str, base: str | None = None) -> tuple[str, dict[str, Any]] | None:
     """Freigabe ueber den Backlog: abgeschlossener Auftrag fuer genau diesen Branch und Commit (oder dessen verifizierte Aktualisierung mit dem Standard-Branch),
-    Schritt mit approved=true."""
+    Schritt mit approved=true. Ergebnis: (Beschreibung, Backlog-Schritt)."""
     approved = {i["id"] for i in items if i.get("approved") is True}
     for issue in api.list_job_issues(state="all", pages=3):
         st = ja.own_job_issue(issue)
@@ -144,8 +204,9 @@ def job_approval(api: Any, items: list[dict[str, Any]], head_ref: str, head_sha:
             continue
         commits = rep.get("commits", [])
         if any(len(c) >= 7 and head_sha.startswith(c) for c in commits) or (base and update_chain_ok(api, base, head_sha, commits)):
-            return f"Backlog-Schritt {st['chain']['item_id']} ({st['job_id']})"
-    return ""
+            item = next(i for i in items if i["id"] == st["chain"]["item_id"])
+            return f"Backlog-Schritt {st['chain']['item_id']} ({st['job_id']})", item
+    return None
 
 
 def failure_analysis(api: Any, runs: list[dict[str, Any]]) -> list[str]:
@@ -205,17 +266,26 @@ def evaluate_pr(api: Any, gcfg: GateConfig, pr: dict[str, Any], items: list[dict
     if pr.get("draft"):
         return Verdict("wait", ["PR ist ein Entwurf"], head_sha)
 
-    protected = [f for f in pr_files(api, pr["number"]) if is_protected(f)]
-    if protected:
-        v.reasons.append("geschuetzte Pfade geaendert (" + ", ".join(sorted(set(protected))[:5]) + "): der Besitzer mergt selbst")
-
-    approver = owner_approval(pr_reviews(api, pr["number"]), head_sha, cfg.trusted_reporters) or job_approval(api, items, head_ref, head_sha, base=cfg.default_branch)
+    details = pr_file_details(api, pr["number"])
+    protected = sorted({n for d in details for n in (d.get("filename"), d.get("previous_filename")) if n and is_protected(n)})
+    job = approved_job(api, items, head_ref, head_sha, base=cfg.default_branch)
+    approver = owner_approval(pr_reviews(api, pr["number"]), head_sha, cfg.trusted_reporters) or (job[0] if job else "")
     v.approved_by = approver
+    if protected:
+        allow = job[1].get("protected_edits") if job else None
+        problems = verify_protected_edits(details, allow) if allow else []
+        if allow and not problems:                          # Verdrahtung ist fuer GENAU diesen freigegebenen Schritt deklariert und geprueft additiv
+            v.reasons.append("geschuetzte Verdrahtung (" + ", ".join(protected[:5]) + ") durch den freigegebenen Schritt gedeckt und als rein additiv geprueft")
+            protected = []
+        else:
+            v.reasons.append("geschuetzte Pfade geaendert (" + ", ".join(protected[:5]) + "): der Besitzer mergt selbst")
+            if allow:
+                v.reasons.append("Freigabe des Schritts deckt die Aenderung nicht: " + "; ".join(problems[:3]))
     if not approver:
         v.reasons.append("keine Freigabe fuer diesen Commit (Besitzer-Review 'Approve' oder freigegebener Backlog-Schritt mit Bericht zu diesem Commit)")
 
     runs = [r for r in check_runs(api, head_sha) if (r.get("app") or {}).get("slug") == CHECK_APP]
-    by_name = {r["name"]: r for r in runs if r.get("head_sha", head_sha) == head_sha}
+    by_name = latest_by_name([r for r in runs if r.get("head_sha", head_sha) == head_sha])
     failing = [r for r in by_name.values() if r.get("conclusion") in FAIL_CONCLUSIONS]
     missing = [n for n in REQUIRED_CHECKS if n not in by_name]
     pending = [n for n in REQUIRED_CHECKS if n in by_name and by_name[n].get("status") != "completed"]
@@ -342,7 +412,7 @@ def ci_outcome(api: Any, cfg: ja.Config, pr: dict[str, Any] | None, report: dict
     head = pr["head"]["sha"]
     if not any(len(c) >= 7 and head.startswith(c) for c in report.get("commits", [])):
         return "blocked", "Der Branch hat nach dem Bericht neue Commits; der Nachweis gilt nicht fuer den gemeldeten Stand."
-    runs = {r["name"]: r for r in check_runs(api, head) if (r.get("app") or {}).get("slug") == CHECK_APP and r.get("head_sha", head) == head}
+    runs = latest_by_name([r for r in check_runs(api, head) if (r.get("app") or {}).get("slug") == CHECK_APP and r.get("head_sha", head) == head])
     if any(r.get("conclusion") in FAIL_CONCLUSIONS for r in runs.values()):
         return "failed", "Pflichtpruefung fehlgeschlagen; die begrenzte Korrekturschleife uebernimmt."
     if any(n not in runs or runs[n].get("status") != "completed" for n in REQUIRED_CHECKS):

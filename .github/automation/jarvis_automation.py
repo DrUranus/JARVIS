@@ -57,6 +57,11 @@ MAX_CONTEXT_CHARS = 50_000        # Fire-API erlaubt 65.536 Zeichen; Rest fuer d
 HARD_MAX_CHAIN_JOBS = 5           # absolute Obergrenze, unabhaengig von Eingaben und Variablen
 HARD_MAX_ATTEMPTS = 3             # Versuche je Backlog-Schritt
 HARD_MAX_TIMEOUT_MIN = 240
+ALLOWABLE_PROTECTED = ("src/jarvis/bootstrap.py",)     # einzige geschuetzte Datei, die ein Plan fuer einen Schritt freigeben kann (Kompositionswurzel)
+MAX_PROTECTED_PATTERNS, MAX_PROTECTED_ADDED = 5, 20
+# Muster, die eine Freigabe NIE zulassen darf (sonst waere sie ein Freibrief): jedes Muster, das eine dieser Zeilen akzeptiert, wird abgelehnt
+PROTECTED_PROBES = ("import subprocess", "import socket", "subprocess.run(x)", "os.system(x)", "exec(x)", "eval(x)", "core.permissions = x", "permissions = None",
+                    "register_emergency_components = x", "x = os.environ['K']", "open(x)")
 MAX_ACCEPTANCE_ITEMS = 10         # Abnahmekriterien je Backlog-Schritt
 MAX_ACCEPTANCE_CHARS = 400
 DEFAULT_TIMEOUT_MIN = 90
@@ -302,9 +307,36 @@ def load_backlog(path: Path) -> list[dict[str, Any]]:
         if acc is not None and (not isinstance(acc, list) or not 1 <= len(acc) <= MAX_ACCEPTANCE_ITEMS
                                 or any(not isinstance(a, str) or not a.strip() or len(a) > MAX_ACCEPTANCE_CHARS for a in acc)):
             raise AutomationError(f"backlog.json: {it['id']}: acceptance muss 1-{MAX_ACCEPTANCE_ITEMS} Texte (je max. {MAX_ACCEPTANCE_CHARS} Zeichen) enthalten")
+        if "protected_edits" in it:
+            _check_protected_edits(it["id"], it["protected_edits"])
         it["approved"] = it.get("approved") is True
     _apply_plan(data.get("plan"), items)
     return items
+
+
+def _check_protected_edits(item_id: str, edits: Any) -> None:
+    """Freigabe geschuetzter Verdrahtung fuer einen Schritt: nur bootstrap.py, nur zusaetzliche Zeilen, jede muss einem engen Muster entsprechen. Der Besitzer legt das mit
+    dem Plan fest (CODEOWNERS-geschuetzte Datei); die Routine kann es nicht aendern. Unsichere Freigaben fuehren zu einem Ladefehler statt zu einem Freibrief."""
+    where = f"backlog.json: {item_id}: protected_edits"
+    if not isinstance(edits, dict) or not edits:
+        raise AutomationError(f"{where} muss ein Objekt {{Pfad: Freigabe}} sein")
+    for path, rule in edits.items():
+        if path not in ALLOWABLE_PROTECTED:
+            raise AutomationError(f"{where}: nur {ALLOWABLE_PROTECTED[0]} (Kompositionswurzel bootstrap) ist freigebbar, nicht {path}")
+        if not isinstance(rule, dict) or set(rule) != {"added", "max_added"}:
+            raise AutomationError(f"{where}: {path} braucht genau 'added' (Muster) und 'max_added'")
+        added, limit = rule["added"], rule["max_added"]
+        if not isinstance(added, list) or not 1 <= len(added) <= MAX_PROTECTED_PATTERNS or any(not isinstance(a, str) or not a or len(a) > 200 for a in added):
+            raise AutomationError(f"{where}: 'added' braucht 1-{MAX_PROTECTED_PATTERNS} Muster (je hoechstens 200 Zeichen)")
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= MAX_PROTECTED_ADDED:
+            raise AutomationError(f"{where}: max_added muss 1-{MAX_PROTECTED_ADDED} sein")
+        for pattern in added:
+            try:
+                rx = re.compile(pattern)
+            except re.error:
+                raise AutomationError(f"{where}: ungueltiges Muster") from None
+            if any(rx.fullmatch(probe) for probe in PROTECTED_PROBES):
+                raise AutomationError(f"{where}: Muster ist zu weit (wuerde sicherheitsrelevante Zeilen zulassen)")
 
 
 def _apply_plan(plan: Any, items: list[dict[str, Any]]) -> None:
