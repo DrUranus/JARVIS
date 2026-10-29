@@ -259,6 +259,7 @@ def test_flipping_the_single_plan_switch_in_the_shipped_backlog_approves_exactly
             break
         order.append(nxt["id"])
         finished.add(nxt["id"])
-    assert order == raw["plan"]["approved_items"]
+    assert "windows-capture-tests" in done and "windows-capture-tests" in raw["plan"]["approved_items"]       # erledigt, aber weiter Teil der sieben freigegebenen Schritte
+    assert order == [i for i in raw["plan"]["approved_items"] if i not in done]                              # nur offene Schritte laufen, jeder genau einmal
     for sensitive in ("audit-hash-chain", "cli-confirm-timeout", "llm-goal-planning", "coding-llm-edits", "smartphone-api-design"):
         assert not next(i for i in items if i["id"] == sensitive)["approved"]
