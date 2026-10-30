@@ -82,7 +82,18 @@ _PLAYERS = (("afplay", []), ("paplay", []), ("aplay", ["-q"]), ("ffplay", ["-nod
 
 
 class SystemPlayer(AudioPlayer):
-    """Plays WAV through a system player or sounddevice on Windows."""
+    """Plays WAV through a system player or sounddevice on Windows.
+
+    stop() cuts playback only on Windows (sounddevice); with the external POSIX players the clip plays to its end (documented limit)."""
+
+    def stop(self) -> None:
+        if os.name != "nt":
+            return
+        try:
+            import sounddevice as sd
+            sd.stop()
+        except Exception:                                   # barge-in must never raise
+            log.debug("could not stop playback", exc_info=True)
 
     def __init__(self) -> None:
         self._cmd = next(

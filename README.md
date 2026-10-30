@@ -122,13 +122,23 @@ JARVIS_VOICE_REQUIRE_WAKE_WORD=true jarvis --voice
 ```
 Wake-Word-Verhalten: Mit `require_wake_word = true` werden Äußerungen ohne „JARVIS“ ignoriert. Sagt man nur „JARVIS“, antwortet
 er „Ja?“ und nimmt die nächste Äußerung ohne Wake-Word an. „JARVIS, was ist offen?“ wird als „was ist offen?“ an den Core gegeben.
-Das Wake-Word wird auf dem *Transkript* erkannt (kein Offline-Hotword-Detektor; Phase-2-Kompromiss, siehe unten).
+Das Wake-Word wird auf dem *Transkript* erkannt (Phase-2-Kompromiss, siehe unten). Optional kann ein lokaler Hotword-Baustein davor geschaltet werden (siehe „Barge-in und Hotword“).
 Exit-Phrasen: `exit`, `quit`, `stop`, `stopp`, `beenden`, `beende`, `tschüss`, `goodbye`.
 
 Konfiguration im Abschnitt `[voice]` von `config/jarvis.toml` oder per `JARVIS_VOICE_<FELD>`
 (`STT_PROVIDER`, `TTS_PROVIDER`, `AUDIO_INPUT`, `AUDIO_OUTPUT`, `LANGUAGE`, `WAKE_WORD`, `REQUIRE_WAKE_WORD`, `SPEAK_RESPONSES`,
 `SAMPLE_RATE`, `MAX_RECORD_SECONDS`, `SILENCE_SECONDS`, `SILENCE_THRESHOLD`, `STT_MODEL`, `TTS_MODEL`, `TTS_VOICE`, `TTS_COMMAND`,
 `BASE_URL`, `TIMEOUT`). API-Keys nur über die Umgebung.
+
+### Barge-in und Hotword (Phase 2)
+
+- **Barge-in:** `AudioPlayer.stop()`, `TTSProvider.stop()` und `Speaker.stop()` (Default: tut nichts) sowie `VoiceSession.interrupt()` beenden eine laufende Sprachausgabe.
+  `interrupt()` stoppt nur die Ausgabe – es führt keinen Befehl aus und bestätigt nichts. Grenze: `SystemPlayer` kann nur unter Windows (sounddevice) abbrechen; die externen
+  POSIX-Player und `SystemTTS` laufen bis zum Ende. Es gibt keinen Hintergrund-Lauscher, der selbst unterbricht; der Aufruf kommt vom Interface.
+- **Hotword:** `HotwordDetector.detect(clip) -> bool` (lokal, ohne Netzwerk). `HotwordGatedSource` setzt ihn vor jeden `AudioSource`: `record()` liefert `None`, bis das Hotword
+  erkannt wurde; erst die nächste Aufnahme ist der Befehl. Wahl per `voice.hotword_detector` (Default `none`, `mock` für Tests), eigene Detektoren per
+  `register_hotword_detector("name", factory)`. Es wird **kein** echter Detektor mitgeliefert. Der Befehl läuft danach wie immer über `core.handle` ->
+  `ToolRegistry.execute` -> `PermissionEngine`; das Hotword löst nie eine Aktion aus und ersetzt nie eine Bestätigung. Notaus-Verhalten ist unverändert.
 
 Eigenen Anbieter hinzufügen: `STTProvider`/`TTSProvider` implementieren und per `register_stt("name", factory)` /
 `register_tts(...)` / `register_audio_source(...)` registrieren – danach per Konfiguration wählbar, ohne Core-Änderung.
@@ -951,7 +961,7 @@ nicht unterbrechen; ihr (Daemon-)Thread endet mit dem Prozess.
 übersprungen), `tests/test_voice_state.py`. Windows: CI-Job `gui-windows` (siehe `docs/TESTING.md`). **Nur manuell prüfbar:** Aussehen/Skalierung des Fensters, echtes Mikrofon,
 echte Lautsprecher, Bedienung mit der Maus.
 
-**Grenzen.** Kein Streaming der Antworten, kein Unterbrechen der Sprachausgabe (barge-in), keine Animationen, kein persistenter Verlauf, keine Barrierefreiheitsprüfung,
+**Grenzen.** Kein Streaming der Antworten, Unterbrechen der Sprachausgabe nur über `interrupt()` (barge-in), keine Animationen, kein persistenter Verlauf, keine Barrierefreiheitsprüfung,
 Mehrmonitor-/DPI-Verhalten nicht gesondert behandelt.
 
 ## Tests & Entwicklungsworkflow
@@ -1010,7 +1020,7 @@ Abhängigkeiten zeigen nach innen: Core kennt nur Interfaces (`LLMProvider`, `To
 10. **Voice als Front-End, nicht als Core-Teil.** `VoiceSession` ruft nur `handle(text)`; STT/TTS/Mikrofon/Player sind vier getrennte, per Registry austauschbare Schnittstellen. Sprachlogik (Wake-Word, Exit, Sprech-Zusammenfassung) liegt in der Session, nicht im Core.
 11. **Konsolen-Voice als Default.** Die gesamte Sprachschleife ist ohne Hardware lauffähig und testbar; echte Engines sind reine Konfiguration.
 12. **Optionale Hardware-Abhängigkeit, lazy importiert.** `sounddevice` ist ein Extra; fehlt es, entsteht `VoiceUnavailableError` statt eines Importfehlers. Weiterhin keine Pflicht-Abhängigkeiten.
-13. **Wake-Word auf Transkript-Basis.** Heißt: bei `require_wake_word` läuft das Mikrofon/STT dauerhaft (Kosten/Privatsphäre bei Cloud-STT). Ein lokaler Hotword-Detektor kann später als weiterer `AudioSource` ergänzt werden.
+13. **Wake-Word auf Transkript-Basis.** Heißt: bei `require_wake_word` läuft das Mikrofon/STT dauerhaft (Kosten/Privatsphäre bei Cloud-STT). Ein lokaler Hotword-Detektor lässt sich über `voice.hotword_detector` davorschalten (`HotwordGatedSource`).
 14. **Konfiguration generisch:** Umgebungsvariablen `JARVIS_<SECTION>_<FIELD>` werden aus den Dataclasses abgeleitet; neue Abschnitte brauchen keine Verdrahtung.
 15. **Memory hinter `MemoryStore`, Richtlinien als Decorator.** Secret-Filter und Limits liegen in `GuardedMemoryStore`, nicht in den Backends; so gelten sie für jedes künftige Backend. Basisvalidierung (Typen, Längen) liegt gemeinsam in `validation.py`.
 16. **SQLite, stdlib, lazy.** Datei/Schema entstehen erst beim ersten Schreiben (`PRAGMA user_version` als Migrationsanker); Tags in eigener Tabelle für exakte Filter; keine ORM-/Treiberabhängigkeit.
@@ -1037,7 +1047,7 @@ Abhängigkeiten zeigen nach innen: Core kennt nur Interfaces (`LLMProvider`, `To
 
 | Phase | Anschlusspunkt |
 |---|---|
-| 2 Voice ✅ | `voice/` – siehe oben. Offen: Streaming-STT/TTS, Unterbrechen (barge-in), lokaler Hotword-Detektor |
+| 2 Voice ✅ | `voice/` – siehe oben. Barge-in-Schnittstelle und austauschbarer Hotword-Baustein vorhanden (kein mitgelieferter Detektor). Offen: Streaming-STT/TTS |
 | 3 Memory ✅ | `jarvis/memory/`. Offen: semantische/Vektor-Suche (neues Backend, `MemoryHit.score` ist vorbereitet), persistente Tasks (`TaskManager` hinter Interface, Ergebnisse als `task_result`), automatische Extraktion, Zusammenfassung/Verfall alter Einträge |
 | 4 Computer ✅ | `jarvis/computer/`; Provider austauschbar (`register_backend`), Beobachten→Handeln→Prüfen vorbereitet |
 | 5–6 Browser/Coding | neue `ProtectedTool`-Klassen mit `describe_action` (Host/Pfad/Command als Ressource); Policy-Regeln pro Tool; Vision über `ImageObserver` |
