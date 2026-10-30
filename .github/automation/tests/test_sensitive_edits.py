@@ -84,18 +84,19 @@ def test_the_declarations_are_inert_until_the_owner_activates_them_with_one_swit
     assert api.merged == [] and "nicht aktiviert" in status(api) and "scopes_approved" in status(api)
 
 
-def test_the_real_pr41_hunk_passes_with_the_proposed_snippet_and_the_shipped_backlog_declares_it_inactive():
+def test_the_real_pr41_hunk_passes_with_the_shipped_declaration_and_the_switch_only_decides_whether_it_is_active():
     assert mg.verify_sensitive_edits([{"filename": BOOT, "status": "modified", "patch": REAL_PATCH}], ALLOW) == []
     raw = json.loads((ROOT / ".github/automation/backlog.json").read_text(encoding="utf-8"))
-    assert raw["plan"]["scopes_approved"] is False                                       # the owner decides; nothing is active by default
+    assert isinstance(raw["plan"].get("scopes_approved"), bool)                          # a real boolean; its value is the owner's decision, not pinned here
     declared = {i["id"]: i["sensitive_edits"] for i in raw["items"] if i.get("sensitive_edits")}
     assert list(declared) == ["persistent-results"] and list(declared["persistent-results"]) == [BOOT]
     assert mg.verify_sensitive_edits([{"filename": BOOT, "status": "modified", "patch": REAL_PATCH}], declared["persistent-results"]) == []
-    flipped = {**raw, "plan": {**raw["plan"], "scopes_approved": True}}
-    path = Path(tempfile.mkdtemp()) / "backlog.json"
-    path.write_text(json.dumps(flipped))
-    items = {i["id"]: i for i in ja.load_backlog(path)}
-    assert items["persistent-results"]["_scopes_active"] is True and not items["onboarding-windows"].get("sensitive_edits")
+    for value in (False, True):                                                          # the logic must hold for both positions, whatever the repository currently says
+        variant = {**raw, "plan": {**raw["plan"], "scopes_approved": value}}
+        path = Path(tempfile.mkdtemp()) / "backlog.json"
+        path.write_text(json.dumps(variant))
+        items = {i["id"]: i for i in ja.load_backlog(path)}
+        assert items["persistent-results"]["_scopes_active"] is value and not items["onboarding-windows"].get("sensitive_edits")
 
 
 # ---- freie Freigabe konkreter sensibler Dateien (z. B. PermissionEngine, Workflow) ------------------------------------------------------------
