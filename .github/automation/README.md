@@ -142,6 +142,15 @@ ein manueller Override (Besitzer). Ein Schritt, der schon einen laufenden Auftra
 - Wiederholung nach `failed` nur für Backlog-Schritte, höchstens `max_attempts` (hart ≤ 3) Versuche je Schritt.
 - Idempotenz: Die Entscheidung wird im Eltern-Issue markiert (`followup`); ein zweiter Controller-Lauf ändert nichts. Controller-Läufe sind serialisiert.
 
+## Wiederaufnahme des Gates nach der CI
+
+Startet das Gate die CI selbst (nach „Branch aktualisieren“), löst der mit `GITHUB_TOKEN` per `workflow_dispatch` gestartete `pr-tests`-Lauf **kein** `workflow_run`-Ereignis aus
+(GitHub: Ereignisse von `GITHUB_TOKEN` starten keine Workflows, außer `workflow_dispatch`/`repository_dispatch`); der 20-Minuten-Zeitplan läuft auf GitHub nur unregelmäßig (Stunden-Abstände beobachtet).
+Darum startet das Gate zusammen mit der CI `jarvis-gate-resume.yml` (Code des Standard-Branches, `actions: write` + `checks: read`, keine Secrets, kein PR-Code). Dieser Lauf wartet höchstens 65 Minuten
+auf `tests-linux` und `tests-windows` des Commits und stößt das Gate danach **genau einmal** an (auch nach Zeitüberschreitung, dann berichtet es den Stand). Er entscheidet nichts; Freigabe,
+exakte Commit-Prüfung, Merge und Not-Aus (`JARVIS_AUTOMATION_HALT`) bleiben im Gate. Keine Rekursion: das Gate startet den Warte-Lauf je Kopf höchstens einmal (`ci_dispatched`, höchstens
+`MAX_BRANCH_UPDATES + 1` je Auftrag), der Warte-Lauf startet nur das Gate. Push auf `main` und Zeitplan bleiben das Netz darunter.
+
 ## Sicherheitsgrenzen
 
 - Secrets: `ROUTINE_FIRE_URL` / `ROUTINE_FIRE_TOKEN` nur in `claude-routine-fire.yml` und `jarvis-controller.yml`, nur im Lauf auf dem Standard-Branch,

@@ -30,6 +30,7 @@ SECURITY_WORDS = re.compile(r"permission|emergency|budget|confirm|audit|secret|t
 MAX_REPAIRS = 3                                             # Korrekturschleifen je PR (hart)
 MAX_BRANCH_UPDATES = 3                                      # Branch-Aktualisierungen je Auftrag (hart); danach braucht es den Besitzer
 PR_TESTS_WORKFLOW = "pr-tests.yml"
+RESUME_WORKFLOW = "jarvis-gate-resume.yml"                  # wartet auf die CI des Kopfes und stoesst das Gate an (ein pr-tests-Dispatch mit GITHUB_TOKEN loest kein workflow_run aus)
 POLL_SECONDS, POLL_TRIES = 5, 12                            # so lange wartet das Gate auf den (asynchronen) neuen Kopf nach "Branch aktualisieren"
 _sleep = time.sleep
 GATE_MARKER = "<!-- JARVIS-GATE v1 -->"
@@ -557,6 +558,10 @@ def start_ci(api: Any, cfg: ja.Config, head_ref: str, head_sha: str, dispatch, n
     except ja.ApiError as exc:
         return prefix + f"CI konnte nicht gestartet werden (HTTP {exc.status})."
     note_in_job(api, head_ref, "ci_dispatched", head_sha, f"pr-tests fuer {head_sha[:12]} angefordert.", now)
+    try:
+        dispatch(RESUME_WORKFLOW, cfg.default_branch, {"sha": head_sha})        # Code des Standard-Branches; Zeitplan und push-Ereignis bleiben das Netz darunter
+    except ja.ApiError as exc:
+        return prefix + f"pr-tests fuer den neuen Stand angefordert; Wiederaufnahme nicht gestartet (HTTP {exc.status}), das Gate holt es mit dem naechsten Lauf nach."
     return prefix + "pr-tests fuer den neuen Stand angefordert; das Gate wartet auf Windows und Linux."
 
 

@@ -1,0 +1,40 @@
+# Wiederaufnahme des Merge-Gates nach der CI: wartet (begrenzt) auf tests-linux und tests-windows eines Commits und stoesst danach das Gate genau einmal an.
+# Noetig, weil ein mit GITHUB_TOKEN per workflow_dispatch gestarteter pr-tests-Lauf kein workflow_run-Ereignis ausloest und der Zeitplan unregelmaessig laeuft.
+# Gestartet nur vom Gate (start_ci), je Kopf hoechstens einmal. Entscheidet nichts, checkt nie PR-Code aus, keine Secrets.
+name: JARVIS gate resume
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Voller Commit-Hash, auf dessen Pflichtpruefungen gewartet wird"
+        required: true
+        type: string
+
+permissions:
+  actions: write         # nur um jarvis-merge-gate.yml per workflow_dispatch anzustossen
+  checks: read           # Pflichtpruefungen des Commits lesen
+
+concurrency:
+  group: jarvis-gate-resume-${{ inputs.sha }}
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: .github/automation
+
+      - name: Wait for required checks, then start the gate once
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RESUME_SHA: ${{ inputs.sha }}
+          JARVIS_AUTOMATION_HALT: ${{ vars.JARVIS_AUTOMATION_HALT }}
+        run: python3 .github/automation/gate_resume.py
