@@ -29,6 +29,10 @@ SECURITY_WORDS = re.compile(r"permission|emergency|budget|confirm|audit|secret|t
                             r"__import__|importlib|socket|urllib|requests|ctypes|pickle|\bopen\(|lockdown|policy|halt|reset", re.I)
 MAX_REPAIRS = 3                                             # Korrekturschleifen je PR (hart)
 MAX_BRANCH_UPDATES = 3                                      # Branch-Aktualisierungen je Auftrag (hart); danach braucht es den Besitzer
+MAX_MANUAL_UPDATES = 3                                      # manuelle Aktualisierungen des Besitzers, die die Kettenpruefung zwischen zwei Ankern hoechstens ueberbrueckt
+MAX_ANCHORS = 12                                            # Vertrauensanker je Auftrag (Begrenzung des Zustands)
+UPDATE_BOT = "github-actions[bot]"                          # Autor der Aktualisierungen, die das Gate mit GITHUB_TOKEN anstoesst
+SHA_RE = re.compile(r"[0-9a-f]{40}")
 PR_TESTS_WORKFLOW = "pr-tests.yml"
 RESUME_WORKFLOW = "jarvis-gate-resume.yml"                  # wartet auf die CI des Kopfes und stoesst das Gate an (ein pr-tests-Dispatch mit GITHUB_TOKEN loest kein workflow_run aus)
 POLL_SECONDS, POLL_TRIES = 5, 12                            # so lange wartet das Gate auf den (asynchronen) neuen Kopf nach "Branch aktualisieren"
@@ -46,6 +50,7 @@ class Verdict:
     analysis: list[str] = field(default_factory=list)      # fehlgeschlagene Tests laut CI (Daten)
     approved_by: str = ""
     needs_ci: bool = False                                  # freigegeben, aber fuer diesen Kopf fehlen die Pflichtpruefungen ganz
+    anchor: str = ""                                        # Kopf, der Auftragsfreigabe, Scope, sensible Aenderungen und Commit-Historie bestanden hat: darf als Vertrauensanker gespeichert werden
 
 
 class GateConfig:
@@ -196,8 +201,13 @@ def verify_sensitive_edits(details: list[dict[str, Any]], allow: dict[str, Any])
 
 
 def commit_parents(api: Any, sha: str) -> list[str]:
+    return commit_info(api, sha)[0]
+
+
+def commit_info(api: Any, sha: str) -> tuple[list[str], str]:
+    """(Eltern, Anmeldename des Autors in Kleinbuchstaben; leer, wenn GitHub keinen Konto-Autor nennt)."""
     c = api.request("GET", f"/repos/{api.repo}/commits/{sha}") or {}
-    return [p["sha"] for p in c.get("parents", [])]
+    return [p["sha"] for p in c.get("parents", [])], str((c.get("author") or {}).get("login") or "").lower()
 
 
 def in_base(api: Any, base: str, sha: str) -> bool:
@@ -206,27 +216,43 @@ def in_base(api: Any, base: str, sha: str) -> bool:
     return int(cmp.get("ahead_by", 1)) == 0
 
 
-def update_chain_ok(api: Any, base: str, head_sha: str, reported: list[str]) -> bool:
-    """Der Kopf ist der gemeldete Commit oder (hoechstens MAX_BRANCH_UPDATES mal) ein reiner Merge des Standard-Branches in einen gemeldeten Stand:
-    genau zwei Eltern, das erste ein gemeldeter bzw. so verifizierter Stand, das zweite schon im Standard-Branch. Alles andere (zusaetzliche Commits, fremde
-    Eltern) gilt nicht als der freigegebene Stand."""
-    cur = head_sha
-    for _ in range(MAX_BRANCH_UPDATES + 1):
-        if any(len(c) >= 7 and cur.startswith(c) for c in reported):
+def clean_anchors(state: dict[str, Any]) -> list[str]:
+    """Die Vertrauensanker eines Auftrags: nur volle, kleingeschriebene Commit-Hashes; alles andere (Muell, falsche Typen) wird ignoriert."""
+    raw = state.get("trust_anchors")
+    return [a for a in raw if isinstance(a, str) and SHA_RE.fullmatch(a)][:MAX_ANCHORS] if isinstance(raw, list) else []
+
+
+def update_chain_ok(api: Any, base: str, head_sha: str, reported: list[str], anchors: list[str] | None = None, trusted: frozenset[str] | set[str] = frozenset()) -> bool:
+    """Der Kopf ist der gemeldete Commit, ein frueher vollstaendig geprueftes Vertrauensanker-Commit oder ein reiner Merge des Standard-Branches in einen solchen Stand:
+    genau zwei Eltern, das erste ein gemeldeter bzw. so verifizierter Stand, das zweite schon im Standard-Branch. Autor der Aktualisierung: der Update-Bot des Gates
+    (hoechstens MAX_BRANCH_UPDATES je Strecke) oder ein vertrauter Besitzer (hoechstens MAX_MANUAL_UPDATES je Strecke); jeder andere Autor und jede unbekannte Stelle gelten nicht
+    als der freigegebene Stand. Zusaetzliche Commits, fremde Eltern, Octopus-Merges ebenfalls nicht."""
+    anchored, bots, owners, cur = set(anchors or []), 0, 0, head_sha
+    for _ in range(MAX_BRANCH_UPDATES + MAX_MANUAL_UPDATES + 1):
+        if cur in anchored or any(len(c) >= 7 and cur.startswith(c) for c in reported):
             return True
-        parents = commit_parents(api, cur)
+        parents, author = commit_info(api, cur)
         if len(parents) != 2 or not in_base(api, base, parents[1]):
+            return False
+        if author == UPDATE_BOT:
+            bots += 1
+        elif author and author in trusted:
+            owners += 1
+        else:
+            return False
+        if bots > MAX_BRANCH_UPDATES or owners > MAX_MANUAL_UPDATES:
             return False
         cur = parents[0]
     return False
 
 
-def job_approval(api: Any, items: list[dict[str, Any]], head_ref: str, head_sha: str, base: str | None = None) -> str:
-    found = approved_job(api, items, head_ref, head_sha, base)
+def job_approval(api: Any, items: list[dict[str, Any]], head_ref: str, head_sha: str, base: str | None = None, trusted: frozenset[str] | set[str] = frozenset()) -> str:
+    found = approved_job(api, items, head_ref, head_sha, base, trusted)
     return found[0] if found else ""
 
 
-def approved_job(api: Any, items: list[dict[str, Any]], head_ref: str, head_sha: str, base: str | None = None) -> tuple[str, dict[str, Any]] | None:
+def approved_job(api: Any, items: list[dict[str, Any]], head_ref: str, head_sha: str, base: str | None = None,
+                 trusted: frozenset[str] | set[str] = frozenset()) -> tuple[str, dict[str, Any]] | None:
     """Freigabe ueber den Backlog: abgeschlossener Auftrag fuer genau diesen Branch und Commit (oder dessen verifizierte Aktualisierung mit dem Standard-Branch),
     Schritt mit approved=true. Ergebnis: (Beschreibung, Backlog-Schritt)."""
     approved = {i["id"] for i in items if i.get("approved") is True}
@@ -236,7 +262,7 @@ def approved_job(api: Any, items: list[dict[str, Any]], head_ref: str, head_sha:
         if not (st and st["status"] == "completed" and rep.get("branch") == head_ref and st["chain"].get("item_id") in approved):
             continue
         commits = rep.get("commits", [])
-        if any(len(c) >= 7 and head_sha.startswith(c) for c in commits) or (base and update_chain_ok(api, base, head_sha, commits)):
+        if any(len(c) >= 7 and head_sha.startswith(c) for c in commits) or (base and update_chain_ok(api, base, head_sha, commits, clean_anchors(st), trusted)):
             item = next(i for i in items if i["id"] == st["chain"]["item_id"])
             return f"Backlog-Schritt {st['chain']['item_id']} ({st['job_id']})", item
     return None
@@ -281,6 +307,19 @@ def note_in_job(api: Any, head_ref: str, key: str, entry: dict[str, Any], note: 
         api.update_issue(number, body=ja.render_body({**state, key: [*state.get(key, []), entry], "updated_at": ja.iso(now or ja.utcnow())}, note))
 
 
+def record_anchor(api: Any, head_ref: str, sha: str, now=None) -> bool:
+    """Vermerkt einen vollstaendig geprueften Kopf im Auftragszustand (einmal, begrenzt). Der gemeldete Commit und schon bekannte Anker werden nicht erneut gespeichert."""
+    found = origin_state(api, head_ref)
+    if not found or not SHA_RE.fullmatch(sha):
+        return False
+    anchors = clean_anchors(found[1])
+    reported = (found[1].get("report") or {}).get("commits", [])
+    if sha in anchors or len(anchors) >= MAX_ANCHORS or any(len(c) >= 7 and sha.startswith(c) for c in reported):
+        return False
+    note_in_job(api, head_ref, "trust_anchors", sha, f"Vertrauensanker {sha[:12]}: Freigabe, Scope, sensible Aenderungen und Commit-Historie geprueft.", now)
+    return True
+
+
 def count_repairs(api: Any, pr_number: int) -> int:
     return sum(1 for i in api.list_job_issues(state="all", pages=3)
                if ((ja.own_job_issue(i) or {}).get("chain") or {}).get("repair_of") == pr_number)
@@ -301,7 +340,7 @@ def evaluate_pr(api: Any, gcfg: GateConfig, pr: dict[str, Any], items: list[dict
 
     details = pr_file_details(api, pr["number"])
     protected = sorted({n for d in details for n in (d.get("filename"), d.get("previous_filename")) if n and is_protected(n)})
-    job = approved_job(api, items, head_ref, head_sha, base=cfg.default_branch)
+    job = approved_job(api, items, head_ref, head_sha, base=cfg.default_branch, trusted=cfg.trusted_reporters)
     approver = owner_approval(pr_reviews(api, pr["number"]), head_sha, cfg.trusted_reporters) or (job[0] if job else "")
     v.approved_by = approver
     item = job[1] if job else None
@@ -325,6 +364,8 @@ def evaluate_pr(api: Any, gcfg: GateConfig, pr: dict[str, Any], items: list[dict
         if outside:
             v.reasons.append("Dateien ausserhalb des Auftrags (scope): " + ", ".join(sorted(outside)[:5]))
             protected = [*protected, *outside]
+    if job and not protected:                               # alles Inhaltliche ist geprueft (Freigabe ueber den Auftrag, Update-Kette, sensible Aenderungen, Scope); CI und Mergebarkeit sind eine andere Frage
+        v.anchor = head_sha
 
     if not approver:
         v.reasons.append("keine Freigabe fuer diesen Commit (Besitzer-Review 'Approve' oder freigegebener Backlog-Schritt mit Bericht zu diesem Commit)")
@@ -370,11 +411,13 @@ def evaluate_pr(api: Any, gcfg: GateConfig, pr: dict[str, Any], items: list[dict
         return v
     if protected or not approver:
         return v
-    if pr.get("mergeable") is False or pr.get("mergeable_state") in {"dirty", "blocked", "behind"}:
-        v.reasons.append(f"nicht mergebar (mergeable_state={pr.get('mergeable_state')}; z. B. Konflikt oder Branch-Schutz)")
+    if pr.get("mergeable") is False or pr.get("mergeable_state") in {"dirty", "behind"}:
+        v.reasons.append(f"nicht mergebar (mergeable_state={pr.get('mergeable_state')}; z. B. Konflikt oder veralteter Branch)")
         return v
     v.action = "merge"
     v.reasons.append("alle Bedingungen erfuellt")
+    if pr.get("mergeable_state") == "blocked":      # GitHub meldet 'blocked' auch fuer Regeln, die das Gate nicht kennt: die Merge-API erzwingt sie und nennt bei Ablehnung den Grund
+        v.reasons.append("GitHub meldet mergeable_state=blocked (Regel ausserhalb des Gates, z. B. Ruleset): Merge wird versucht, die API entscheidet und nennt den Grund")
     return v
 
 
@@ -584,6 +627,8 @@ def run_gate(api: Any, cfg: ja.Config, *, backlog_path: Path, only: int | None =
         if v.action == "skip":
             continue
         note = ""
+        if v.anchor and not cfg.halted:
+            record_anchor(api, pr["head"]["ref"], v.anchor)
         if v.action == "merge" and gcfg.merge_enabled:
             try:
                 merge_pr(api, pr["number"], v.head_sha, gcfg.merge_method)
