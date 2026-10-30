@@ -45,6 +45,7 @@ HELP = """Befehle:
   /improve       Selbstverbesserung (nur Vorschläge; Code wird nicht vorbereitet/getestet/aktiviert): analyze [llm] | list | show <id> | propose "<Titel>" "<Problem>" | reject <id>
   /goal <Ziel>   Ziel ausführen (optional: url=… workspace=… runner=… read_paths=a,b) | status|steps|cancel <id>
   /voice         Sprachmodus starten (zurück mit „exit“)
+  /doctor        Umgebung prüfen (nur lesend: Python, tkinter, voice, playwright, Konfiguration, Schlüssel gesetzt/nicht gesetzt, aktive Subsysteme, Sicherheitsmodus)
   /help          Diese Hilfe
   /exit          Beenden"""
 
@@ -61,6 +62,9 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
         return None
     if cmd == "/help":
         return HELP
+    if cmd == "/doctor":
+        from jarvis.interface.doctor import run_doctor
+        return run_doctor(settings=settings)[0]
     if cmd == "/tools":
         return "\n".join(f"  {t['name']}: {t['description']}" for t in core.tools.describe_all())
     if cmd == "/tasks":
@@ -691,9 +695,15 @@ def _voice(core: JarvisCore, settings: Settings | None, display: Callable[[str],
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="jarvis", description="JARVIS personal AI assistant")
     parser.add_argument("-c", "--config", help="path to a TOML config file")
+    parser.add_argument("command", nargs="?", choices=["doctor"], help="doctor: Umgebung und Konfiguration prüfen (nur lesend, Exit-Code 0/1)")
     parser.add_argument("--voice", action="store_true", help="start in voice mode")
     parser.add_argument("--version", action="version", version=f"jarvis {__version__}")
     args = parser.parse_args(argv)
+    if args.command == "doctor":
+        from jarvis.interface.doctor import run_doctor
+        report, code = run_doctor(config_path=args.config or _default_config())
+        print(report)
+        return code
     try:
         settings = load_settings(args.config or _default_config())
         core = build_core(settings)

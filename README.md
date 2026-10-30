@@ -36,6 +36,26 @@ python3 -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+## Windows-Schnellstart
+
+1. **Installation** (PowerShell, Python ≥ 3.11 von python.org, damit tkinter dabei ist):
+   ```powershell
+   py -3 -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   pip install -e ".[dev,voice]"     # "voice" nur für Mikrofon/Lautsprecher; ohne geht es auch
+   ```
+2. **Prüfen:** `jarvis doctor` liest nur und meldet auf Deutsch: Python, tkinter, sounddevice/numpy, playwright, ob die Konfiguration gültig ist,
+   welche Schlüsselvariablen *gesetzt/nicht gesetzt* sind (nie der Wert), welche Subsysteme aktiv sind und den Sicherheitsmodus.
+   Exit-Code 0 = keine Fehler (Hinweise sind möglich), 1 = mindestens ein Fehler. Im Chat gibt es dasselbe als `/doctor`.
+   Der Doctor schaltet nichts ein und schreibt nichts.
+3. **Erster Start:** `jarvis` (Textmodus, ohne Schlüssel mit dem Offline-Modell `mock`). Für ein echtes Modell vorher z. B.
+   `$env:JARVIS_LLM_PROVIDER="anthropic"; $env:ANTHROPIC_API_KEY="..."` setzen (nur per Umgebung, nie in Dateien).
+4. **GUI:** `jarvis-gui` (Tkinter-Fenster um denselben Core, siehe „Grafische Oberfläche“).
+5. **Was ausgeschaltet ist:** Computersteuerung, Browser-Agent, Coding-Agent, Agenten, Ziele, Selbstreparatur, Selbstverbesserung, Research, Business, Finance
+   und das Sitzungsbudget stehen in `config/jarvis.toml` auf `enabled = false`; Replanning ist aus, Finance bleibt nur Paper-Trading, der Sicherheitsmodus ist
+   `standard` (Rückfrage bei YELLOW, RED nie erlaubt). Einschalten nur bewusst in der Konfiguration, jede Aktion läuft weiter durch die Berechtigungsprüfung.
+   Der Notaus ist `/notaus` bzw. der rote Knopf in der GUI.
+
 ## Konfiguration
 
 Vorrang (niedrig → hoch): eingebaute Defaults → `config/jarvis.toml` (oder `jarvis.local.toml`, `-c PFAD`, `JARVIS_CONFIG`) → Umgebungsvariablen.
@@ -62,7 +82,7 @@ jarvis> Erstelle ein Python-Programm, das eine CSV-Datei analysiert.
 Plan für: ...  [Task 1f23c6a6]
   1. Anforderungen analysieren ...
 ```
-CLI-Befehle: `/plan <ziel>`, `/tasks`, `/tools`, `/reset`, `/help`, `/exit`. Eingaben, die mit einem Aufgabenverb beginnen
+CLI-Befehle: `/plan <ziel>`, `/tasks`, `/tools`, `/reset`, `/doctor`, `/help`, `/exit`. Eingaben, die mit einem Aufgabenverb beginnen
 („erstelle“, „build“, …), werden automatisch geplant, alles andere ist Dialog.
 
 ## Voice-Interface (Phase 2)
