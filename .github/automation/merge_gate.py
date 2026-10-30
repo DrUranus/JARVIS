@@ -370,11 +370,13 @@ def evaluate_pr(api: Any, gcfg: GateConfig, pr: dict[str, Any], items: list[dict
         return v
     if protected or not approver:
         return v
-    if pr.get("mergeable") is False or pr.get("mergeable_state") in {"dirty", "blocked", "behind"}:
-        v.reasons.append(f"nicht mergebar (mergeable_state={pr.get('mergeable_state')}; z. B. Konflikt oder Branch-Schutz)")
+    if pr.get("mergeable") is False or pr.get("mergeable_state") in {"dirty", "behind"}:
+        v.reasons.append(f"nicht mergebar (mergeable_state={pr.get('mergeable_state')}; z. B. Konflikt oder veralteter Branch)")
         return v
     v.action = "merge"
     v.reasons.append("alle Bedingungen erfuellt")
+    if pr.get("mergeable_state") == "blocked":      # GitHub meldet 'blocked' auch fuer Regeln, die das Gate nicht kennt: die Merge-API erzwingt sie und nennt bei Ablehnung den Grund
+        v.reasons.append("GitHub meldet mergeable_state=blocked (Regel ausserhalb des Gates, z. B. Ruleset): Merge wird versucht, die API entscheidet und nennt den Grund")
     return v
 
 
