@@ -20,6 +20,7 @@ HELP = """Befehle:
   /plan <ziel>   Plan für ein Ziel erstellen
   /tasks         Offene Tasks anzeigen
   /tools         Registrierte Tools anzeigen
+  /history [n]   Verlauf abgeschlossener Ziele/Tasks/Reparaturen (history.enabled; nur Anzeige, nichts wird fortgesetzt)
   /reset         Gesprächskontext löschen
   /remember <t>  Etwas dauerhaft merken
   /memory [q]    Erinnerungen suchen / neueste anzeigen
@@ -56,6 +57,7 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
     cmd, _, arg = line.partition(" ")
     arg = arg.strip()
     if cmd in ("/exit", "/quit"):
+        core.record_history()
         return None
     if cmd == "/help":
         return HELP
@@ -66,6 +68,8 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
         if not open_tasks:
             return "Keine offenen Tasks."
         return "\n".join(f"  [{t.id}] {t.status.value:<9} {t.description}" for t in open_tasks)
+    if cmd == "/history":
+        return _history(core, arg)
     if cmd == "/reset":
         core.context.clear()
         return "Kontext gelöscht."
@@ -307,6 +311,18 @@ def _agents(core: JarvisCore, cmd: str, arg: str) -> str:
     return "\n".join([f"{d['id']}: {d['name']} – {d['status']}" + (f" ({d['reason']})" if d["reason"] else ""), f"  {d['description']}",
                       "  Fähigkeiten: " + ", ".join(d["capabilities"]), "  Werkzeuge: " + (", ".join(d["tools"]) or "keine"),
                       f"  Abbruch unterstützt: {'ja' if d['supports_cancellation'] else 'nein'}"])
+
+
+def _history(core: JarvisCore, arg: str) -> str:
+    """Stored history of finished work. Read only; nothing listed here is resumed after a restart."""
+    if core.history is None:
+        return "Verlauf: deaktiviert (history.enabled = false bzw. JARVIS_HISTORY_ENABLED=true). Es wird nichts gespeichert."
+    limit = int(arg) if arg.isdigit() and 0 < int(arg) <= 200 else 20
+    entries = core.history_entries(limit)
+    if not entries:
+        return "Verlauf: noch keine abgeschlossenen Einträge."
+    when = lambda e: (e.finished_at or e.recorded_at).strftime("%Y-%m-%d %H:%M")
+    return "\n".join(f"  {when(e)}  {e.kind:<10} {e.status:<9} {e.ref_id}  {e.summary[:80]}" + (f"  [{e.error}]" if e.error else "") for e in entries)
 
 
 _GOAL_OPT = re.compile(r"(?:^|\s)(url|workspace|runner|read_paths)=(\"[^\"]*\"|\S+)")

@@ -64,6 +64,9 @@ def build_core(settings: Settings) -> JarvisCore:
     core.subsystems["self_improvement"] = build_self_improvement(
         settings, goals=getattr(core.subsystems.get("goals"), "engine", None), repairs=getattr(core.subsystems.get("self_repair"), "engine", None),
         audit=permissions.audit, llm=provider, confirmation=lambda: permissions.confirmation, detector=guard)
+    # Opt-in history of FINISHED work (default off, no file). Display only: after a restart nothing is resumed or started.
+    from jarvis.history.factory import build_history
+    core.history = build_history(settings, core, guard)
     register_emergency_components(core)
     return core
 

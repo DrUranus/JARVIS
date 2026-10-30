@@ -391,6 +391,9 @@ class JarvisGUI:
         if snap.inactive:
             lines.append("Ausgeschaltet (Standard): " + ", ".join(snap.inactive) + ".")
         lines += list(snap.problems)
+        if snap.history:
+            lines.append("Verlauf (abgeschlossen, nur Anzeige):")
+            lines += ["  " + h for h in snap.history]
         self.activity_hint.configure(text="\n".join(lines))
         if snap.items:
             self.activity_hint.grid_configure(pady=(0, 6))

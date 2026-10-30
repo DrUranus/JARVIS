@@ -178,6 +178,7 @@ class ActivitySnapshot:
     items: tuple[ActivityItem, ...] = ()
     problems: tuple[str, ...] = ()  # sources that could not be read (shown, never hidden)
     inactive: tuple[str, ...] = ()  # sources that are switched off (the default for goals, agents and self-repair)
+    history: tuple[str, ...] = ()   # last finished work from the opt-in history (display only; empty when it is off)
 
 
 @dataclass(frozen=True)
@@ -627,7 +628,16 @@ class GuiController:
             if off:
                 inactive.append(label)
             items.extend(found[:ACTIVITY_LIMIT])
-        return ActivitySnapshot(tuple(items), tuple(problems), tuple(inactive))
+        return ActivitySnapshot(tuple(items), tuple(problems), tuple(inactive), self._history_lines())
+
+    def _history_lines(self) -> tuple[str, ...]:
+        reader = getattr(self.core, "history_entries", None)
+        if reader is None:
+            return ()
+        try:
+            return tuple(f"{e.kind} · {e.status} · {e.ref_id}  {self._act_short(e.summary, 70)}" for e in reader(5))
+        except Exception:
+            return ()
 
     @staticmethod
     def _act_short(text: Any, limit: int = 90) -> str:

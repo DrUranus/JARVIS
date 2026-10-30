@@ -94,6 +94,8 @@ class JarvisCore:
         # Optional capabilities plugged in by the composition root (computer control, later browser/vision agents).
         # The Core treats them as opaque: it never imports them and never calls into them.
         self.subsystems: dict[str, Any] = {}
+        # Optional history of finished work (opt-in, built by the composition root; None = off). Display only: the Core only asks it to take over what finished.
+        self.history: Any = None
 
     @property
     def permissions(self):
@@ -169,10 +171,16 @@ class JarvisCore:
 
     def run_goal(self, goal_id: str) -> Any:
         self._ensure_not_stopped()
-        return self._goal_engine().run(goal_id)
+        try:
+            return self._goal_engine().run(goal_id)
+        finally:
+            self.record_history()
 
     def cancel_goal(self, goal_id: str) -> Any:
-        return self._goal_engine().cancel(goal_id)
+        try:
+            return self._goal_engine().cancel(goal_id)
+        finally:
+            self.record_history()
 
     def get_goal(self, goal_id: str) -> Any:
         return self._goal_engine().get(goal_id)
@@ -194,16 +202,41 @@ class JarvisCore:
 
     def run_repair(self, run_id: str) -> Any:
         self._ensure_not_stopped()
-        return self._repair_engine().run(run_id)
+        try:
+            return self._repair_engine().run(run_id)
+        finally:
+            self.record_history()
 
     def cancel_repair(self, run_id: str) -> Any:
-        return self._repair_engine().cancel(run_id)
+        try:
+            return self._repair_engine().cancel(run_id)
+        finally:
+            self.record_history()
 
     def get_repair(self, run_id: str) -> Any:
         return self._repair_engine().get(run_id)
 
     def list_repairs(self, **filters: Any) -> list[Any]:
         return self._repair_engine().list(**filters)
+
+    # ---- history of finished work (optional, opt-in; reading and storing only - it never resumes or starts anything) --------------------------
+    def record_history(self) -> None:
+        """Store what has finished so far. Does nothing when the history is off; never raises."""
+        if self.history is not None:
+            try:
+                self.history.sync()
+            except Exception:
+                log.warning("history could not be updated", exc_info=True)
+
+    def history_entries(self, limit: int = 20) -> list[Any]:
+        """Stored history, newest first; [] when off or unreadable."""
+        if self.history is None:
+            return []
+        try:
+            return self.history.entries(limit)
+        except Exception:
+            log.warning("history could not be read", exc_info=True)
+            return []
 
     def _memory_notes(self, text: str) -> list[str]:
         """Relevant memories as a temporary prompt note. Off unless explicitly enabled (privacy: the

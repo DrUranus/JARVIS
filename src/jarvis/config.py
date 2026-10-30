@@ -60,6 +60,16 @@ class MemorySettings:
     use_in_prompts: bool = False       # privacy: relevant memories are sent to the LLM only if true
 
 
+@dataclass(frozen=True)
+class HistorySettings:
+    """Persistent history of FINISHED goals, agent tasks, repair runs and plans (status, short text, times, failure reason; secrets redacted). Opt-in, local only.
+    It is display only: after a restart nothing is resumed or started."""
+    enabled: bool = False
+    path: str = "data/history.db"      # sqlite file; created on first write
+    max_entries: int = 500             # oldest entries are dropped first (hard limit 100000)
+    max_text_length: int = 300         # characters per text field
+
+
 COMPUTER_BACKENDS = ("auto", "windows", "x11", "fake")
 SECURITY_MODES = ("standard", "lockdown")
 CONFIRMATION_PROVIDERS = ("cli", "deny")
@@ -264,6 +274,7 @@ class Settings:
     llm: LLMSettings = field(default_factory=LLMSettings)
     voice: VoiceSettings = field(default_factory=VoiceSettings)
     memory: MemorySettings = field(default_factory=MemorySettings)
+    history: HistorySettings = field(default_factory=HistorySettings)
     security: SecuritySettings = field(default_factory=SecuritySettings)
     computer: ComputerSettings = field(default_factory=ComputerSettings)
     browser: BrowserSettings = field(default_factory=BrowserSettings)
@@ -412,6 +423,9 @@ class Settings:
             raise ConfigError("memory.max_relevant/max_entries must be >= 0")
         if m.recent_limit <= 0 or m.max_content_length <= 0:
             raise ConfigError("memory.recent_limit/max_content_length must be positive")
+        hi = self.history
+        if not hi.path.strip() or not 1 <= hi.max_entries <= 100_000 or not 1 <= hi.max_text_length <= 2000:
+            raise ConfigError("history.path must not be empty, max_entries 1..100000, max_text_length 1..2000")
         return self
 
 
