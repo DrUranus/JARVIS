@@ -30,6 +30,7 @@ class UpdApi(GateApi):
     def __init__(self, **kw):
         super().__init__(**kw)
         self.updates, self.parents, self.ahead = [], {}, {}
+        self.authors: dict[str, str] = {}    # commit -> login of its author; unknown commits are update commits of the gate's bot
         self.update_status = None            # e.g. 422: GitHub refuses (merge conflict)
         self.visible = True                  # False: GitHub accepts (202) but the new head is not there yet
         self.merge_message = None
@@ -48,7 +49,8 @@ class UpdApi(GateApi):
                 self.behind, self.runs = 0, []
             return {"message": "Updating pull request branch."}
         if method == "GET" and "/commits/" in path and "/check-runs" not in path:
-            return {"parents": [{"sha": p} for p in self.parents.get(path.rsplit("/", 1)[1], [])]}
+            sha = path.rsplit("/", 1)[1]
+            return {"parents": [{"sha": p} for p in self.parents.get(sha, [])], "author": {"login": self.authors.get(sha, "github-actions[bot]")}}
         if method == "GET" and "/compare/" in path:
             tip = path.rsplit("...", 1)[1]
             return {"behind_by": self.behind if tip == self.pr["head"]["sha"] else 0, "ahead_by": self.ahead.get(tip, 1)}
