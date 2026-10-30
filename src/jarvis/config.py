@@ -30,6 +30,7 @@ class VoiceSettings:
     tts_provider: str = "console"      # console | mock | system | openai
     audio_input: str = "sounddevice"   # microphone backend (used by non-console STT)
     audio_output: str = "system"       # playback backend (used by openai TTS)
+    hotword_detector: str = "none"     # none | mock | <registered local detector>; gates the microphone, no engine ships by default
     language: str = "de"
     wake_word: str = "jarvis"
     require_wake_word: bool = False

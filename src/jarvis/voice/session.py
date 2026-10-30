@@ -78,6 +78,13 @@ class VoiceSession:
         finally:
             self._state("idle")
 
+    def interrupt(self) -> None:
+        """Barge-in: cut off the speech in progress. Only stops output; it runs no command and confirms nothing."""
+        try:
+            self._speaker.stop()
+        except Exception:
+            log.exception("speaker stop failed")
+
     def _reply(self, text: str, spoken: str | None = None) -> None:
         self._display(f"JARVIS: {text}")
         self._say(spoken if spoken is not None else text)

@@ -5,11 +5,12 @@ from typing import Callable, Generic, TypeVar
 
 from jarvis.config import VoiceSettings
 from jarvis.errors import VoiceError
-from jarvis.voice.base import (AudioPlayer, AudioSource, Listener, Speaker, STTProvider, TTSProvider)
+from jarvis.voice.base import (AudioPlayer, AudioSource, HotwordDetector, Listener, Speaker, STTProvider, TTSProvider)
+from jarvis.voice.hotword import HotwordGatedSource
 from jarvis.voice.composed import SpeechListener, TTSSpeaker
 from jarvis.voice.console import ConsoleListener, ConsoleSpeaker
 from jarvis.voice.devices import NullPlayer, SoundDeviceSource, SystemPlayer
-from jarvis.voice.mock import MockAudioPlayer, MockAudioSource, MockSTT, MockTTS
+from jarvis.voice.mock import MockAudioPlayer, MockAudioSource, MockHotwordDetector, MockSTT, MockTTS
 from jarvis.voice.openai_provider import OpenAISTT, OpenAITTS
 from jarvis.voice.system_tts import SystemTTS
 
@@ -39,11 +40,13 @@ STT_PROVIDERS: Registry[STTProvider] = Registry("STT provider")
 TTS_PROVIDERS: Registry[TTSProvider] = Registry("TTS provider")
 AUDIO_SOURCES: Registry[AudioSource] = Registry("audio input")
 AUDIO_PLAYERS: Registry[AudioPlayer] = Registry("audio output")
+HOTWORD_DETECTORS: Registry[HotwordDetector] = Registry("hotword detector")
 
 register_stt = STT_PROVIDERS.register
 register_tts = TTS_PROVIDERS.register
 register_audio_source = AUDIO_SOURCES.register
 register_audio_player = AUDIO_PLAYERS.register
+register_hotword_detector = HOTWORD_DETECTORS.register
 
 register_stt("mock", lambda s: MockSTT())
 register_stt("openai", lambda s: OpenAISTT(s.api_key, s.stt_model, s.base_url, s.timeout))
@@ -57,6 +60,7 @@ register_audio_source("sounddevice", lambda s: SoundDeviceSource(
 register_audio_player("mock", lambda s: MockAudioPlayer())
 register_audio_player("null", lambda s: NullPlayer())
 register_audio_player("system", lambda s: SystemPlayer())
+register_hotword_detector("mock", lambda s: MockHotwordDetector())
 
 
 def build_listener(settings: VoiceSettings, input_fn: Callable[[str], str] = input) -> Listener:
@@ -64,6 +68,8 @@ def build_listener(settings: VoiceSettings, input_fn: Callable[[str], str] = inp
         return ConsoleListener(input_fn)
     stt = STT_PROVIDERS.create(settings.stt_provider, settings)
     source = AUDIO_SOURCES.create(settings.audio_input, settings)
+    if settings.hotword_detector.lower() != "none":
+        source = HotwordGatedSource(source, HOTWORD_DETECTORS.create(settings.hotword_detector, settings))
     return SpeechListener(source, stt, settings.language)
 
 

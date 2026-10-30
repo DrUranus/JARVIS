@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Callable, Iterable
 
 from jarvis.errors import EndOfInput
-from jarvis.voice.base import AudioClip, AudioPlayer, AudioSource, STTProvider, TTSProvider
+from jarvis.voice.base import AudioClip, AudioPlayer, AudioSource, HotwordDetector, STTProvider, TTSProvider
 
 
 class MockSTT(STTProvider):
@@ -54,6 +54,22 @@ class MockAudioSource(AudioSource):
 class MockAudioPlayer(AudioPlayer):
     def __init__(self) -> None:
         self.played: list[AudioClip] = []
+        self.stops = 0
 
     def play(self, clip: AudioClip) -> None:
         self.played.append(clip)
+
+    def stop(self) -> None:
+        self.stops += 1
+
+
+class MockHotwordDetector(HotwordDetector):
+    """Scripted answers per clip (False once the script is exhausted)."""
+
+    def __init__(self, answers: Iterable[bool] = ()) -> None:
+        self._answers = list(answers)
+        self.seen = 0
+
+    def detect(self, clip: AudioClip) -> bool:
+        self.seen += 1
+        return self._answers.pop(0) if self._answers else False

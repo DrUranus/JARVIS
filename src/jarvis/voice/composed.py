@@ -29,3 +29,6 @@ class TTSSpeaker(Speaker):
 
     def say(self, text: str) -> None:
         self._tts.speak(text)
+
+    def stop(self) -> None:
+        self._tts.stop()
