@@ -160,6 +160,7 @@ Fehler sind immer `MemoryStoreError`-Unterklassen (`MemoryValidationError`, `Sec
 
 **Suche** (`ranking.py`): Schlüsselwörter, ohne Stoppwörter, Teilstring-Treffer („Farbe“ findet „Lieblingsfarbe“), Rang nach Trefferanteil, Tag-Bonus,
 Wichtigkeit, Aktualität. Treffer liefern `MemoryHit(entry, score)`; ein späteres semantisches Backend ersetzt nur die Bewertung.
+Optional (`backend = "semantic"`): lokale, netzfreie Ähnlichkeitssuche (gehashte TF-IDF-Vektoren über Zeichen-3/4-Gramme, nur Standardbibliothek, `jarvis.memory.semantic`); sie findet Flexionen und Komposita (‚Farben‘ → ‚Lieblingsfarbe‘), bewertet die neuesten 500 Kandidaten und sendet nichts. Speicherung, Secret-Schutz und ‚nur auf ausdrücklichen Wunsch merken‘ bleiben unverändert; der Standard ist weiter `sqlite`.
 
 **Dialog und CLI**
 | Eingabe | Wirkung |
@@ -176,7 +177,7 @@ Diese Anfragen werden lokal bearbeitet, gehen nie an das LLM und landen nicht im
 | Schlüssel / Variable | Default | Bedeutung |
 |---|---|---|
 | `enabled` / `JARVIS_MEMORY_ENABLED` | `true` | `false` → `NullMemoryStore`: Lesen leer, „Merk dir“ antwortet „deaktiviert“ |
-| `backend` / `JARVIS_MEMORY_BACKEND` | `sqlite` | `sqlite` oder `memory` (nicht persistent); eigene via `register_backend` |
+| `backend` / `JARVIS_MEMORY_BACKEND` | `sqlite` | `sqlite`, `memory` (nicht persistent), `semantic` (SQLite + lokale Ähnlichkeitssuche) oder `semantic-memory` (nicht persistent); eigene via `register_backend` |
 | `path` / `JARVIS_MEMORY_PATH` | `data/memory.db` | wird beim ersten Schreiben samt Ordner angelegt; `~` wird aufgelöst |
 | `max_relevant` / `JARVIS_MEMORY_MAX_RELEVANT` | `5` | max. Erinnerungen pro Anfrage (`0` = keine automatische Nutzung) |
 | `recent_limit` | `10` | Standardgröße von „neueste“-Listen |
