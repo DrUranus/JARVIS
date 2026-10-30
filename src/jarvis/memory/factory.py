@@ -10,6 +10,7 @@ from jarvis.memory.guard import SecretGuard
 from jarvis.memory.guarded import GuardedMemoryStore
 from jarvis.memory.inmemory import InMemoryStore
 from jarvis.memory.null import NullMemoryStore
+from jarvis.memory.semantic import SemanticInMemoryStore, SemanticSqliteStore
 from jarvis.memory.sqlite_store import SqliteMemoryStore
 
 BackendFactory = Callable[[MemorySettings], MemoryStore]
@@ -26,6 +27,8 @@ def available_backends() -> list[str]:
 
 register_backend("sqlite", lambda s: SqliteMemoryStore(s.path))
 register_backend("memory", lambda s: InMemoryStore())
+register_backend("semantic", lambda s: SemanticSqliteStore(s.path))  # SQLite + lokale TF-IDF-Suche (netzfrei)
+register_backend("semantic-memory", lambda s: SemanticInMemoryStore())
 
 
 def create_memory(settings: MemorySettings, guard: SecretGuard | None = None) -> MemoryStore:

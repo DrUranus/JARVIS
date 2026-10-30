@@ -51,7 +51,7 @@ class VoiceSettings:
 class MemorySettings:
     """Persistent long-term memory. Local only; nothing is sent anywhere by the memory module itself."""
     enabled: bool = True
-    backend: str = "sqlite"            # sqlite | memory (non-persistent, mainly for tests)
+    backend: str = "sqlite"            # sqlite | semantic (sqlite + local TF-IDF search) | memory | semantic-memory (non-persistent)
     path: str = "data/memory.db"       # sqlite file; created on first write
     max_relevant: int = 5              # max memories retrieved per request (0 = no automatic retrieval)
     recent_limit: int = 10             # default size of "recent memories" listings
@@ -417,7 +417,7 @@ class Settings:
         m = self.memory
         if not m.backend.strip():
             raise ConfigError("memory.backend must not be empty")
-        if m.backend.lower() == "sqlite" and not m.path.strip():
+        if m.backend.lower() in ("sqlite", "semantic") and not m.path.strip():
             raise ConfigError("memory.path must not be empty for the sqlite backend")
         if m.max_relevant < 0 or m.max_entries < 0:
             raise ConfigError("memory.max_relevant/max_entries must be >= 0")
