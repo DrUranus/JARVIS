@@ -209,6 +209,421 @@
       "max_attempts": 2,
       "timeout_minutes": 60,
       "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). NUR ENTWURF, KEIN CODE, ENTSCHEIDUNG DES BESITZERS ERFORDERLICH: Beschreibe in docs/ eine Schnittstelle fuer ein spaeteres Smartphone (Authentisierung, Bedrohungsmodell, welche Befehle erlaubt waeren, Notaus, Audit, Netzwerkgrenzen). Fernsteuerung ist laut docs/PHASE14_AUTONOMY.md ohne neue Entscheidung ausgeschlossen: nichts implementieren. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt."
+    },
+    {
+      "id": "int-vetting-policy",
+      "title": "Integrationen: verbindliches Pruefschema fuer externe Bibliotheken",
+      "approved": false,
+      "depends_on": [],
+      "max_attempts": 2,
+      "timeout_minutes": 60,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Lege docs/INTEGRATIONS.md an: verbindliches Pruefschema und Vorlage fuer jede externe Bibliothek oder jedes Werkzeug (Lizenz im Wortlaut, Version und Datum, Pflege, Python/Windows-Kompatibilitaet, transitive Abhaengigkeiten, Sicherheitshinweise, Datenabfluss, Pinning mit Hash, Lizenzausschluesse AGPL/GPL, Entscheidung nehmen/nicht nehmen, Datum und Quelle der Pruefung). Ergaenze tests/test_integration_docs.py: jede Datei docs/integrations/*.md enthaelt alle Pflichtfelder und eine Entscheidung; ohne solche Dateien ist der Test trivial gruen, bei fehlendem Pflichtfeld rot. Nur Dokument und dieser Test, kein Produktionscode. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "docs/INTEGRATIONS.md beschreibt das Pruefschema und die Vorlage",
+        "tests/test_integration_docs.py schlaegt bei fehlendem Pflichtfeld an (Gegenprobe vorhanden)",
+        "Kein Produktionscode, keine Abhaengigkeit, kein Netzwerk"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
+      "id": "uia-vetting",
+      "title": "Windows-UI-Automation: Bibliotheken pruefen (pywinauto, uiautomation, comtypes)",
+      "approved": false,
+      "depends_on": [
+        "int-vetting-policy"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 90,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Pruefe die Kandidaten fuer die Windows-UI-Automation (UIA) nach docs/INTEGRATIONS.md: pywinauto (UIA-Backend), das Paket uiautomation, comtypes als gemeinsame Grundlage, sowie ausdruecklich als Vergleich und nicht zur Einbindung die Architektur von microsoft/UFO. Schreibe docs/integrations/windows-uia.md. PRUEFUNG NUR AN OFFIZIELLEN QUELLEN (Repository, LICENSE-Datei, Release-Seite, PyPI-Seite des Projekts, Sicherheitshinweise/Advisories): Lizenz im Wortlaut mit Fundstelle, letzte Version und Datum, Wartungszustand, Python-Versionen und Windows-Wheels, transitive Abhaengigkeiten und deren Lizenzen, bekannte Sicherheitshinweise, Datenabfluss (Telemetrie, Modell-Downloads). Keine Angabe aus dem Gedaechtnis uebernehmen. Ist eine offizielle Quelle nicht erreichbar, melde den Schritt als blocked. Ergebnis: ein Dokument unter docs/integrations/, KEIN Code, keine Installation, ausdrueckliche Empfehlung (nehmen / nicht nehmen / Alternative) und offene Fragen fuer den Besitzer. AGPL/GPL-Code nur, wenn er als getrennter Prozess ohne Einbindung laeuft; das Dokument sagt dann ausdruecklich warum. Pruefe zusaetzlich: Aufruf aus mehreren Threads, Zusammenspiel mit dem vorhandenen win32-Backend, Verhalten bei erhoehten Rechten (UAC) und Zugriff auf Passwortfelder. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "docs/integrations/windows-uia.md mit Lizenz-Wortlaut und Fundstelle, Version, Pflege, Windows-Wheels je Kandidat",
+        "Ausdrueckliche Empfehlung und Begruendung, offene Fragen fuer den Besitzer",
+        "Kein Code, keine Installation; bei unerreichbarer Quelle blocked statt Annahme"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
+      "id": "uia-model-fake",
+      "title": "UIA: Datenmodell, Provider-Schnittstelle und Fake-Provider",
+      "approved": false,
+      "depends_on": [
+        "uia-vetting"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Erweitere jarvis/computer additiv um ein Modell des UI-Baums (Fenster, Steuerelement: Name, Typ, AutomationId, Rechteck, aktiviert, sichtbar, ist_passwortfeld; Obergrenzen fuer Tiefe, Knotenzahl und Textlaenge) und eine Provider-Schnittstelle fuer das Lesen (beschreiben, finden). Dazu ein Fake-Provider mit festem Baum fuer Tests. Keine Bibliothek, kein Windows-Code, keine Tools, keine Aktionen. Passwortfelder liefern nie einen Wert. Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; eine Bibliothek kommt nur als optionales Extra mit fester Mindestversion, wird erst in der Factory importiert (lazy) und ihr Fehlen erzeugt eine klare Meldung statt eines Absturzes. Neue Faehigkeiten sind standardmaessig aus (enabled = false) und reagieren auf Notaus (halt) und Sitzungsbudget. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Modell und Schnittstelle mit festen Obergrenzen (Tiefe, Knoten, Textlaenge), Tests dazu",
+        "Fake-Provider mit festem Baum; Passwortfelder ohne Wert (Test)",
+        "Keine Aktion, keine Bibliothek, bestehende Computer-Tests unveraendert gruen"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
+      "id": "uia-provider-readonly",
+      "title": "UIA: echter lesender Provider unter Windows",
+      "approved": false,
+      "depends_on": [
+        "uia-model-fake"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 150,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). VORAUSSETZUNG (Besitzer-Freigabe der Bibliothek): Beginne nur, wenn docs/integrations/windows-uia.md die Entscheidung 'nehmen' enthaelt UND eine Zeile 'Besitzer-Freigabe: <Datum>' traegt, die der Besitzer selbst per PR ergaenzt hat. Fehlt eines davon, melde den Schritt als blocked, aendere nichts und lege diese Zeile niemals selbst an. Implementiere den lesenden Provider unter Windows mit der im Pruefbericht empfohlenen Bibliothek als optionales Extra 'uia' (lazy import, nur sys_platform == 'win32'). Nur lesen: Fenster auflisten, Baum beschreiben, Element finden. Keine Eingaben, keine Klicks. Standardmaessig aus. Tests mit dem Fake plus Windows-Tests, die ein echtes, per Subprozess gestartetes Fenster (z. B. Editor/Notepad; kein Tk-Fenster, weil Tk-Startfehler auf dem Windows-Runner ein bekannter, ungeklaerter Umgebungseffekt sind, siehe docs/TESTING.md) lesen; auf dem Windows-Runner muessen sie laufen und bestehen, ein Skip zaehlt nicht als bestanden. Auf Linux bleibt das Extra unberuehrt. Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; eine Bibliothek kommt nur als optionales Extra mit fester Mindestversion, wird erst in der Factory importiert (lazy) und ihr Fehlen erzeugt eine klare Meldung statt eines Absturzes. Neue Faehigkeiten sind standardmaessig aus (enabled = false) und reagieren auf Notaus (halt) und Sitzungsbudget. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Extra 'uia' nur fuer Windows; 'import jarvis' und die Linux-Suite funktionieren ohne die Bibliothek (Test)",
+        "Lesen von Fenstern und Baum an einem echten Testfenster, auf dem Windows-Runner bestanden (nicht uebersprungen)",
+        "Keine Eingabe- oder Klickfunktion im Provider (Strukturtest)",
+        "Start nur mit Entscheidung 'nehmen' und Besitzer-Freigabe-Zeile im Pruefdokument, sonst blocked ohne Aenderung"
+      ],
+      "_note": "Fuegt ein optionales Extra in pyproject.toml hinzu: eine neue Bibliothek. Der Besitzer gibt das mit der Freigabe dieses Schritts frei."
+    },
+    {
+      "id": "uia-tools-readonly",
+      "title": "UIA: lesende Tools hinter ToolRegistry und PermissionEngine",
+      "approved": false,
+      "depends_on": [
+        "uia-provider-readonly"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 150,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Registriere lesende Tools (Fensterliste, UI-Baum, Element suchen) als ProtectedTool mit describe_action (Fenstertitel und Prozess als Ressource). Berechtigungsstufe mindestens wie das vorhandene Screenshot-Tool; die vorhandene Fenster-/Titel-Sperrliste (z. B. Passwortmanager, Banking) gilt auch hier. Passwortfelder und als sensibel erkannte Felder werden nie ausgegeben, Ausgaben laufen durch jarvis.redaction. Verdrahtung in bootstrap.py ueber den bestehenden Computer-Weg, Notaus (halt) stoppt weitere Lesezugriffe, Sitzungsbudget zaehlt mit. Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; eine Bibliothek kommt nur als optionales Extra mit fester Mindestversion, wird erst in der Factory importiert (lazy) und ihr Fehlen erzeugt eine klare Meldung statt eines Absturzes. Neue Faehigkeiten sind standardmaessig aus (enabled = false) und reagieren auf Notaus (halt) und Sitzungsbudget. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Jeder Zugriff laeuft ueber ToolRegistry.execute -> PermissionEngine (Test, Strukturtest ueber die Registrierung)",
+        "Sperrliste, Passwortfelder und Redaktion wirken (Tests mit Fake-Baum)",
+        "Notaus und Sitzungsbudget wirken auf die neuen Tools (Tests)"
+      ],
+      "_note": "Verdrahtung in src/jarvis/bootstrap.py: ohne konkrete sensitive_edits-Freigabe merged der Besitzer den PR."
+    },
+    {
+      "id": "uia-actions",
+      "title": "UIA: Aktionen ueber UIA-Muster (Invoke, Wert setzen, Auswahl) mit Pruefung danach",
+      "approved": false,
+      "depends_on": [
+        "uia-tools-readonly"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 180,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Ergaenze Aktionen ueber UIA-Muster statt Koordinaten: Invoke, Wert setzen, Auswahl, Umschalten, Fokus. Jede Aktion ist ein ProtectedTool, mindestens YELLOW (Bestaetigung), describe_action nennt Fenster, Steuerelement und Aktion; Passwortfelder und gesperrte Fenster sind immer abgelehnt; kein Tippen in unbekannte Fenster. Nach jeder Aktion wird der Zustand erneut gelesen und gemeldet, ob die erwartete Aenderung eingetreten ist (Beobachten, Handeln, Pruefen). Notaus, halt() und Sitzungsbudget wirken. Die vorhandenen Eingabetools (pyautogui) bleiben unveraendert und sind kein Ausweichweg dieses Schritts. Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; eine Bibliothek kommt nur als optionales Extra mit fester Mindestversion, wird erst in der Factory importiert (lazy) und ihr Fehlen erzeugt eine klare Meldung statt eines Absturzes. Neue Faehigkeiten sind standardmaessig aus (enabled = false) und reagieren auf Notaus (halt) und Sitzungsbudget. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Aktionen nur per UIA-Muster, jede YELLOW mit describe_action (Tests)",
+        "Passwortfelder und gesperrte Fenster immer abgelehnt; Notaus und Budget wirken (Tests)",
+        "Nach jeder Aktion Rueckmeldung ueber den tatsaechlich gelesenen Zustand, bei Abweichung ehrlich als nicht erfolgreich gemeldet",
+        "Windows-Test mit echtem Testfenster auf dem Runner bestanden, nicht uebersprungen"
+      ],
+      "_note": "Sicherheitsrelevant (steuert den PC): ohne konkrete sensitive_edits-Freigabe merged der Besitzer den PR; Aktivierung nur durch den Besitzer."
+    },
+    {
+      "id": "uia-agent-integration",
+      "title": "UIA: Computer-Agent bevorzugt UI-Baum, Bildschirmfoto nur als Rueckfall",
+      "approved": false,
+      "depends_on": [
+        "uia-actions"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 150,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Der Computer-Agent (agents/adapters/computer.py) soll Bedienaufgaben zuerst ueber UI-Baum und UIA-Tools planen und nur bei nicht erreichbaren Steuerelementen auf Bildschirmfoto und Koordinaten zurueckfallen (der Rueckfall bleibt YELLOW und wird im Ergebnis benannt). Keine neue Autonomie, kein zusaetzlicher Agent, keine eigene Steuerschleife: der Orchestrator mit seinen Limits bleibt die einzige. Test mit Fake-Baum und Fake-LLM Ende zu Ende (Fenster oeffnen, Feld fuellen, Knopf druecken, Ergebnis pruefen). Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; eine Bibliothek kommt nur als optionales Extra mit fester Mindestversion, wird erst in der Factory importiert (lazy) und ihr Fehlen erzeugt eine klare Meldung statt eines Absturzes. Neue Faehigkeiten sind standardmaessig aus (enabled = false) und reagieren auf Notaus (halt) und Sitzungsbudget. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Ende-zu-Ende-Test mit Fake-Baum und Fake-LLM",
+        "Rueckfall auf Bildschirmfoto nur bei nicht erreichbarem Element und im Ergebnis benannt",
+        "Orchestrator-Limits, Abbruch und Notaus unveraendert wirksam (Tests)"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
+      "id": "uia-windows-e2e",
+      "title": "UIA: Windows-Nachweis an echter Anwendung (nur Beobachten)",
+      "approved": false,
+      "depends_on": [
+        "uia-agent-integration"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Schreibe einen Ende-zu-Ende-Test fuer den Windows-Runner an einer einfachen, immer vorhandenen Anwendung (z. B. Editor): starten ueber den vorhandenen kontrollierten Weg, Baum lesen, Text per UIA-Muster setzen, Ergebnis lesen, Fenster schliessen. Der Test muss auf windows-latest laufen und bestehen und darf dort nicht per Skip entfallen; ist ein interaktiver Desktop auf dem Runner nicht verfuegbar, melde den Schritt als blocked und aendere weder CI noch Tests, damit er gruen wird. Keine Nutzung echter Konten oder Daten. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Test laeuft auf dem Windows-Runner und besteht (kein Skip)",
+        "Nur ein harmloses Testfenster, keine echten Daten, Aufraeumen des Prozesses (Test)",
+        "Unmoeglicher Desktop wird als blocked gemeldet, nichts wird abgeschwaecht"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
+      "id": "llm-compat-vetting",
+      "title": "LLM: OpenAI-kompatible Schnittstelle und lokale Server pruefen",
+      "approved": false,
+      "depends_on": [
+        "int-vetting-policy"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 90,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Pruefe die OpenAI-kompatible HTTP-Schnittstelle (offizielle API-Beschreibung) und die lokalen Server, die sie anbieten (Ollama, LM Studio, llama.cpp-Server): Endpunkte, Streaming, Fehlerformate, Authentisierung, Lizenz und Pflege jedes Servers, Windows-Betrieb. Ziel ist ein Provider OHNE neue Bibliothek mit der vorhandenen HTTP-Schicht. Schreibe docs/integrations/llm-openai-compatible.md. PRUEFUNG NUR AN OFFIZIELLEN QUELLEN (Repository, LICENSE-Datei, Release-Seite, PyPI-Seite des Projekts, Sicherheitshinweise/Advisories): Lizenz im Wortlaut mit Fundstelle, letzte Version und Datum, Wartungszustand, Python-Versionen und Windows-Wheels, transitive Abhaengigkeiten und deren Lizenzen, bekannte Sicherheitshinweise, Datenabfluss (Telemetrie, Modell-Downloads). Keine Angabe aus dem Gedaechtnis uebernehmen. Ist eine offizielle Quelle nicht erreichbar, melde den Schritt als blocked. Ergebnis: ein Dokument unter docs/integrations/, KEIN Code, keine Installation, ausdrueckliche Empfehlung (nehmen / nicht nehmen / Alternative) und offene Fragen fuer den Besitzer. AGPL/GPL-Code nur, wenn er als getrennter Prozess ohne Einbindung laeuft; das Dokument sagt dann ausdruecklich warum. Nenne Datenschutzfolgen: was bleibt lokal, was geht an Cloud-Anbieter.",
+      "acceptance": [
+        "docs/integrations/llm-openai-compatible.md mit Endpunkten, Lizenz und Pflege je Server (mit Quelle)",
+        "Empfehlung: Provider ohne neue Bibliothek (bestaetigt oder begruendet verworfen)",
+        "Kein Code, keine Installation"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
+      "id": "llm-compat-provider",
+      "title": "LLM: generischer OpenAI-kompatibler Provider (lokal und Cloud)",
+      "approved": false,
+      "depends_on": [
+        "llm-compat-vetting"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Ergaenze in jarvis/llm einen Provider 'openai_compatible' mit konfigurierbarer base_url (Standard nur Loopback, Remote-Adressen nur ausdruecklich), Modellname, Zeitlimit und optionalem Schluessel aus der Umgebung (nie aus Dateien, nie in Logs). Gleiche Schnittstelle wie die vorhandenen Provider, keine neue Bibliothek. Standard bleibt 'mock'. Remote-Anfragen werden ueber den vorhandenen Weg als externe Verbindung kenntlich gemacht, soweit die Konfiguration das vorsieht. Tests nur mit eingespieltem Fake-Transport: Erfolg, Fehlercodes, Zeitlimit, ungueltige Antwort, Schluessel taucht nie im Log auf. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Provider 'openai_compatible' hinter der bestehenden LLM-Schnittstelle, Standard unveraendert 'mock'",
+        "Keine neue Bibliothek; Schluessel nur aus der Umgebung und nie in Logs (Test)",
+        "Fehlerpfade (Zeitlimit, HTTP-Fehler, ungueltige Antwort) getestet, Fake-Transport statt Netz"
+      ],
+      "_note": "Liest einen API-Schluessel aus der Umgebung und kann Daten an Remote-Server senden: Aktivierung nur durch den Besitzer."
+    },
+    {
+      "id": "llm-routing-design",
+      "title": "Hybrid-KI: Entwurf der Modellwahl nach Aufgabe, Datenschutz und Leistung",
+      "approved": false,
+      "depends_on": [
+        "llm-compat-vetting"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 60,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Beschreibe in docs/ eine Richtlinie fuer die Wahl zwischen lokalem und Cloud-Modell: Aufgabenklassen (Chat, Planung, Code, Recherche, Bild/Bildschirm, Sprache), Datenklassen (oeffentlich, persoenlich, geheim, nie), Regeln (Bildschirm-, UI-Baum- und Gedaechtnisinhalte standardmaessig nie an die Cloud; kein stiller Wechsel von lokal auf Cloud; jede Entscheidung im Audit; Kosten- und Token-Grenzen, die das Sitzungsbudget heute nicht deckt), Rueckfallverhalten bei Ausfall. Offene Entscheidungen listest du fuer den Besitzer auf. NUR DOKUMENT, KEIN CODE, ENTSCHEIDUNG DES BESITZERS ERFORDERLICH: nichts implementieren, nichts aktivieren. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Dokument mit Aufgaben-/Datenklassen und Regeltabelle (Standard: sensible Inhalte nie an die Cloud)",
+        "Offene Besitzer-Entscheidungen ausdruecklich aufgelistet",
+        "Kein Code, nichts aktiviert"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
+      "id": "llm-routing-policy",
+      "title": "Hybrid-KI: Routing-Richtlinie als reine, getestete Funktion",
+      "approved": false,
+      "depends_on": [
+        "llm-compat-provider",
+        "llm-routing-design"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 150,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Setze die vom Besitzer entschiedene Routing-Richtlinie als reine Funktion um (Eingabe: Aufgabenklasse, Datenklasse, Konfiguration; Ausgabe: gewaehlter Provider oder Ablehnung mit Grund) in jarvis/llm/routing.py. Standardverhalten bleibt ein einzelner Provider wie heute; neue Konfigurationsschluessel optional, unbekannte Schluessel werden abgelehnt. Kein stiller Rueckfall auf die Cloud, Ablehnung statt Umgehung, jede Entscheidung als Audit-Ereignis. Verdrahtung nur additiv in bootstrap.py (Besitzer merged). Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Reine Funktion mit Tabellentests fuer Aufgaben-/Datenklassen; sensible Daten nie an die Cloud",
+        "Standard unveraendert, unbekannte Konfigurationsschluessel abgelehnt (Tests)",
+        "Jede Entscheidung als Audit-Ereignis, kein Rueckfall ohne Konfiguration (Tests)"
+      ],
+      "_note": "Entscheidet ueber Datenabfluss an die Cloud und beruehrt bootstrap.py/Audit: Besitzer-Freigabe erforderlich."
+    },
+    {
+      "id": "stt-vetting",
+      "title": "Spracherkennung lokal: faster-whisper, whisper.cpp und Alternativen pruefen",
+      "approved": false,
+      "depends_on": [
+        "int-vetting-policy"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 90,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Pruefe lokale Spracherkennung fuer Windows nach docs/INTEGRATIONS.md: faster-whisper (mit CTranslate2), whisper.cpp, Vosk; zusaetzlich Silero-VAD fuer die Sprachendeerkennung. Pruefe ausdruecklich die Lizenz der MODELLE (nicht nur des Codes), Download-Quelle, Hash und Groesse, CPU-Betrieb ohne Grafikkarte, Deutsch-Qualitaet und Latenz auf einem normalen Windows-PC. Schreibe docs/integrations/stt-local.md. PRUEFUNG NUR AN OFFIZIELLEN QUELLEN (Repository, LICENSE-Datei, Release-Seite, PyPI-Seite des Projekts, Sicherheitshinweise/Advisories): Lizenz im Wortlaut mit Fundstelle, letzte Version und Datum, Wartungszustand, Python-Versionen und Windows-Wheels, transitive Abhaengigkeiten und deren Lizenzen, bekannte Sicherheitshinweise, Datenabfluss (Telemetrie, Modell-Downloads). Keine Angabe aus dem Gedaechtnis uebernehmen. Ist eine offizielle Quelle nicht erreichbar, melde den Schritt als blocked. Ergebnis: ein Dokument unter docs/integrations/, KEIN Code, keine Installation, ausdrueckliche Empfehlung (nehmen / nicht nehmen / Alternative) und offene Fragen fuer den Besitzer. AGPL/GPL-Code nur, wenn er als getrennter Prozess ohne Einbindung laeuft; das Dokument sagt dann ausdruecklich warum.",
+      "acceptance": [
+        "docs/integrations/stt-local.md: Lizenz von Code und Modellen je Kandidat mit Quelle, Hash und Groesse der Modelle",
+        "Windows-/CPU-Eignung und Empfehlung mit Begruendung",
+        "Kein Code, keine Installation, kein Modell-Download"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
+      "id": "stt-local-provider",
+      "title": "Spracherkennung lokal: STT-Provider hinter STTProvider",
+      "approved": false,
+      "depends_on": [
+        "stt-vetting"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 150,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). VORAUSSETZUNG (Besitzer-Freigabe der Bibliothek): Beginne nur, wenn docs/integrations/stt-local.md die Entscheidung 'nehmen' enthaelt UND eine Zeile 'Besitzer-Freigabe: <Datum>' traegt, die der Besitzer selbst per PR ergaenzt hat. Fehlt eines davon, melde den Schritt als blocked, aendere nichts und lege diese Zeile niemals selbst an. Implementiere den im Pruefbericht empfohlenen lokalen STT-Provider hinter der vorhandenen Schnittstelle STTProvider als optionales Extra 'stt-local' (lazy). Das Modell kommt nur aus einem in der Konfiguration genannten lokalen Verzeichnis; es gibt keinen automatischen Download zur Laufzeit. Audio verlaesst den PC nie. Standard bleibt der bisherige Provider. Tests mit eingespieltem Fake-Modell (kein echtes Modell in der CI): Segmente, Sprache, leere Aufnahme, Zeitlimit, fehlendes Modell mit klarer Meldung. Fuer das echte Modell ein dokumentierter manueller Pruefablauf und der Vermerk 'Windows-Nachweis fuer echte Erkennung ausstehend'. Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; eine Bibliothek kommt nur als optionales Extra mit fester Mindestversion, wird erst in der Factory importiert (lazy) und ihr Fehlen erzeugt eine klare Meldung statt eines Absturzes. Neue Faehigkeiten sind standardmaessig aus (enabled = false) und reagieren auf Notaus (halt) und Sitzungsbudget. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Provider hinter STTProvider, Standard unveraendert; Extra 'stt-local' nur optional",
+        "Kein automatischer Modell-Download, Audio bleibt lokal (Test, Strukturtest ueber Netzwerkzugriffe)",
+        "Fehlendes Modell und Zeitlimit liefern klare Meldungen (Tests mit Fake-Modell)",
+        "Start nur mit Entscheidung 'nehmen' und Besitzer-Freigabe-Zeile im Pruefdokument, sonst blocked ohne Aenderung"
+      ],
+      "_note": "Neue optionale Bibliothek und Modelldatei: der Besitzer gibt beides mit der Freigabe dieses Schritts frei."
+    },
+    {
+      "id": "stt-vad-endpointing",
+      "title": "Spracherkennung lokal: Sprachende-Erkennung (VAD)",
+      "approved": false,
+      "depends_on": [
+        "stt-local-provider",
+        "voice-barge-in-hotword"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Ergaenze die im Pruefbericht empfohlene Sprachendeerkennung (VAD), damit eine Aufnahme nach Sprechpause endet, hoechstens bis voice.max_record_seconds. AUSDRUECKLICH NICHT in diesem Schritt: Hotword und Unterbrechen beim Sprechen (das ist Backlog-Schritt voice-barge-in-hotword, nichts davon doppelt bauen; stelle zuerst fest, was dort schon steht, und baue darauf auf). Tests mit synthetischen Audiodaten. Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; eine Bibliothek kommt nur als optionales Extra mit fester Mindestversion, wird erst in der Factory importiert (lazy) und ihr Fehlen erzeugt eine klare Meldung statt eines Absturzes. Neue Faehigkeiten sind standardmaessig aus (enabled = false) und reagieren auf Notaus (halt) und Sitzungsbudget. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Aufnahme endet nach Sprechpause, nie laenger als voice.max_record_seconds (Tests mit synthetischem Audio)",
+        "Kein Hotword und kein Unterbrechen in diesem Schritt (Strukturtest ueber den Umfang), kein doppelter Code zu voice-barge-in-hotword",
+        "Optionales Extra, Standard unveraendert"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
+      "id": "research-vetting",
+      "title": "Recherche: Textextraktion und Suchquellen pruefen",
+      "approved": false,
+      "depends_on": [
+        "int-vetting-policy"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 90,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Pruefe fuer den Recherche-Agenten: trafilatura (Textextraktion), die vorhandene HTTP-Schicht und Suchquellen (offizielle Suchschnittstellen mit Nutzungsbedingungen, Kosten und Datenschutz; SearXNG nur als getrennter, selbst betriebener Dienst). Schreibe docs/integrations/research.md. PRUEFUNG NUR AN OFFIZIELLEN QUELLEN (Repository, LICENSE-Datei, Release-Seite, PyPI-Seite des Projekts, Sicherheitshinweise/Advisories): Lizenz im Wortlaut mit Fundstelle, letzte Version und Datum, Wartungszustand, Python-Versionen und Windows-Wheels, transitive Abhaengigkeiten und deren Lizenzen, bekannte Sicherheitshinweise, Datenabfluss (Telemetrie, Modell-Downloads). Keine Angabe aus dem Gedaechtnis uebernehmen. Ist eine offizielle Quelle nicht erreichbar, melde den Schritt als blocked. Ergebnis: ein Dokument unter docs/integrations/, KEIN Code, keine Installation, ausdrueckliche Empfehlung (nehmen / nicht nehmen / Alternative) und offene Fragen fuer den Besitzer. AGPL/GPL-Code nur, wenn er als getrennter Prozess ohne Einbindung laeuft; das Dokument sagt dann ausdruecklich warum. Pruefe zusaetzlich: robots.txt/Nutzungsbedingungen, Rate-Limits, was an den Suchanbieter uebermittelt wird.",
+      "acceptance": [
+        "docs/integrations/research.md mit Lizenz, Pflege, Kosten und Datenschutz je Suchquelle (mit Quelle)",
+        "Empfehlung fuer genau eine Suchquelle und die Extraktion, Besitzerentscheidung offen markiert",
+        "Kein Code, keine Installation, kein Netzwerkzugriff in der CI"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
+      "id": "research-search-interface",
+      "title": "Recherche: Suchschnittstelle und Fake-Suche",
+      "approved": false,
+      "depends_on": [
+        "research-vetting"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 90,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Fuehre in jarvis/research eine Schnittstelle SearchProvider ein (Anfrage mit Obergrenzen, Treffer mit Titel, URL, Auszug) und einen Fake-Provider. Treffer-URLs laufen durch die vorhandene URL-Pruefung (research/urls.py); der Abruf der Seiten bleibt ueber die vorhandenen, von der PermissionEngine kontrollierten Wege. Keine echte Suchquelle, kein Netzwerk. Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; eine Bibliothek kommt nur als optionales Extra mit fester Mindestversion, wird erst in der Factory importiert (lazy) und ihr Fehlen erzeugt eine klare Meldung statt eines Absturzes. Neue Faehigkeiten sind standardmaessig aus (enabled = false) und reagieren auf Notaus (halt) und Sitzungsbudget. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "SearchProvider und Fake mit festen Obergrenzen; Treffer-URLs durch die vorhandene Pruefung (Tests)",
+        "Abruf nur ueber die vorhandenen kontrollierten Wege (Strukturtest)",
+        "Bestehende Research-Tests unveraendert gruen"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
+      "id": "research-extract-backend",
+      "title": "Recherche: Textextraktion mit trafilatura hinter der Extraktionsschnittstelle",
+      "approved": false,
+      "depends_on": [
+        "research-search-interface"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). VORAUSSETZUNG (Besitzer-Freigabe der Bibliothek): Beginne nur, wenn docs/integrations/research.md die Entscheidung 'nehmen' enthaelt UND eine Zeile 'Besitzer-Freigabe: <Datum>' traegt, die der Besitzer selbst per PR ergaenzt hat. Fehlt eines davon, melde den Schritt als blocked, aendere nichts und lege diese Zeile niemals selbst an. Ergaenze die im Pruefbericht empfohlene Textextraktion als zusaetzliches Backend hinter research/extract.py (optionales Extra 'research', lazy), Standard bleibt das heutige Verfahren. Ausgaben bleiben begrenzt und werden als Daten (nicht als Anweisungen) behandelt. Tests mit gespeicherten HTML-Beispielen, kein Netzwerk: Artikel, Navigation, kaputtes HTML, Skript-Inhalt, Obergrenzen, Prompt-Injection-Text im HTML wird nicht ausgefuehrt. Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; eine Bibliothek kommt nur als optionales Extra mit fester Mindestversion, wird erst in der Factory importiert (lazy) und ihr Fehlen erzeugt eine klare Meldung statt eines Absturzes. Neue Faehigkeiten sind standardmaessig aus (enabled = false) und reagieren auf Notaus (halt) und Sitzungsbudget. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Zusaetzliches Backend, Standard unveraendert, Extra optional",
+        "HTML-Beispiele inklusive kaputtem HTML und eingebetteter Anweisung (nur als Daten, Tests)",
+        "Obergrenzen fuer Eingabe und Ausgabe (Tests), kein Netzwerk",
+        "Start nur mit Entscheidung 'nehmen' und Besitzer-Freigabe-Zeile im Pruefdokument, sonst blocked ohne Aenderung"
+      ],
+      "_note": "Neue optionale Bibliothek: der Besitzer gibt sie mit der Freigabe dieses Schritts frei."
+    },
+    {
+      "id": "research-search-provider",
+      "title": "Recherche: eine konkrete Suchquelle hinter SearchProvider",
+      "approved": false,
+      "depends_on": [
+        "research-search-interface",
+        "research-extract-backend"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Implementiere GENAU die vom Besitzer nach dem Pruefbericht gewaehlte Suchquelle hinter SearchProvider. Schluessel nur aus der Umgebung, Anfragen nur ueber die kontrollierte Netzwerkschicht, Zeitlimit, Obergrenzen und Ratenbegrenzung; die Konfiguration nennt, was an den Anbieter gesendet wird. Standardmaessig aus. Tests nur mit Fake-Transport. Wurde keine Quelle gewaehlt, melde den Schritt als blocked. Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; eine Bibliothek kommt nur als optionales Extra mit fester Mindestversion, wird erst in der Factory importiert (lazy) und ihr Fehlen erzeugt eine klare Meldung statt eines Absturzes. Neue Faehigkeiten sind standardmaessig aus (enabled = false) und reagieren auf Notaus (halt) und Sitzungsbudget. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Genau eine vom Besitzer gewaehlte Quelle, Standard aus; ohne Wahl blocked",
+        "Schluessel nur aus der Umgebung, nie in Logs; Ratenbegrenzung und Zeitlimit (Tests mit Fake-Transport)",
+        "Konfiguration dokumentiert, welche Daten an den Anbieter gehen"
+      ],
+      "_note": "Nutzt einen externen Dienst und einen API-Schluessel: Aktivierung nur durch den Besitzer."
+    },
+    {
+      "id": "mcp-security-review",
+      "title": "MCP-Bruecke: gesonderte Sicherheitspruefung (nur Dokument)",
+      "approved": false,
+      "depends_on": [
+        "int-vetting-policy",
+        "uia-tools-readonly"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 90,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Erstelle docs/MCP_SECURITY.md: Bedrohungsmodell fuer eine MCP-Bruecke (JARVIS als Client, jedes Tool eines freigegebenen Servers als ProtectedTool, Standard YELLOW), Tool-Poisoning und nachtraeglich veraenderte Tool-Beschreibungen (Schema-Hash festhalten), Server als Subprozess unter Job-Objekt, Positivliste statt Auto-Entdeckung, Ausgaben als nicht vertrauenswuerdige Daten, Zugangsdaten, Netzwerk, Notaus, Audit, Sitzungsbudget. Pruefe das offizielle Protokoll und das offizielle Python-SDK (Lizenz im Wortlaut, Version, Sicherheitshinweise). Ende mit Empfehlung und Abnahmetests fuer eine spaetere Umsetzung. Keine Umsetzung. NUR DOKUMENT, KEIN CODE, ENTSCHEIDUNG DES BESITZERS ERFORDERLICH: nichts implementieren, nichts aktivieren. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "docs/MCP_SECURITY.md mit Bedrohungsmodell, Schutzmassnahmen und Abnahmetests fuer eine spaetere Umsetzung",
+        "Lizenz und Version des offiziellen SDK mit Quelle; bei unerreichbarer Quelle blocked",
+        "Kein Code; es gibt bewusst keinen Umsetzungsschritt, bis der Besitzer ihn nach diesem Dokument anlegt"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
+      "id": "os-sandbox-design",
+      "title": "OS-Sandbox fuer fremden Code: Entwurf (nur Dokument)",
+      "approved": false,
+      "depends_on": [
+        "int-vetting-policy"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 90,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Erstelle docs/SANDBOX_DESIGN.md: was unter Windows als belastbare Isolation moeglich ist (z. B. Job-Objekte, eingeschraenkte Tokens, AppContainer, Windows Sandbox, WSL/VM) und was jeweils nicht, Anforderungen fuer das Ausfuehren fremder Coding-Agenten (Dateisystem, Netzwerk, Prozesse, Zugangsdaten, Ressourcen), Bezug zu jarvis/self_improvement/winjob.py und winsec.py (nur Eindaemmung, keine Isolation). Pruefe die jeweilige offizielle Dokumentation. Ohne belastbare Sandbox werden externe Coding-Agenten nicht eingebunden. Keine Umsetzung. NUR DOKUMENT, KEIN CODE, ENTSCHEIDUNG DES BESITZERS ERFORDERLICH: nichts implementieren, nichts aktivieren. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "docs/SANDBOX_DESIGN.md mit Optionen, Grenzen, Anforderungen und Abnahmetests",
+        "Ehrliche Trennung von Eindaemmung und Isolation; Quellen der offiziellen Dokumentation",
+        "Kein Code; externe Coding-Agenten bleiben ausgeschlossen, bis eine Sandbox freigegeben ist"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
+      "id": "mail-design",
+      "title": "E-Mail: Entwurf eines lesenden Providers (nur Dokument)",
+      "approved": false,
+      "depends_on": [
+        "int-vetting-policy",
+        "llm-routing-design"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 60,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Erstelle docs/MAIL_DESIGN.md: Provider fuer E-Mail (IMAP/SMTP aus der Standardbibliothek, Microsoft Graph, Gmail-Schnittstelle) mit erster Stufe NUR LESEN, Senden erst spaeter mit Einzelbestaetigung je Nachricht, Zugangsdaten im Windows-Anmeldeinformationsspeicher, Datenschutz (Inhalte nie ungefragt an die Cloud, siehe Routing-Entwurf), Prompt-Injection durch E-Mail-Inhalte, Abnahmetests. Lizenzen der Kandidaten an offiziellen Quellen pruefen. Keine Umsetzung. NUR DOKUMENT, KEIN CODE, ENTSCHEIDUNG DES BESITZERS ERFORDERLICH: nichts implementieren, nichts aktivieren. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "docs/MAIL_DESIGN.md mit Stufen (lesen, spaeter senden), Datenschutz und Injektionsschutz",
+        "Zugangsdaten nur im Windows-Anmeldeinformationsspeicher, nie in Konfiguration oder Logs",
+        "Kein Code"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
+      "id": "office-design",
+      "title": "Dokumente und Office: Entwurf (nur Dokument)",
+      "approved": false,
+      "depends_on": [
+        "int-vetting-policy"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 60,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Erstelle docs/OFFICE_DESIGN.md: Lesen und Erzeugen von Tabellen und Dokumenten (openpyxl, python-docx, pywin32/Office-COM als Kandidaten), Schreibzugriffe nur im bestaetigten Workspace, Makros nie ausfuehren, Windows-Eignung, Abnahmetests; Lizenzen und Versionen an offiziellen Quellen pruefen. Keine Umsetzung. NUR DOKUMENT, KEIN CODE, ENTSCHEIDUNG DES BESITZERS ERFORDERLICH: nichts implementieren, nichts aktivieren. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "docs/OFFICE_DESIGN.md mit Kandidaten, Lizenzen (mit Quelle), Grenzen und Abnahmetests",
+        "Makros nie ausfuehren, Schreiben nur im bestaetigten Workspace als Anforderung festgehalten",
+        "Kein Code"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
+      "id": "media-design",
+      "title": "Medienbearbeitung: Entwurf (nur Dokument)",
+      "approved": false,
+      "depends_on": [
+        "int-vetting-policy"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 60,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Erstelle docs/MEDIA_DESIGN.md: Bild-, Audio- und Videobearbeitung ueber FFmpeg als externes Programm mit festen, geprueften Argumentlisten (nie als Kommandozeilentext), Pillow/OpenCV als Kandidaten, Lizenzvarianten von FFmpeg-Builds, Ressourcengrenzen, Ausgabe nur im bestaetigten Workspace, Abnahmetests; Lizenzen an offiziellen Quellen pruefen. Keine Umsetzung. NUR DOKUMENT, KEIN CODE, ENTSCHEIDUNG DES BESITZERS ERFORDERLICH: nichts implementieren, nichts aktivieren. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "docs/MEDIA_DESIGN.md mit Operationsliste, festen Argumentlisten und Ressourcengrenzen",
+        "FFmpeg-Lizenzvarianten und Quelle der Pruefung genannt",
+        "Kein Code"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
     }
   ]
 }
