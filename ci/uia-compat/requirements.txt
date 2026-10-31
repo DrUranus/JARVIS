@@ -1,0 +1,6 @@
+# Gepruefte Pins fuer den isolierten Windows-Kompatibilitaetstest (nur CI, nicht Teil von JARVIS).
+# Quelle und Datum: docs/integrations/windows-uia.md, PyPI-Metadaten vom 2026-10-31. Installation nur mit --require-hashes --only-binary=:all:
+pywinauto==0.6.9 --hash=sha256:5924b3072864a1d730c5546bbeb17cf4063ba518b618dbc5e43c18276c7c9356
+six==1.17.0 --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274
+comtypes==1.4.17 --hash=sha256:4e0a221dde2c589b82977bed802efd71cd5eb67a380347b732e02735e597f586
+pywin32==312 --hash=sha256:c53e878d15a1c44788082bfe712a905433473aa38f86375b7cf8b45e3acbaaf9 --hash=sha256:a4dd3a848290ef724347b19f301045831d8e802fa4464f491b98b1e0a081432e
