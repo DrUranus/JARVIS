@@ -13,6 +13,7 @@ from typing import Sequence
 
 from jarvis.computer.errors import ComputerError, ErrorCode
 from jarvis.computer.models import LaunchResult, Monitor, RawFrame, WindowInfo
+from jarvis.computer.uia import UiTreeProvider
 
 
 class ScreenProvider(ABC):
@@ -98,6 +99,7 @@ class ComputerBackend:
     keyboard: KeyboardProvider | None = None
     windows: WindowProvider | None = None
     apps: AppLauncher | None = None
+    ui: UiTreeProvider | None = None      # read-only UI-Automation tree (model only so far: no tool, no controller operation uses it yet)
 
     def capabilities(self) -> list[str]:
-        return [n for n in ("screen", "mouse", "keyboard", "windows", "apps") if getattr(self, n) is not None]
+        return [n for n in ("screen", "mouse", "keyboard", "windows", "apps", "ui") if getattr(self, n) is not None]
