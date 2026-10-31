@@ -10,6 +10,8 @@ from jarvis.computer.errors import ComputerError, ComputerUnavailableError, Erro
 from jarvis.computer.models import CursorPosition, FrameDiff, LaunchResult, Monitor, RawFrame, Screenshot, WindowInfo
 from jarvis.computer.safety import ComputerSafety
 from jarvis.computer.screenshots import ScreenshotStore, encode_png, frame_diff
+from jarvis.computer.uia import (ControlType, UiElement, UiFindResult, UiLimits, UiQuery, UiRect, UiSnapshot, UiTreeProvider, bound_tree,
+                                 find_in_tree)
 from jarvis.computer.vision import ImageObserver, Observation, Verification, verify_change
 
 __all__ = [
@@ -17,4 +19,5 @@ __all__ = [
     "ScreenProvider", "MouseProvider", "KeyboardProvider", "WindowProvider", "AppLauncher", "Monitor", "WindowInfo",
     "Screenshot", "RawFrame", "FrameDiff", "LaunchResult", "CursorPosition", "ComputerSafety", "ScreenshotStore",
     "encode_png", "frame_diff", "ImageObserver", "Observation", "Verification", "verify_change",
+    "ControlType", "UiElement", "UiFindResult", "UiLimits", "UiQuery", "UiRect", "UiSnapshot", "UiTreeProvider", "bound_tree", "find_in_tree",
 ]
