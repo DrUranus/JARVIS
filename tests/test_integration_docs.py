@@ -69,9 +69,10 @@ def make_doc(skip: str | None = None, empty: str | None = None, decision: str = 
 DOC_FILES = sorted(INTEGRATIONS_DIR.glob("*.md")) if INTEGRATIONS_DIR.is_dir() else []
 
 
-@pytest.mark.parametrize("path", DOC_FILES, ids=lambda p: p.name)
-def test_integration_file_is_complete(path):
-    assert check_integration_doc(path.read_text(encoding="utf-8")) == []
+def test_integration_files_are_complete():
+    """Ohne Dateien trivial gruen (kein Skip); jede vorhandene Datei muss das Schema erfuellen."""
+    problems = {p.name: check_integration_doc(p.read_text(encoding="utf-8")) for p in DOC_FILES}
+    assert {name: probs for name, probs in problems.items() if probs} == {}
 
 
 def test_complete_document_passes():

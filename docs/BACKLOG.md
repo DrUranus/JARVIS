@@ -22,6 +22,8 @@ Hinweis: `backlog.json` markiert derzeit nur `windows-capture-tests`, `autonomy-
 
 - `docs-sync` (dieser Schritt): README, `docs/TESTING.md`, `docs/BACKLOG.md` mit dem Ist-Stand abgleichen.
 
+- `int-vetting-policy`: `docs/INTEGRATIONS.md` (Pruefschema und Vorlage fuer externe Bibliotheken) und `tests/test_integration_docs.py`; nur Dokument und Test.
+
 ## Offen, nicht freigegeben (nicht begonnen)
 
 | Schritt | Inhalt |
