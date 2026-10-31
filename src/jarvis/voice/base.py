@@ -59,6 +59,17 @@ class AudioPlayer(ABC):
     def play(self, clip: AudioClip) -> None:
         """Play audio. Raise VoiceUnavailableError if no output is possible."""
 
+    def stop(self) -> None:
+        """Barge-in: cut off a running playback. Default: nothing to stop (never raises)."""
+
+
+class HotwordDetector(ABC):
+    """Local wake-word spotting on raw audio. Must not use the network; it only says yes/no, it never triggers an action."""
+
+    @abstractmethod
+    def detect(self, clip: AudioClip) -> bool:
+        """True if the hotword is in the clip."""
+
 
 class STTProvider(ABC):
     name: str = "base"
@@ -75,6 +86,9 @@ class TTSProvider(ABC):
     def speak(self, text: str) -> None:
         """Speak the text aloud (blocking). Raise TTSError / VoiceUnavailableError on failure."""
 
+    def stop(self) -> None:
+        """Barge-in: cut off speech in progress. Default: nothing to stop."""
+
 
 class Listener(ABC):
     """Anything that yields user utterances as text: microphone+STT, or the console."""
@@ -87,3 +101,6 @@ class Listener(ABC):
 class Speaker(ABC):
     @abstractmethod
     def say(self, text: str) -> None: ...
+
+    def stop(self) -> None:
+        """Barge-in: cut off speech in progress. Default: nothing to stop."""

@@ -80,3 +80,6 @@ class OpenAITTS(TTSProvider):
         except (OSError, EOFError, ValueError) as exc:
             raise TTSError(f"OpenAI speech synthesis failed: {exc}") from exc
         self._player.play(clip)  # VoiceUnavailableError propagates to the session
+
+    def stop(self) -> None:
+        self._player.stop()
