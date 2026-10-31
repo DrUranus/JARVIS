@@ -174,6 +174,14 @@ def test_the_script_fails_cleanly_without_the_library(uia):
     assert uia.verdict(results) == 1
 
 
+def test_threading_is_checked_as_a_dedicated_owner_thread_and_the_cross_thread_failure_is_only_a_hint(uia):
+    """Befund aus dem ersten Windows-Lauf: Die UIA-Verbindung von pywinauto haengt, wenn sie in einem anderen Thread benutzt wird als dem, der sie erzeugt hat.
+    Verbindlich geprueft wird daher das unterstuetzte Muster (ein einziger Thread besitzt alle UIA-Aufrufe, in einem eigenen Prozess); der Querzugriff bleibt ein Hinweis."""
+    blocking = {name: b for name, _, b in uia.CHECKS}
+    assert blocking["dedicated_thread"] is True and blocking["cross_thread_reuse"] is False
+    assert "thread_read_with_coinit" not in blocking and "thread_read_without_coinit" not in blocking
+
+
 def test_negative_run_assertion_helper(failed):
     results = [{"name": "python_version", "ok": False, "blocking": True}, {"name": "window", "ok": True, "blocking": True}, {"name": "note", "ok": False, "blocking": False}]
     assert failed.check(results, ["python_version"], exact=True) is True
