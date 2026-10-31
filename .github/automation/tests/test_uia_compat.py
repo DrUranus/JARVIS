@@ -123,8 +123,11 @@ def test_license_findings(files, license_field, classifiers, files_, ok):
 
 
 def test_only_the_known_pywin32_path_file_is_accepted(files):
-    good = {"pywin32.pth": ["# .pth file for the PyWin32 extensions", "win32", "win32\\lib", "Pythonwin", "import pywin32_bootstrap"]}
+    good = {"pywin32.pth": ["# .pth file for the PyWin32 extensions", "win32", "win32\\lib", "pythonwin", "# And some hackery to deal with environments where the post_install script",
+                            "# isn't run.", "import pywin32_bootstrap"]}          # genau der Inhalt, den der Windows-Lauf vom 2026-10-31 zeigte (kleingeschriebenes 'pythonwin')
     assert files.pth_problems(good) == []
+    assert files.pth_problems({"pywin32.pth": ["Pythonwin"]}) == []                  # Gross-/Kleinschreibung ist egal
+    assert files.pth_problems({"pywin32.pth": ["pythonwin2"]})                       # aber nur diese Pfade
     assert files.pth_problems({}) == []
     assert files.pth_problems({"evil.pth": ["import os; os.system('x')"]})
     assert files.pth_problems({"pywin32.pth": ["win32", "import os"]})

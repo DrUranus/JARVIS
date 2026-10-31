@@ -11,7 +11,7 @@ from pathlib import Path
 PACKAGES = ("pywinauto", "six", "comtypes", "pywin32")
 COPYLEFT = re.compile(r"(?i)\b[al]?gpl\b|general public license")
 LICENSE_FILE = re.compile(r"(?i)(^|[/\\])(licen[cs]e|copying)[^/\\]*$")
-ALLOWED_PTH = {"pywin32.pth": {"win32", "win32\\lib", "Pythonwin", "import pywin32_bootstrap"}}
+ALLOWED_PTH = {"pywin32.pth": {"win32", "win32\\lib", "pythonwin", "import pywin32_bootstrap"}}      # kleingeschrieben verglichen
 
 
 def license_problems(name: str, license_field: str, classifiers: list[str], files: list[str]) -> list[str]:
@@ -32,7 +32,7 @@ def pth_problems(pth: dict[str, list[str]]) -> list[str]:
             problems.append(f"unbekannte .pth-Datei (fuehrt beim Start Pfade oder Code ein): {fname}")
             continue
         for line in (l.strip() for l in lines):
-            if line and not line.startswith("#") and line not in ALLOWED_PTH[fname]:
+            if line and not line.startswith("#") and line.lower() not in ALLOWED_PTH[fname]:
                 problems.append(f"{fname}: unerwartete Zeile {line[:60]!r}")
     return problems
 
