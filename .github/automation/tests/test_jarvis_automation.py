@@ -501,7 +501,8 @@ def test_unapproved_and_unmet_items_never_selected():
 
 
 PINNED_PLAN = ["windows-capture-tests", "coding-windows-process-tree", "persistent-results", "onboarding-windows", "memory-semantic-search",
-               "voice-barge-in-hotword", "docs-sync"]
+               "voice-barge-in-hotword", "docs-sync",
+               "int-vetting-policy", "uia-vetting", "uia-model-fake", "uia-provider-readonly", "uia-tools-readonly"]       # Integrationskette (Besitzer-Freigabe), genau 5 Schritte
 PINNED_DONE = ["windows-capture-tests"]          # Planschritte, die bereits gemergt sind (PR #34)
 
 
@@ -518,6 +519,23 @@ def test_shipped_backlog_approvals_are_exactly_the_owner_approved_steps():
     expected_next = next(i for i in PINNED_PLAN if i not in PINNED_DONE) if plan["approved"] else None
     nxt = ja.select_next_item(items, set(), set())
     assert (nxt["id"] if nxt else None) == expected_next          # Teilziel 3 und 4 sind erledigt; ohne freigegebenen Plan gibt es keinen naechsten Schritt
+
+
+def test_the_integration_chain_runs_in_dependency_order_and_ends_after_exactly_five_steps():
+    """Nach den sieben abgeschlossenen Schritten waehlt 'next' nacheinander genau die fuenf freigegebenen Integrationsschritte; danach gibt es nichts mehr,
+    kein weiterer Eintrag der Integrations-Planung ist freigegeben (die Kettenlaenge ist hart auf HARD_MAX_CHAIN_JOBS begrenzt)."""
+    items = ja.load_backlog(ROOT / ".github/automation/backlog.json")
+    done = {"autonomy-invariants", "session-budget"} | set(PINNED_PLAN[:7])
+    order = []
+    while (nxt := ja.select_next_item(items, done, set())) is not None:
+        order.append(nxt["id"])
+        done.add(nxt["id"])
+    assert order == PINNED_PLAN[7:] and len(order) == ja.HARD_MAX_CHAIN_JOBS == 5
+    not_approved = ["uia-actions", "uia-agent-integration", "uia-windows-e2e", "llm-compat-vetting", "llm-compat-provider", "llm-routing-design", "llm-routing-policy",
+                    "stt-vetting", "stt-local-provider", "stt-vad-endpointing", "research-vetting", "research-search-interface", "research-extract-backend",
+                    "research-search-provider", "mcp-security-review", "os-sandbox-design", "mail-design", "office-design", "media-design"]
+    by_id = {i["id"]: i for i in items}
+    assert all(by_id[i]["approved"] is False for i in not_approved)
 
 
 def test_retry_after_failure_is_bounded():
