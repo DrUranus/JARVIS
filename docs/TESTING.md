@@ -21,11 +21,22 @@ GUI-Tests: `tests/test_gui_model.py` (ohne Tk, ueberall), `tests/test_gui_view.p
 
 Pro Befund hoechstens drei gezielte Reparaturzyklen. Ein uebersprungener Test gilt nie als bestanden; Linux-Ergebnisse sind kein Windows-Nachweis.
 
-## CI (`.github/workflows/tests.yml`)
+## CI-Workflows (Stand: Basis `1d39e65`)
+
+| Workflow | Ausloeser | Zweck |
+|---|---|---|
+| `pr-tests.yml` | Pull Request gegen `main` aus einem `claude/*`-Branch des Repositories (opened/synchronize/reopened/ready_for_review); `workflow_dispatch` nur fuer `claude/*`-Branches (vom Merge-Gate nach "Branch aktualisieren") | Pflichtpruefung: volle Suite, Job `tests-linux` (ubuntu-latest) und Job `tests-windows` (Windows, mit `.[dev,voice]`), je auf dem Head-Commit des PR, JUnit-Berichte als Artefakt |
+| `jarvis-merge-gate.yml` | Push auf `main`, Abschluss von `pr-tests`, Zeitplan alle 20 Minuten, `workflow_dispatch` | Merge-Gate: merged einen `claude/*`-PR nur, wenn `tests-linux` und `tests-windows` auf genau dem Head-Commit gruen sind; sensible Pfade (z. B. `src/jarvis/permissions/`) nur mit konkreter Freigabe, sonst merged der Besitzer selbst |
+| `jarvis-gate-resume.yml`, `jarvis-controller.yml`, `jarvis-report.yml`, `jarvis-watchdog.yml`, `claude-routine-fire.yml`, `automation-ci.yml` | siehe `.github/automation/README.md` | Automatisierung der Routinen-Auftraege (Kette, Berichte, Pruefung der Automatisierungsskripte) |
+| `tests.yml` | siehe unten | gezielte Windows-Laeufe (GUI, Phase 15) und volle Suite auf Abruf |
+
+Ein Windows-Nachweis entsteht nur durch einen gruenen `tests-windows`-Job (oder `tests.yml`) auf dem betreffenden Commit; Linux-Laeufe in einer Routinen-Sitzung ersetzen ihn nicht.
+
+## `tests.yml`
 
 | Ausloeser | Lauf |
 |---|---|
-| Push auf `claude/inspiring-ritchie-8ljinw` (nur bei Aenderungen in `src/`, `tests/`, `pyproject.toml`, Workflow) | `gui-windows` (windows-latest, py3.13, ca. 1-2 min): GUI-, Voice-, Notaus- und Berechtigungs-Tests |
+| Push auf einen `claude/**`-Branch (nur bei Aenderungen in `src/`, `tests/`, `pyproject.toml`, Workflow) | `gui-windows` (windows-latest, py3.13, ca. 1-2 min): GUI-, Voice-, Notaus- und Berechtigungs-Tests |
 | Push, dessen letzte Commit-Nachricht das Stichwort in eckigen Klammern `ci-phase15` enthaelt | zusaetzlich `phase15-windows` (ACL/Job-Object/Junction-Tests, Prozessbaum-Test 5x; langsam) |
 | Push, dessen letzte Commit-Nachricht das Stichwort `ci-full` in eckigen Klammern enthaelt | zusaetzlich `suite`: Windows py3.13, Ubuntu py3.13, Ubuntu py3.11 |
 | `workflow_dispatch` (nur nutzbar, wenn die Datei auf dem Standard-Branch liegt) | `scope` = gui / phase15 / full / all, `repeat` 1-50 |
@@ -55,6 +66,15 @@ Nur `contents: read`, keine Secrets; Actions sind auf Commit-SHAs gepinnt. Jeder
 | Phase 15, Windows, py3.13 | dfffaf9 | **165 passed / 2 skipped** (19 min) |
 
 Die 38 Windows-Skips (Stand dc2d3d6, vor Phase 11): POSIX-Symlinks/-Skripte/-Modusbits, X11/Xvfb, `playwright` nicht installiert (echte Browser-Tests laufen in der CI nicht), Linux-`/proc`-Test.
+
+### Linux-Lauf der Routine docs-sync (Basis `1d39e65`, Python 3.13, ohne Tk/Anzeige, ohne Windows)
+
+| Lauf | Ergebnis |
+|---|---|
+| `python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py` | **801 passed / 23 skipped** (Windows-Junction-/ACL-Tests werden auf Linux uebersprungen) |
+| `tests/test_history_store.py test_doctor.py test_memory_semantic.py test_voice_bargein_hotword.py test_coding_process_tree.py test_computer_capture_win32_real.py` | **80 passed / 11 skipped** (Windows-only-Tests uebersprungen) |
+
+Das ist ausdruecklich **kein** Windows-Nachweis: Windows-Nachweis ausstehend, bis `tests-windows` bzw. `tests.yml` fuer den Merge-Commit gruen ist. Eine volle Suite lief in dieser Sitzung nicht; die Zahlen der Tabelle oben stammen aus frueheren Laeufen auf den genannten Commits und wurden hier nicht neu erhoben (die Phase-11-Zeilen sind aelter als die Phasen History/Doctor/Memory-Suche/Barge-in).
 
 ## Umgebungsbefunde (nicht mit Codefehlern verwechseln)
 

@@ -3,7 +3,7 @@
 Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer Agent, dem man ein Ziel nennt und der selbstständig
 **denkt → plant → recherchiert → programmiert → handelt → testet → repariert → lernt → neue Fähigkeiten entwickelt**.
 
-**Status: Phase 1 (Core MVP), Phase 2 (Voice), Phase 3 (Memory), Phase 13 (Permissions & Security, vorgezogen), Phase 4 (Computer Control), Phase 5 (Browser Agent v1), Phase 6 (Coding Agent v1) und Phase 7 (Multi-Agent-Orchestrierung v1), Phase 8 (Goal Engine v1) und Phase 9 (Self-Testing/Self-Repair v1) abgeschlossen (Linux + Windows validiert); Phase 10 (Business/Research/Finance v1) ist implementiert; die volle Testsuite lief zuletzt auf einem GitHub-Windows-Runner und auf Ubuntu grün (siehe `docs/TESTING.md`; Mikrofon, Lautsprecher, GUI und echter Browser bleiben manuell).** JARVIS plant und überwacht Ziele nur über die vorhandenen Agenten; es verändert weder sich selbst noch installiert es Fähigkeiten.
+**Status: Phase 1 (Core MVP), Phase 2 (Voice), Phase 3 (Memory), Phase 13 (Permissions & Security, vorgezogen), Phase 4 (Computer Control), Phase 5 (Browser Agent v1), Phase 6 (Coding Agent v1) und Phase 7 (Multi-Agent-Orchestrierung v1), Phase 8 (Goal Engine v1) und Phase 9 (Self-Testing/Self-Repair v1) abgeschlossen (Linux + Windows validiert); Phase 10 (Business/Research/Finance v1) und Phase 11 (GUI, Tkinter) sind implementiert; von Phase 14 existieren nur Teilziele 1–4 (gemeinsamer Notaus, Sichtbarkeit laufender Arbeit, Autonomie-Invarianten als Tests, optionales Sitzungsbudget – alle standardmäßig aus bzw. ohne neue Autonomie, siehe `docs/PHASE14_AUTONOMY.md`); Phase 15 ist ein deaktivierter Vorschlagsworkflow; Phase 12 (Smartphone) ist nicht begonnen; die volle Testsuite lief zuletzt auf einem GitHub-Windows-Runner und auf Ubuntu grün (siehe `docs/TESTING.md`; Mikrofon, Lautsprecher, GUI und echter Browser bleiben manuell).** JARVIS plant und überwacht Ziele nur über die vorhandenen Agenten; es verändert weder sich selbst noch installiert es Fähigkeiten.
 
 ## Was bisher funktioniert (Phase 1–10, 13)
 
@@ -1048,7 +1048,7 @@ Abhängigkeiten zeigen nach innen: Core kennt nur Interfaces (`LLMProvider`, `To
 | Phase | Anschlusspunkt |
 |---|---|
 | 2 Voice ✅ | `voice/` – siehe oben. Barge-in-Schnittstelle und austauschbarer Hotword-Baustein vorhanden (kein mitgelieferter Detektor). Offen: Streaming-STT/TTS |
-| 3 Memory ✅ | `jarvis/memory/`. Offen: semantische/Vektor-Suche (neues Backend, `MemoryHit.score` ist vorbereitet), persistente Tasks (`TaskManager` hinter Interface, Ergebnisse als `task_result`), automatische Extraktion, Zusammenfassung/Verfall alter Einträge |
+| 3 Memory ✅ | `jarvis/memory/`. Lokale, netzfreie Suche (gehashte TF-IDF-Vektoren, `memory.backend`) vorhanden; Verlauf abgeschlossener Arbeit optional in SQLite (`[history]`, nur Anzeige). Offen: echte Embeddings, Fortsetzen von Tasks nach Neustart (`TaskManager` hinter Interface), automatische Extraktion, Zusammenfassung/Verfall alter Einträge |
 | 4 Computer ✅ | `jarvis/computer/`; Provider austauschbar (`register_backend`), Beobachten→Handeln→Prüfen vorbereitet |
 | 5–6 Browser/Coding | neue `ProtectedTool`-Klassen mit `describe_action` (Host/Pfad/Command als Ressource); Policy-Regeln pro Tool; Vision über `ImageObserver` |
 | 7 Multi-Agent ✅ · 8 Goal Engine ✅ | `jarvis/agents/`, `jarvis/goals/`; Goal Engine nutzt nur die `AgentOrchestrator`-Schnittstelle |
@@ -1060,5 +1060,5 @@ Abhängigkeiten zeigen nach innen: Core kennt nur Interfaces (`LLMProvider`, `To
 ## Zukünftige Phasen
 
 1 Core ✅ · 2 Voice ✅ · 3 Memory ✅ · 4 Computer Control ✅ · 5 Browser/Internet ✅ · 6 Coding Agent ✅ · 7 Multi-Agent ✅ · 8 Goal Engine ✅ ·
-9 Self-Testing/Repair ✅ · 10 Business/Research/Finance ✅ (volle Suite auf Windows- und Linux-Runner grün) · 11 GUI (siehe Abschnitt „Grafische Oberfläche“) · 12 Smartphone · 13 Permissions/Security ✅ (vorgezogen) · 14 Maximum Autonomy · 15 Self-Improvement.
+9 Self-Testing/Repair ✅ · 10 Business/Research/Finance ✅ (volle Suite auf Windows- und Linux-Runner grün) · 11 GUI ✅ (siehe Abschnitt „Grafische Oberfläche“; Fenster-, Voice- und Notaus-Tests laufen in der Windows-CI, Mikrofon/Lautsprecher bleiben manuell) · 12 Smartphone (nicht begonnen) · 13 Permissions/Security ✅ (vorgezogen) · 14 Maximum Autonomy (nur Teilziele 1–4, ohne neue Autonomie; Hintergrundziele/Selbststart bewusst nicht implementiert) · 15 Self-Improvement (deaktivierter Vorschlagsworkflow, keine Sandbox).
 Phase 13 wurde vor Phase 4 vorgezogen (Begründung: Computersteuerung ohne belastbares Rechtesystem ist riskant).
