@@ -224,3 +224,21 @@ def test_the_workflow_proves_that_the_test_really_fails():
 def test_nothing_else_in_the_repository_depends_on_the_new_test():
     for path in (ROOT / "pyproject.toml", ROOT / ".github/workflows/pr-tests.yml", ROOT / ".github/workflows/tests.yml"):
         assert "uia-compat" not in path.read_text(encoding="utf-8") and "pywinauto" not in path.read_text(encoding="utf-8"), path.name
+
+
+def test_the_owner_release_for_the_provider_step_is_one_dated_line_and_does_not_widen_anything():
+    """Die Freigabezeile, die `uia-provider-readonly` verlangt: genau eine Zeile mit Datum, Entscheidung `nehmen`, Umfang nur dieser Schritt und diese Version."""
+    text = (ROOT / "docs" / "integrations" / "windows-uia.md").read_text(encoding="utf-8")
+    lines = [l for l in text.splitlines() if l.startswith("Besitzer-Freigabe:")]
+    assert len(lines) == 1 and re.fullmatch(r"Besitzer-Freigabe: \d{4}-\d{2}-\d{2}", lines[0]), lines
+    decision = text.split("## Entscheidung", 1)[1].strip().splitlines()[0].strip()
+    assert decision == "nehmen"
+    scope = text.split("## Besitzer-Freigabe", 1)[1]
+    for must in ("uia-provider-readonly", "0.6.9", "nur lesend", "Keine Freigabe fuer"):
+        assert must in scope, must
+    for step in ("uia-tools-readonly", "uia-actions"):
+        assert step in scope.split("Keine Freigabe fuer", 1)[1], step               # ausdruecklich NICHT freigegeben
+    import json
+    backlog = json.loads((ROOT / ".github/automation/backlog.json").read_text(encoding="utf-8"))
+    approved = {i["id"] for i in backlog["items"] if i.get("approved") is True}
+    assert "uia-actions" not in approved and "uia-actions" not in backlog["plan"]["approved_items"]
