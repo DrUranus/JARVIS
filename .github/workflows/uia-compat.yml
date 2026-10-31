@@ -1,0 +1,126 @@
+# Isolierter Windows-Kompatibilitaetstest fuer pywinauto 0.6.9 (Python 3.13 und 3.14), siehe ci/uia-compat und docs/integrations/windows-uia.md.
+# Nichts davon gelangt in JARVIS: Die Pakete werden nur in einer temporaeren Umgebung auf dem Runner installiert (feste Versionen, Hashes, nur Wheels), der Test liest nur.
+# Laeuft nur, wenn dieser Test selbst geaendert wird (oder per Hand). Kein Pflichtcheck, keine Secrets, nur contents: read.
+name: uia-compat
+
+on:
+  pull_request:
+    paths: ["ci/uia-compat/**", ".github/workflows/uia-compat.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uia-compat-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PYTHONUTF8: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  uia-compat:
+    name: uia-compat (windows-latest, py${{ matrix.python }})
+    runs-on: windows-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Umgebung anzeigen und temporaere Test-Umgebung anlegen
+        env:
+          EXPECT_PYTHON: ${{ matrix.python }}
+        run: |
+          python --version
+          python -c "import sys,platform; print(sys.version); print(platform.platform())"
+          python -m venv "$RUNNER_TEMP/uia-venv"
+          "$RUNNER_TEMP/uia-venv/Scripts/python.exe" -m pip --version
+
+      - name: Abhaengigkeits-Aufloesung vorab pruefen (nur Wheels, Hashes, keine Installation)
+        run: |
+          "$RUNNER_TEMP/uia-venv/Scripts/python.exe" -m pip install --dry-run --ignore-installed --require-hashes --only-binary=:all: \
+            --report "$RUNNER_TEMP/pip-report.json" -r ci/uia-compat/requirements.txt
+          python ci/uia-compat/resolve_check.py "$RUNNER_TEMP/pip-report.json" ci/uia-compat/requirements.txt
+
+      - name: Pakete nur in die temporaere Umgebung installieren
+        run: |
+          "$RUNNER_TEMP/uia-venv/Scripts/python.exe" -m pip install --require-hashes --only-binary=:all: -r ci/uia-compat/requirements.txt
+          "$RUNNER_TEMP/uia-venv/Scripts/python.exe" -m pip list
+          "$RUNNER_TEMP/uia-venv/Scripts/python.exe" -m pip check
+
+      - name: Lizenzen, Lizenzdateien, Pfaddateien und Skripte pruefen
+        run: '"$RUNNER_TEMP/uia-venv/Scripts/python.exe" ci/uia-compat/check_files.py'
+
+      - name: Test (nur lesend, echtes Notepad-Fenster)
+        env:
+          EXPECT_PYTHON: ${{ matrix.python }}
+          UIA_COMPAT_OUT: ${{ runner.temp }}/result-positive.json
+        run: '"$RUNNER_TEMP/uia-venv/Scripts/python.exe" ci/uia-compat/check_uia.py'
+
+      - name: "Gegenprobe 1: falsches Fenster muss genau die Fenster-Pruefung rot machen"
+        env:
+          EXPECT_PYTHON: ${{ matrix.python }}
+          UIA_COMPAT_WINDOW_RE: "^NoSuchWindowXYZ$"
+          UIA_COMPAT_NO_START: "1"
+          UIA_COMPAT_WAIT: "3"
+          UIA_COMPAT_OUT: ${{ runner.temp }}/result-negative-window.json
+        run: |
+          if "$RUNNER_TEMP/uia-venv/Scripts/python.exe" ci/uia-compat/check_uia.py; then echo "::error::Gegenprobe 1 ist faelschlich gruen"; exit 1; fi
+          python ci/uia-compat/assert_failed.py "$RUNNER_TEMP/result-negative-window.json" --contains window read_window
+
+      - name: "Gegenprobe 2: falsche Python-Version muss genau die Versions-Pruefung rot machen"
+        env:
+          EXPECT_PYTHON: "3.99"
+          UIA_COMPAT_NO_START: "1"
+          UIA_COMPAT_OUT: ${{ runner.temp }}/result-negative-python.json
+        run: |
+          if "$RUNNER_TEMP/uia-venv/Scripts/python.exe" ci/uia-compat/check_uia.py; then echo "::error::Gegenprobe 2 ist faelschlich gruen"; exit 1; fi
+          python ci/uia-compat/assert_failed.py "$RUNNER_TEMP/result-negative-python.json" --exact python_version
+
+      - name: "Gegenprobe 3: fehlende Bibliothek (Python ohne die Pakete) muss Import und Versionen rot machen"
+        env:
+          EXPECT_PYTHON: ${{ matrix.python }}
+          UIA_COMPAT_NO_START: "1"
+          UIA_COMPAT_WAIT: "3"
+          UIA_COMPAT_OUT: ${{ runner.temp }}/result-negative-import.json
+        run: |
+          if python ci/uia-compat/check_uia.py; then echo "::error::Gegenprobe 3 ist faelschlich gruen"; exit 1; fi
+          python ci/uia-compat/assert_failed.py "$RUNNER_TEMP/result-negative-import.json" --contains versions imports
+
+      - name: Ergebnis zusammenfassen
+        if: ${{ !cancelled() }}
+        env:
+          EXPECT_PYTHON: ${{ matrix.python }}
+        run: |
+          {
+            echo "### pywinauto 0.6.9 unter Python ${EXPECT_PYTHON} (windows-latest)"
+            for f in result-positive result-negative-window result-negative-python result-negative-import; do
+              if [ -f "$RUNNER_TEMP/$f.json" ]; then
+                echo "**$f**"; echo '```'
+                python -c "import json,sys; d=json.load(open(sys.argv[1])); print(d['python'].split()[0], d['platform']); [print(('OK  ' if c['ok'] else ('FAIL' if c['blocking'] else 'HINT')), c['name'], '-', c['detail'][:200]) for c in d['checks']]" "$RUNNER_TEMP/$f.json"
+                echo '```'
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Ergebnisse hochladen
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: uia-compat-py${{ matrix.python }}
+          path: ${{ runner.temp }}/result-*.json
+          if-no-files-found: warn
+          retention-days: 14
