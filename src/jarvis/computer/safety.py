@@ -40,6 +40,11 @@ BLOCKED_TITLE_FRAGMENTS = ("windows security", "windows defender", "windows fire
 BLOCKED_TITLES_EXACT = ("run", "start", "search")   # the Run dialog and the Start/Search shell surfaces
 BLOCKED_WINDOW_CLASSES = ("consolewindowclass", "cascadia_hosting_window_class", "virtualconsoleclass")
 
+# Windows whose CONTENT is never read through UI Automation, on top of everything that receives no input: password managers, credential stores and banking.
+UI_READ_BLOCKED_STEMS = frozenset({"keepass", "keepassxc", "bitwarden", "1password", "lastpass", "dashlane", "enpass", "roboform", "nordpass", "keeper", "protonpass", "authy"})
+UI_READ_BLOCKED_TITLE_FRAGMENTS = ("keepass", "bitwarden", "1password", "lastpass", "dashlane", "enpass", "roboform", "nordpass", "password manager", "passwort manager",
+                                   "passwort-manager", "passwortmanager", "credential manager", "anmeldeinformationsverwaltung", "banking")
+
 # Windows that may be targeted by input but never CLOSED: the desktop shell and core system processes.
 PROTECTED_CLASSES = ("progman", "workerw", "shell_traywnd", "shell_secondarytraywnd")
 PROTECTED_PROCESSES = {"csrss", "winlogon", "wininit", "services", "lsass", "dwm", "svchost", "smss", "system", "fontdrvhost",
@@ -104,6 +109,17 @@ class ComputerSafety:
             return "this window is a command or security surface and receives no input"
         if w.class_name.casefold() in BLOCKED_WINDOW_CLASSES:
             return "console windows receive no input"
+        return None
+
+    def ui_read_blocked_reason(self, w: WindowInfo | None) -> str | None:
+        """Why the content of this window is never read through UI Automation, or None. Stricter than input: also password managers and banking."""
+        if w is None:
+            return None
+        if self.window_blocked_reason(w):
+            return "UI Automation never reads terminals, shells, script hosts, security or system tools and other protected windows"
+        title = w.title.casefold()
+        if stem_of(w.process) in UI_READ_BLOCKED_STEMS or any(f in title for f in UI_READ_BLOCKED_TITLE_FRAGMENTS):
+            return "UI Automation never reads password managers, credential stores or banking windows"
         return None
 
     def window_input_verdict(self, w: WindowInfo | None) -> Verdict:

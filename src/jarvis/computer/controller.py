@@ -32,10 +32,13 @@ from jarvis.computer import validation as val
 from jarvis.computer.backend import ComputerBackend
 from jarvis.computer.errors import ComputerError, ErrorCode
 from jarvis.computer.models import CursorPosition, FrameDiff, Monitor, Screenshot, WindowInfo
-from jarvis.computer.safety import ComputerSafety, Verdict
+from jarvis.computer.safety import ComputerSafety, Verdict, stem_of
 from jarvis.computer.screenshots import ScreenshotStore, encode_png, frame_diff
+from jarvis.computer.uia import UiLimits, UiQuery
+from jarvis.computer.uia_output import protect_element, protect_tree
 from jarvis.config import ComputerSettings
 from jarvis.permissions import ActionSpec, PermissionLevel, ResourceType, current_grant
+from jarvis.redaction import SecretDetector
 
 log = logging.getLogger("jarvis.computer")
 
@@ -48,6 +51,8 @@ MOUSE_ACTIONS = ("move", "click", "double_click", "right_click", "scroll")
 KEYBOARD_ACTIONS = ("press", "hotkey", "type")
 WINDOW_ACTIONS = ("focus", "minimize", "maximize", "restore", "close")
 SCREEN_ACTIONS = ("monitors", "screenshot", "compare", "windows", "active_window", "cursor", "forget")
+UI_ACTIONS = ("windows", "tree", "find")
+MAX_UI_WINDOWS = 200
 _INPUT_TOOLS = (res.TOOL_MOUSE, res.TOOL_KEYBOARD, res.TOOL_WINDOW, res.TOOL_APP)
 RED = PermissionLevel.RED
 YELLOW = PermissionLevel.YELLOW
@@ -108,6 +113,7 @@ class ComputerController:
         self._halted: str | None = None
         self._recent: deque[float] = deque()
         self._key = secrets.token_bytes(32)  # signs the plans this controller creates; never leaves the object
+        self._detector = SecretDetector()    # patterns only (no environment values): redacts texts read through UI Automation
 
     # -- status / kill switch -----------------------------------------------------------------------------------
     @property
@@ -122,6 +128,11 @@ class ComputerController:
     @property
     def halted(self) -> str | None:
         return self._halted
+
+    @property
+    def has_ui(self) -> bool:
+        """Does the backend have a read-only UI Automation provider? (Only then the `ui` tool is registered.)"""
+        return self._backend.ui is not None
 
     def halt(self, reason: str = "stopped by user") -> None:
         """Emergency stop: every further action fails with `failsafe` until resume()."""
@@ -270,6 +281,48 @@ class ComputerController:
             return plan(res.screen_info_resource("cursor"), self._run_cursor, "Mausposition ermitteln")
         return plan(res.screen_info_resource("screenshots"), lambda: {"forgotten": self.screenshots.clear()},
                     "Gespeicherte Screenshots verwerfen")
+
+    def plan_ui(self, action: Any, *, window: Any = None, name_equals: Any = None, name_contains: Any = None, control_type: Any = None, automation_id: Any = None,
+                enabled: Any = None, visible: Any = None, max_results: Any = None, max_depth: Any = None, max_nodes: Any = None) -> Plan:
+        """Read-only UI Automation: windows | tree | find. Always YELLOW (it reads the text of other programs); RED for windows that are never read."""
+        if action not in UI_ACTIONS:
+            raise ComputerError(ErrorCode.INVALID_INPUT, f"unknown ui action; use one of {list(UI_ACTIONS)}")
+        self._provider("ui")
+        if action == "windows":
+            return self._seal(Plan(res.TOOL_UI, "windows", res.ui_windows_resource(), YELLOW, "Fenster fuer die UI-Automation auflisten (nur lesen)", {}, self._run_ui_windows))
+        w = self._known_window(window)
+        limits = self._ui_limits(max_depth, max_nodes)
+        query = None
+        if action == "find":
+            query = UiQuery(name_equals=name_equals, name_contains=name_contains, control_type=control_type, automation_id=automation_id,
+                            enabled=self._opt_bool(enabled, "enabled"), visible=self._opt_bool(visible, "visible"),
+                            max_results=20 if max_results is None else val.as_int(max_results, "max_results"))
+        blocked = self._safety.ui_read_blocked_reason(w)
+        ctx = {"fenster": _target_label(w), "handle": str(w.handle), "tiefe": str(limits.max_depth), "knoten": str(limits.max_nodes),
+               "hinweis": "liest Namen und Texte der Bedienelemente; Passwortfelder nie; nur lesen"}
+        if query is not None:
+            ctx["suche"] = safe_label(" ".join(f"{k}={v}" for k, v in (("name", query.name_equals), ("enthaelt", query.name_contains), ("typ", getattr(query.control_type, "value", None)),
+                                                                        ("id", query.automation_id), ("aktiv", query.enabled), ("sichtbar", query.visible)) if v is not None), 120)
+        reason = blocked or (f"UI-Baum des Fensters lesen (nur lesen)" if action == "tree" else "Bedienelemente im Fenster suchen (nur lesen)")
+        run = (lambda: self._run_ui_tree(w, limits)) if action == "tree" else (lambda: self._run_ui_find(w, query, limits))
+        return self._seal(Plan(res.TOOL_UI, action, res.ui_resource(action, w.handle, w.process), RED if blocked else YELLOW, reason, ctx, run))
+
+    @staticmethod
+    def _opt_bool(value: Any, name: str) -> bool | None:
+        if value is None or isinstance(value, bool):
+            return value
+        if isinstance(value, str) and value.strip().casefold() in ("true", "false"):
+            return value.strip().casefold() == "true"
+        raise ComputerError(ErrorCode.INVALID_INPUT, f"{name} must be true or false")
+
+    @staticmethod
+    def _ui_limits(max_depth: Any, max_nodes: Any) -> UiLimits:
+        kw: dict[str, int] = {}
+        if max_depth is not None:
+            kw["max_depth"] = val.as_int(max_depth, "max_depth")
+        if max_nodes is not None:
+            kw["max_nodes"] = val.as_int(max_nodes, "max_nodes")
+        return UiLimits(**kw)
 
     def plan_mouse(self, action: Any, x: Any = None, y: Any = None, *, monitor: Any = None, amount: Any = None,
                    window: Any = None) -> Plan:
@@ -538,6 +591,36 @@ class ComputerController:
 
     def _run_windows(self) -> list[dict[str, Any]]:
         return [w.describe() for w in self._call(self._provider("windows").list_windows)]
+
+    def _ui_recheck(self, planned: WindowInfo) -> WindowInfo:
+        """At execution time the window must still be the same program and still readable (planning only described it)."""
+        current = self._find_window(planned.handle)
+        if current is None or stem_of(current.process) != stem_of(planned.process):
+            raise ComputerError(ErrorCode.TARGET_CHANGED, "the window changed or is gone since it was approved; nothing was read")
+        reason = self._safety.ui_read_blocked_reason(current)
+        if reason:
+            raise ComputerError(ErrorCode.BLOCKED_TARGET, reason)
+        return current
+
+    def _ui_window(self, w: WindowInfo) -> dict[str, Any]:
+        return {"handle": w.handle, "title": self._detector.redact(safe_label(w.title, 120)), "process": w.process}
+
+    def _run_ui_windows(self) -> list[dict[str, Any]]:
+        windows = self._call(self._provider("windows").list_windows)[:MAX_UI_WINDOWS]
+        return [{"handle": w.handle, "title": self._detector.redact(safe_label(w.title, 120)), "process": w.process, "class": w.class_name,
+                 "readable": self._safety.ui_read_blocked_reason(w) is None} for w in windows]
+
+    def _run_ui_tree(self, planned: WindowInfo, limits: UiLimits) -> dict[str, Any]:
+        current = self._ui_recheck(planned)
+        snap = self._call(self._provider("ui").describe, planned.handle, limits)
+        return {"window": self._ui_window(current), "node_count": snap.node_count, "truncated": snap.truncated,
+                "tree": protect_tree(snap.root, self._detector.redact).tree()}
+
+    def _run_ui_find(self, planned: WindowInfo, query: UiQuery, limits: UiLimits) -> dict[str, Any]:
+        current = self._ui_recheck(planned)
+        found = self._call(self._provider("ui").find, planned.handle, query, limits)
+        return {"window": self._ui_window(current), "count": len(found.matches), "truncated": found.truncated,
+                "matches": [protect_element(m, self._detector.redact).info() for m in found.matches]}
 
     def _run_active_window(self) -> dict[str, Any] | None:
         w = self._call(self._provider("windows").active_window)
