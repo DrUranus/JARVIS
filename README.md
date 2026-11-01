@@ -71,6 +71,7 @@ Vorrang (niedrig → hoch): eingebaute Defaults → `config/jarvis.toml` (oder `
 
 Lokales Modell (`openai_compatible`, ohne neue Bibliothek): `JARVIS_LLM_PROVIDER=openai_compatible JARVIS_LLM_BASE_URL=http://127.0.0.1:11434/v1 JARVIS_LLM_MODEL=<modell> jarvis`.
 Standard sind nur Loopback-Ziele (`localhost`, `127.0.0.0/8`, `::1`); ein entferntes Ziel braucht `llm.allow_remote = true`, `https` und einen Schlüssel aus der Umgebung. Der Schlüssel ist auf Loopback optional, steht nie in einer Datei (ein `llm.api_key` in der TOML-Datei wird für diesen Anbieter abgelehnt), nie in Logs oder Fehlermeldungen; Weiterleitungen werden nicht verfolgt. Der Coding Agent behandelt jeden Anbieter außer `mock` als „EXTERN“ (auch Loopback; bewusst vorsichtig). Kein Streaming. Details: `docs/integrations/llm-openai-compatible.md`.
+Entwurf einer Richtlinie für lokales vs. Cloud-Modell (nur Dokument, nicht umgesetzt, Entscheidungen des Besitzers offen): `docs/LLM_ROUTING.md`.
 
 Beispiel mit echtem Modell: `JARVIS_LLM_PROVIDER=anthropic JARVIS_LLM_MODEL=<modell> ANTHROPIC_API_KEY=... jarvis`
 
