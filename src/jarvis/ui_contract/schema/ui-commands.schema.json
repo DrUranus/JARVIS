@@ -1,0 +1,278 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "text": {
+              "maxLength": 4000,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "type": "object"
+        },
+        "id": {
+          "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+          "type": "string"
+        },
+        "type": {
+          "const": "submit_text"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "id",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "id": {
+          "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+          "type": "string"
+        },
+        "type": {
+          "const": "start_voice"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "id",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "id": {
+          "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+          "type": "string"
+        },
+        "type": {
+          "const": "stop_voice"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "id",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "goal",
+                "agent_task",
+                "repair",
+                "plan",
+                "resume"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "type": "object"
+        },
+        "id": {
+          "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+          "type": "string"
+        },
+        "type": {
+          "const": "cancel"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "id",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "choice": {
+              "enum": [
+                "allow_once",
+                "allow_session",
+                "deny"
+              ]
+            },
+            "request_id": {
+              "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+              "type": "string"
+            }
+          },
+          "required": [
+            "request_id",
+            "choice"
+          ],
+          "type": "object"
+        },
+        "id": {
+          "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+          "type": "string"
+        },
+        "type": {
+          "const": "confirm"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "id",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "id": {
+          "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+          "type": "string"
+        },
+        "type": {
+          "const": "emergency_stop"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "id",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "id": {
+          "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+          "type": "string"
+        },
+        "type": {
+          "const": "reset_emergency"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "id",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "id": {
+          "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+          "type": "string"
+        },
+        "type": {
+          "const": "request_snapshot"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "id",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "JARVIS UI commands v1.0"
+}
