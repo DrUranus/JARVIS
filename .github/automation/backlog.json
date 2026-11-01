@@ -20,6 +20,18 @@
       "llm-compat-provider",
       "llm-routing-design",
       "llm-routing-policy",
+      "ui-contract-v1",
+      "llm-goal-planning",
+      "event-bus",
+      "task-journal",
+      "agent-router",
+      "uia-actions",
+      "uia-agent-integration",
+      "agent-error-recovery",
+      "task-resume",
+      "file-tools",
+      "assistant-e2e",
+      "uia-windows-e2e",
       "stt-vetting",
       "stt-local-provider",
       "stt-vad-endpointing",
@@ -27,11 +39,21 @@
       "research-search-interface",
       "research-extract-backend",
       "research-search-provider",
-      "uia-actions",
-      "uia-agent-integration",
-      "uia-windows-e2e",
-      "llm-goal-planning",
-      "coding-llm-edits"
+      "coding-llm-edits",
+      "ui-tech-evaluation",
+      "cc-shell",
+      "cc-confirmation",
+      "cc-dashboard",
+      "cc-ai-core",
+      "cc-voice-viz",
+      "cc-backend-binding",
+      "cc-results-audit",
+      "cc-windows-start",
+      "cc-windows-smoke",
+      "os-sandbox-design",
+      "mail-design",
+      "office-design",
+      "media-design"
     ],
     "_hinweis": "EINMALIGE FREIGABE: nur 'approved' auf true setzen (Besitzer, CODEOWNERS). Die Liste approved_items ist im Test festgenagelt; sicherheitskritische Schritte (audit-hash-chain, cli-confirm-timeout, llm-goal-planning, coding-llm-edits, smartphone-api-design) stehen bewusst nicht darin. scopes_approved: wirkt erst, wenn der Besitzer es auf true setzt (einmalig); dann gelten die sensitive_edits/scope-Deklarationen der Plan-Schritte. Freigabe-Instanzen (backlog.json, CODEOWNERS, CLAUDE.md, .claude) sind nie deklarierbar.",
     "scopes_approved": true
@@ -311,6 +333,24 @@
       "done": true
     },
     {
+      "id": "mcp-security-review",
+      "title": "MCP-Bruecke: gesonderte Sicherheitspruefung (nur Dokument)",
+      "approved": false,
+      "depends_on": [
+        "int-vetting-policy",
+        "uia-tools-readonly"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 90,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Erstelle docs/MCP_SECURITY.md: Bedrohungsmodell fuer eine MCP-Bruecke (JARVIS als Client, jedes Tool eines freigegebenen Servers als ProtectedTool, Standard YELLOW), Tool-Poisoning und nachtraeglich veraenderte Tool-Beschreibungen (Schema-Hash festhalten), Server als Subprozess unter Job-Objekt, Positivliste statt Auto-Entdeckung, Ausgaben als nicht vertrauenswuerdige Daten, Zugangsdaten, Netzwerk, Notaus, Audit, Sitzungsbudget. Pruefe das offizielle Protokoll und das offizielle Python-SDK (Lizenz im Wortlaut, Version, Sicherheitshinweise). Ende mit Empfehlung und Abnahmetests fuer eine spaetere Umsetzung. Keine Umsetzung. NUR DOKUMENT, KEIN CODE, ENTSCHEIDUNG DES BESITZERS ERFORDERLICH: nichts implementieren, nichts aktivieren. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "docs/MCP_SECURITY.md mit Bedrohungsmodell, Schutzmassnahmen und Abnahmetests fuer eine spaetere Umsetzung",
+        "Lizenz und Version des offiziellen SDK mit Quelle; bei unerreichbarer Quelle blocked",
+        "Kein Code; es gibt bewusst keinen Umsetzungsschritt, bis der Besitzer ihn nach diesem Dokument anlegt"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
       "id": "llm-compat-vetting",
       "title": "LLM: OpenAI-kompatible Schnittstelle und lokale Server pruefen",
       "approved": false,
@@ -378,6 +418,280 @@
         "Jede Entscheidung als Audit-Ereignis, kein Rueckfall ohne Konfiguration (Tests)"
       ],
       "_note": "Entscheidet ueber Datenabfluss an die Cloud und beruehrt bootstrap.py/Audit: Besitzer-Freigabe erforderlich."
+    },
+    {
+      "id": "ui-contract-v1",
+      "title": "UI-Vertrag v1: versionierte Ereignisse und Befehle, Fake-Backend, Konformitaetspruefung",
+      "approved": false,
+      "depends_on": [],
+      "max_attempts": 2,
+      "timeout_minutes": 90,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Schritt X0: src/jarvis/ui_contract/ (schema.py, backend.py, fake.py, conformance.py, schema/*.json) und docs/UI_CONTRACT.md. Nur Standardbibliothek. Umgesetzt im Auftrag des Besitzers (PR #73); dieser Eintrag steht als done, damit er nie erneut gestartet wird.",
+      "acceptance": [
+        "Strenge Pruefung aller Ereignisse und Befehle, JSON-Schemas fuer das Frontend",
+        "Fake-Backend und Konformitaetspruefung fuer beide Straenge",
+        "Kein Befehl erteilt Rechte, aendert Regeln, fuehrt Werkzeuge aus oder hebt den Notaus auf"
+      ],
+      "scope": [
+        "src/jarvis/ui_contract/",
+        "tests/test_ui_contract.py",
+        "docs/UI_CONTRACT.md"
+      ],
+      "done": true,
+      "_note": "Umgesetzt im direkten Auftrag des Besitzers (PR #73), nicht ueber die Kette. Muss done bleiben."
+    },
+    {
+      "id": "llm-goal-planning",
+      "title": "Goal Engine: LLM-gestuetzte Zielzerlegung",
+      "approved": false,
+      "depends_on": [
+        "persistent-results",
+        "llm-routing-policy"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). AUTONOMIE-ENTSCHEIDUNG DES BESITZERS ERFORDERLICH: Ersetze die drei festen Planvorlagen durch eine LLM-gestuetzte Zerlegung, die jeden Kandidaten mit der bestehenden Planpruefung (Limits max_steps<=50, max_attempts_per_step<=5, keine neuen Faehigkeiten/Tools/Agenten, keine Berechtigungsumgehung) validiert und sonst auf die Vorlagen zurueckfaellt. Standard aus, keine Lockerung, kein Selbststart. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Die drei Planvorlagen bleiben als Rueckfall; die LLM-gestuetzte Zerlegung ersetzt sie nur, wenn der Kandidat die bestehende Planpruefung besteht (Tests)",
+        "Jeder Kandidat wird validiert: max_steps <= 50, max_attempts_per_step <= 5, keine neuen Faehigkeiten, Tools oder Agenten, keine Berechtigungsumgehung (je ein Test pro Verstoss)",
+        "Standardmaessig aus, kein Selbststart, keine Lockerung bestehender Grenzen (Tests)",
+        "Fake-LLM statt Netzwerk in den Tests; Sicherheitsregression gruen"
+      ]
+    },
+    {
+      "id": "event-bus",
+      "title": "Ereignisbus: Vertragsereignisse aus dem GuiController, Befehle zurueck, besteht die Konformitaetspruefung",
+      "approved": false,
+      "depends_on": [
+        "ui-contract-v1"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang A, Schritt A1. Ergaenze src/jarvis/ui_contract/bus.py (EventLog: Ringpuffer mit Folgenummern, events_since, Thread-Sicherheit; jeder Text wird mit jarvis.redaction geschwaerzt, bevor ein Ereignis entsteht) und src/jarvis/interface/ui_events.py: ein Adapter, der UiBackend implementiert, die vorhandenen Ereignisse des GuiController (Zustand, Chat, Aktivitaet, Bestaetigung, Notaus) in Vertragsereignisse uebersetzt und die Befehle (submit_text, start_voice, stop_voice, cancel, confirm, emergency_stop, reset_emergency, request_snapshot) AUSSCHLIESSLICH auf die vorhandenen GuiController-Methoden abbildet (keine neue Faehigkeit, keine Umgehung; reset_emergency stellt nur die Anfrage der Engine). Bestaetigungen ohne Antwort oder bei detach() gelten als abgelehnt. Keine Verdrahtung in bootstrap.py. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "EventLog mit Folgenummern, Wiederholung, Redaktion vor dem Erzeugen (Tests)",
+        "Adapter besteht run_conformance gegen einen Fake-Core",
+        "Befehle erreichen nur vorhandene GuiController-Methoden (Strukturtest)",
+        "Notaus, Zeitueberschreitung und Trennung gelten als abgelehnt (Tests)"
+      ],
+      "scope": [
+        "src/jarvis/ui_contract/",
+        "src/jarvis/interface/ui_events.py",
+        "src/jarvis/interface/gui_model.py",
+        "tests/test_ui_event_bus.py",
+        "tests/test_gui_model.py",
+        "docs/UI_CONTRACT.md",
+        "README.md",
+        "docs/TESTING.md"
+      ],
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+    },
+    {
+      "id": "task-journal",
+      "title": "Task-Journal: Ziele, Agenten-Tasks und Schritte mit Pruefpunkten in SQLite (nur speichern und lesen)",
+      "approved": false,
+      "depends_on": [
+        "ui-contract-v1"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang A, Schritt A2. src/jarvis/journal/ (store.py, recorder.py, factory.py) nach dem Muster von src/jarvis/history/: SQLite-Journal fuer Ziele, Agenten-Tasks und Schritte (Status, Zeit, Schrittnummer, Markierung side_effect je Schritt, geschwaerzter Kurztext, Ergebnis-Zusammenfassung mit Belegen), Obergrenzen fuer Eintraege und Textlaenge, eine kaputte Datei wird nie ueberschrieben, jarvis.redaction vor dem Schreiben. Einstellung journal.enabled (Standard false) in src/jarvis/config.py, NICHT in config/jarvis.toml. Nur Speichern und Lesen: nichts wird fortgesetzt oder gestartet. Keine Verdrahtung in bootstrap.py (kommt in assistant-e2e). Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; Bibliotheken nur als optionales Extra mit fester Mindestversion, lazy importiert, mit klarer Meldung bei Fehlen. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Journal uebersteht einen Neustart, Obergrenzen und Redaktion wirken (Tests)",
+        "Kaputte Datei wird nie ueberschrieben, Standard aus",
+        "Nichts wird gestartet oder fortgesetzt (Strukturtest)"
+      ],
+      "scope": [
+        "src/jarvis/journal/",
+        "src/jarvis/config.py",
+        "tests/test_journal.py",
+        "tests/test_config.py",
+        "README.md",
+        "docs/TESTING.md",
+        "docs/BACKLOG.md"
+      ],
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+    },
+    {
+      "id": "agent-router",
+      "title": "Zentraler Agenten-Router mit Faehigkeitsregister, LLM-Planer und Rueckfall auf Regeln",
+      "approved": false,
+      "depends_on": [
+        "event-bus",
+        "llm-goal-planning"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 150,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang A, Schritt A4. src/jarvis/agents/router.py: AgentRouter(AgentPlanner als Rueckfall, optionaler LLM-Planer aus llm-goal-planning) liefert RoutingDecision(agent_id, capabilities, source llm|rules, reason) aus dem AgentRegistry-Faehigkeitsregister; waehlt nie einen nicht verfuegbaren oder fuer den Task nicht erlaubten Agenten oder eine Faehigkeit; jede Entscheidung als routing-Ereignisdaten und ins Audit (Listener); begrenzt in Zeit und Laenge; Einstellung agents.router.enabled (Standard false) in src/jarvis/config.py. Keine neue Faehigkeit; jede Aktion weiter durch ToolRegistry/PermissionEngine. Keine Verdrahtung in bootstrap.py. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Router waehlt nur verfuegbare, erlaubte Agenten und Faehigkeiten (Tests inkl. Missbrauch)",
+        "LLM-Planer faellt bei Fehler, Zeitueberschreitung oder ungueltiger Antwort auf die Regeln zurueck (Fake-LLM)",
+        "Jede Entscheidung erscheint als routing-Daten und im Audit; Standard aus"
+      ],
+      "scope": [
+        "src/jarvis/agents/",
+        "src/jarvis/config.py",
+        "tests/test_agent_router.py",
+        "README.md",
+        "docs/TESTING.md"
+      ],
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+    },
+    {
+      "id": "uia-actions",
+      "title": "UIA: Aktionen ueber UIA-Muster (Invoke, Wert setzen, Auswahl) mit Pruefung danach",
+      "approved": false,
+      "depends_on": [
+        "uia-tools-readonly"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 180,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Ergaenze Aktionen ueber UIA-Muster statt Koordinaten: Invoke, Wert setzen, Auswahl, Umschalten, Fokus. Jede Aktion ist ein ProtectedTool, mindestens YELLOW (Bestaetigung), describe_action nennt Fenster, Steuerelement und Aktion; Passwortfelder und gesperrte Fenster sind immer abgelehnt; kein Tippen in unbekannte Fenster. Nach jeder Aktion wird der Zustand erneut gelesen und gemeldet, ob die erwartete Aenderung eingetreten ist (Beobachten, Handeln, Pruefen). Notaus, halt() und Sitzungsbudget wirken. Die vorhandenen Eingabetools (pyautogui) bleiben unveraendert und sind kein Ausweichweg dieses Schritts. Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; eine Bibliothek kommt nur als optionales Extra mit fester Mindestversion, wird erst in der Factory importiert (lazy) und ihr Fehlen erzeugt eine klare Meldung statt eines Absturzes. Neue Faehigkeiten sind standardmaessig aus (enabled = false) und reagieren auf Notaus (halt) und Sitzungsbudget. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Aktionen nur per UIA-Muster, jede YELLOW mit describe_action (Tests)",
+        "Passwortfelder und gesperrte Fenster immer abgelehnt; Notaus und Budget wirken (Tests)",
+        "Nach jeder Aktion Rueckmeldung ueber den tatsaechlich gelesenen Zustand, bei Abweichung ehrlich als nicht erfolgreich gemeldet",
+        "Windows-Test mit echtem Testfenster auf dem Runner bestanden, nicht uebersprungen"
+      ],
+      "_note": "Sicherheitsrelevant (steuert den PC): ohne konkrete sensitive_edits-Freigabe merged der Besitzer den PR; Aktivierung nur durch den Besitzer."
+    },
+    {
+      "id": "uia-agent-integration",
+      "title": "UIA: Computer-Agent bevorzugt UI-Baum, Bildschirmfoto nur als Rueckfall",
+      "approved": false,
+      "depends_on": [
+        "uia-actions"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 150,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Der Computer-Agent (agents/adapters/computer.py) soll Bedienaufgaben zuerst ueber UI-Baum und UIA-Tools planen und nur bei nicht erreichbaren Steuerelementen auf Bildschirmfoto und Koordinaten zurueckfallen (der Rueckfall bleibt YELLOW und wird im Ergebnis benannt). Keine neue Autonomie, kein zusaetzlicher Agent, keine eigene Steuerschleife: der Orchestrator mit seinen Limits bleibt die einzige. Test mit Fake-Baum und Fake-LLM Ende zu Ende (Fenster oeffnen, Feld fuellen, Knopf druecken, Ergebnis pruefen). Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; eine Bibliothek kommt nur als optionales Extra mit fester Mindestversion, wird erst in der Factory importiert (lazy) und ihr Fehlen erzeugt eine klare Meldung statt eines Absturzes. Neue Faehigkeiten sind standardmaessig aus (enabled = false) und reagieren auf Notaus (halt) und Sitzungsbudget. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Ende-zu-Ende-Test mit Fake-Baum und Fake-LLM",
+        "Rueckfall auf Bildschirmfoto nur bei nicht erreichbarem Element und im Ergebnis benannt",
+        "Orchestrator-Limits, Abbruch und Notaus unveraendert wirksam (Tests)"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
+      "id": "agent-error-recovery",
+      "title": "Fehlererkennung und begrenzte Korrektur: wiederholbare und nicht wiederholbare Fehler",
+      "approved": false,
+      "depends_on": [
+        "agent-router"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang A, Schritt A7. src/jarvis/agents/recovery.py: Fehler klassifizieren (wiederholbar: timeout, backend_error, rate_limited, target_changed mit Neuplanung; nicht wiederholbar: not_authorized, blocked_target, failsafe/Notaus, Abbruch, Budget erschoepft), begrenzte Wiederholung (hoechstens 3, nie nach Berechtigungsablehnung, Notaus oder Abbruch), danach Rueckfall auf das vorhandene begrenzte Replanning der Goal Engine, Ereignis task_update mit Grund. Keine Lockerung bestehender Limits. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Klassifikation und Obergrenze von 3 Versuchen (Tests je Fehlerart)",
+        "Nie Wiederholung nach Berechtigungsablehnung, Notaus oder Abbruch",
+        "Bestehende Replanning-Grenzen unveraendert (Tests)"
+      ],
+      "scope": [
+        "src/jarvis/agents/",
+        "src/jarvis/goals/",
+        "tests/test_agent_recovery.py",
+        "README.md",
+        "docs/TESTING.md"
+      ],
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+    },
+    {
+      "id": "task-resume",
+      "title": "Wiederaufnahme unterbrochener Aufgaben: nur auf ausdruecklichen Befehl, Seiteneffekte nie ohne neue Bestaetigung",
+      "approved": false,
+      "depends_on": [
+        "task-journal",
+        "agent-error-recovery"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang A, Schritt A3. src/jarvis/journal/resume.py: ResumeManager listet beim Start als unterbrochen erkannte Aufgaben aus dem Journal; resume(id) laeuft NUR auf ausdruecklichen Befehl (nie automatisch, nie beim Start, kein Hintergrund-Thread: Strukturtest). Bereits als erledigt gemeldete Schritte werden nicht wiederholt; Schritte mit side_effect nur nach neuer Bestaetigung durch die PermissionEngine; Notaus blockiert; die Fortsetzung nutzt Goal Engine und Orchestrator nur ueber ihre Schnittstellen und deren Grenzen. Ergebnis als Vertragsdaten (activity-Eintrag kind=resume). Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Absturz mitten im Ziel: der Eintrag erscheint als unterbrochen, nichts startet von selbst (Tests)",
+        "Erledigte Schritte laufen nie erneut, side_effect-Schritte brauchen neue Bestaetigung (Tests)",
+        "Notaus blockiert die Wiederaufnahme (Test)"
+      ],
+      "scope": [
+        "src/jarvis/journal/",
+        "tests/test_journal_resume.py",
+        "README.md",
+        "docs/TESTING.md"
+      ],
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+    },
+    {
+      "id": "file-tools",
+      "title": "Datei-Werkzeuge: lesen, anlegen, aendern, verschieben, aufraeumen in bestaetigten Ordnern",
+      "approved": false,
+      "depends_on": [],
+      "max_attempts": 2,
+      "timeout_minutes": 150,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang A, Schritt A8. Neues ProtectedTool 'files' (src/jarvis/files/: controller.py, tools.py, factory.py): list, read (begrenzt), create, write (hash-geschuetzt wie der Coding-Provider), move, copy, mkdir und organize (Plan zum Verschieben nach Regeln mit Vorschau und Einzelbestaetigung). Nur in ausdruecklich bestaetigten Wurzeln (PathGuard der Engine), nie geschuetzte Pfade, kein Loeschen, keine Symlink-Umgehung; Lesen GREEN begrenzt, Schreiben YELLOW mit Vorschau; Notaus (halt) und Budget; Einstellung files.enabled (Standard false) in src/jarvis/config.py. Verdrahtung in src/jarvis/bootstrap.py ist zulaessig und additiv; diesen PR mergt der Besitzer (geschuetzter Pfad), das Gate mergt ihn nicht. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Nur in bestaetigten Wurzeln, nie geschuetzte Pfade, kein Loeschen, keine Symlink-Umgehung (Tests inkl. Missbrauch)",
+        "Schreiben hash-geschuetzt und YELLOW mit Vorschau; organize zeigt erst einen Plan",
+        "Notaus, Budget und Standard aus wirken (Tests)"
+      ],
+      "scope": [
+        "src/jarvis/files/",
+        "src/jarvis/config.py",
+        "src/jarvis/bootstrap.py",
+        "tests/test_files_tools.py",
+        "tests/test_config.py",
+        "README.md",
+        "docs/TESTING.md"
+      ],
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+    },
+    {
+      "id": "assistant-e2e",
+      "title": "Ende-zu-Ende-Assistent: Eingabe, Planung, Router, Agenten, Bestaetigung, Ergebnis, Journal, Ereignisse",
+      "approved": false,
+      "depends_on": [
+        "event-bus",
+        "task-journal",
+        "agent-router",
+        "llm-goal-planning"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 180,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang A, Schritt A9. Verdrahte additiv in src/jarvis/bootstrap.py: Journal, Agenten-Router und den UiBackend-Adapter. Ablauf: Text-Eingabe -> Planung -> Router -> Agenten -> Bestaetigung ueber den vorhandenen Provider -> Ergebnis -> Journal -> Vertragsereignisse. Ende-zu-Ende-Test mit Fake-LLM, Fake-Backends und echter Engine und Registry unter Linux und Windows (keine echten Aktionen); CLI-Befehl /assistant status (nur lesend). Standardmaessig aus, keine Lockerung, kein Selbststart. Verdrahtung in src/jarvis/bootstrap.py ist zulaessig und additiv; diesen PR mergt der Besitzer (geschuetzter Pfad), das Gate mergt ihn nicht. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Ende-zu-Ende-Test: Eingabe -> Plan -> Router -> Agent -> Bestaetigung -> Ergebnis -> Journal -> Ereignisse, auf Linux und Windows",
+        "Notaus, Ablehnung und Zeitueberschreitung beenden den Ablauf sicher (Tests)",
+        "Standard aus; jede Aktion laeuft durch ToolRegistry und PermissionEngine (Strukturtest)"
+      ],
+      "scope": [
+        "src/jarvis/bootstrap.py",
+        "src/jarvis/core/",
+        "src/jarvis/agents/",
+        "src/jarvis/journal/",
+        "src/jarvis/interface/",
+        "src/jarvis/config.py",
+        "tests/test_assistant_e2e.py",
+        "README.md",
+        "docs/TESTING.md",
+        "docs/UI_CONTRACT.md"
+      ],
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+    },
+    {
+      "id": "uia-windows-e2e",
+      "title": "UIA: Windows-Nachweis an echter Anwendung (nur Beobachten)",
+      "approved": false,
+      "depends_on": [
+        "uia-agent-integration"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Schreibe einen Ende-zu-Ende-Test fuer den Windows-Runner an einer einfachen, immer vorhandenen Anwendung (z. B. Editor): starten ueber den vorhandenen kontrollierten Weg, Baum lesen, Text per UIA-Muster setzen, Ergebnis lesen, Fenster schliessen. Der Test muss auf windows-latest laufen und bestehen und darf dort nicht per Skip entfallen; ist ein interaktiver Desktop auf dem Runner nicht verfuegbar, melde den Schritt als blocked und aendere weder CI noch Tests, damit er gruen wird. Keine Nutzung echter Konten oder Daten. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Test laeuft auf dem Windows-Runner und besteht (kein Skip)",
+        "Nur ein harmloses Testfenster, keine echten Daten, Aufraeumen des Prozesses (Test)",
+        "Unmoeglicher Desktop wird als blocked gemeldet, nichts wird abgeschwaecht"
+      ],
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
     },
     {
       "id": "stt-vetting",
@@ -503,76 +817,6 @@
       "_note": "Nutzt einen externen Dienst und einen API-Schluessel: Aktivierung nur durch den Besitzer."
     },
     {
-      "id": "uia-actions",
-      "title": "UIA: Aktionen ueber UIA-Muster (Invoke, Wert setzen, Auswahl) mit Pruefung danach",
-      "approved": false,
-      "depends_on": [
-        "uia-tools-readonly"
-      ],
-      "max_attempts": 2,
-      "timeout_minutes": 180,
-      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Ergaenze Aktionen ueber UIA-Muster statt Koordinaten: Invoke, Wert setzen, Auswahl, Umschalten, Fokus. Jede Aktion ist ein ProtectedTool, mindestens YELLOW (Bestaetigung), describe_action nennt Fenster, Steuerelement und Aktion; Passwortfelder und gesperrte Fenster sind immer abgelehnt; kein Tippen in unbekannte Fenster. Nach jeder Aktion wird der Zustand erneut gelesen und gemeldet, ob die erwartete Aenderung eingetreten ist (Beobachten, Handeln, Pruefen). Notaus, halt() und Sitzungsbudget wirken. Die vorhandenen Eingabetools (pyautogui) bleiben unveraendert und sind kein Ausweichweg dieses Schritts. Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; eine Bibliothek kommt nur als optionales Extra mit fester Mindestversion, wird erst in der Factory importiert (lazy) und ihr Fehlen erzeugt eine klare Meldung statt eines Absturzes. Neue Faehigkeiten sind standardmaessig aus (enabled = false) und reagieren auf Notaus (halt) und Sitzungsbudget. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
-      "acceptance": [
-        "Aktionen nur per UIA-Muster, jede YELLOW mit describe_action (Tests)",
-        "Passwortfelder und gesperrte Fenster immer abgelehnt; Notaus und Budget wirken (Tests)",
-        "Nach jeder Aktion Rueckmeldung ueber den tatsaechlich gelesenen Zustand, bei Abweichung ehrlich als nicht erfolgreich gemeldet",
-        "Windows-Test mit echtem Testfenster auf dem Runner bestanden, nicht uebersprungen"
-      ],
-      "_note": "Sicherheitsrelevant (steuert den PC): ohne konkrete sensitive_edits-Freigabe merged der Besitzer den PR; Aktivierung nur durch den Besitzer."
-    },
-    {
-      "id": "uia-agent-integration",
-      "title": "UIA: Computer-Agent bevorzugt UI-Baum, Bildschirmfoto nur als Rueckfall",
-      "approved": false,
-      "depends_on": [
-        "uia-actions"
-      ],
-      "max_attempts": 2,
-      "timeout_minutes": 150,
-      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Der Computer-Agent (agents/adapters/computer.py) soll Bedienaufgaben zuerst ueber UI-Baum und UIA-Tools planen und nur bei nicht erreichbaren Steuerelementen auf Bildschirmfoto und Koordinaten zurueckfallen (der Rueckfall bleibt YELLOW und wird im Ergebnis benannt). Keine neue Autonomie, kein zusaetzlicher Agent, keine eigene Steuerschleife: der Orchestrator mit seinen Limits bleibt die einzige. Test mit Fake-Baum und Fake-LLM Ende zu Ende (Fenster oeffnen, Feld fuellen, Knopf druecken, Ergebnis pruefen). Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; eine Bibliothek kommt nur als optionales Extra mit fester Mindestversion, wird erst in der Factory importiert (lazy) und ihr Fehlen erzeugt eine klare Meldung statt eines Absturzes. Neue Faehigkeiten sind standardmaessig aus (enabled = false) und reagieren auf Notaus (halt) und Sitzungsbudget. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
-      "acceptance": [
-        "Ende-zu-Ende-Test mit Fake-Baum und Fake-LLM",
-        "Rueckfall auf Bildschirmfoto nur bei nicht erreichbarem Element und im Ergebnis benannt",
-        "Orchestrator-Limits, Abbruch und Notaus unveraendert wirksam (Tests)"
-      ],
-      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
-    },
-    {
-      "id": "uia-windows-e2e",
-      "title": "UIA: Windows-Nachweis an echter Anwendung (nur Beobachten)",
-      "approved": false,
-      "depends_on": [
-        "uia-agent-integration"
-      ],
-      "max_attempts": 2,
-      "timeout_minutes": 120,
-      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Schreibe einen Ende-zu-Ende-Test fuer den Windows-Runner an einer einfachen, immer vorhandenen Anwendung (z. B. Editor): starten ueber den vorhandenen kontrollierten Weg, Baum lesen, Text per UIA-Muster setzen, Ergebnis lesen, Fenster schliessen. Der Test muss auf windows-latest laufen und bestehen und darf dort nicht per Skip entfallen; ist ein interaktiver Desktop auf dem Runner nicht verfuegbar, melde den Schritt als blocked und aendere weder CI noch Tests, damit er gruen wird. Keine Nutzung echter Konten oder Daten. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
-      "acceptance": [
-        "Test laeuft auf dem Windows-Runner und besteht (kein Skip)",
-        "Nur ein harmloses Testfenster, keine echten Daten, Aufraeumen des Prozesses (Test)",
-        "Unmoeglicher Desktop wird als blocked gemeldet, nichts wird abgeschwaecht"
-      ],
-      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
-    },
-    {
-      "id": "llm-goal-planning",
-      "title": "Goal Engine: LLM-gestuetzte Zielzerlegung",
-      "approved": false,
-      "depends_on": [
-        "persistent-results",
-        "llm-routing-policy"
-      ],
-      "max_attempts": 2,
-      "timeout_minutes": 120,
-      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). AUTONOMIE-ENTSCHEIDUNG DES BESITZERS ERFORDERLICH: Ersetze die drei festen Planvorlagen durch eine LLM-gestuetzte Zerlegung, die jeden Kandidaten mit der bestehenden Planpruefung (Limits max_steps<=50, max_attempts_per_step<=5, keine neuen Faehigkeiten/Tools/Agenten, keine Berechtigungsumgehung) validiert und sonst auf die Vorlagen zurueckfaellt. Standard aus, keine Lockerung, kein Selbststart. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
-      "acceptance": [
-        "Die drei Planvorlagen bleiben als Rueckfall; die LLM-gestuetzte Zerlegung ersetzt sie nur, wenn der Kandidat die bestehende Planpruefung besteht (Tests)",
-        "Jeder Kandidat wird validiert: max_steps <= 50, max_attempts_per_step <= 5, keine neuen Faehigkeiten, Tools oder Agenten, keine Berechtigungsumgehung (je ein Test pro Verstoss)",
-        "Standardmaessig aus, kein Selbststart, keine Lockerung bestehender Grenzen (Tests)",
-        "Fake-LLM statt Netzwerk in den Tests; Sicherheitsregression gruen"
-      ]
-    },
-    {
       "id": "coding-llm-edits",
       "title": "Coding-Agent: eigene Aenderungsentwuerfe",
       "approved": false,
@@ -590,22 +834,243 @@
       ]
     },
     {
-      "id": "mcp-security-review",
-      "title": "MCP-Bruecke: gesonderte Sicherheitspruefung (nur Dokument)",
+      "id": "ui-tech-evaluation",
+      "title": "Control Center: UI-Technologie pruefen und entscheiden (nur Dokument)",
       "approved": false,
       "depends_on": [
-        "int-vetting-policy",
-        "uia-tools-readonly"
+        "ui-contract-v1"
       ],
       "max_attempts": 2,
       "timeout_minutes": 90,
-      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md und docs/TESTING.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml-Sicherheitsdefaults oder Sicherheitslimits, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine. Verdrahtung nur in src/jarvis/bootstrap.py (dann mergt der Besitzer den PR). Erstelle docs/MCP_SECURITY.md: Bedrohungsmodell fuer eine MCP-Bruecke (JARVIS als Client, jedes Tool eines freigegebenen Servers als ProtectedTool, Standard YELLOW), Tool-Poisoning und nachtraeglich veraenderte Tool-Beschreibungen (Schema-Hash festhalten), Server als Subprozess unter Job-Objekt, Positivliste statt Auto-Entdeckung, Ausgaben als nicht vertrauenswuerdige Daten, Zugangsdaten, Netzwerk, Notaus, Audit, Sitzungsbudget. Pruefe das offizielle Protokoll und das offizielle Python-SDK (Lizenz im Wortlaut, Version, Sicherheitshinweise). Ende mit Empfehlung und Abnahmetests fuer eine spaetere Umsetzung. Keine Umsetzung. NUR DOKUMENT, KEIN CODE, ENTSCHEIDUNG DES BESITZERS ERFORDERLICH: nichts implementieren, nichts aktivieren. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang B, Schritt B0. Pruefe fuer das Control Center nach docs/INTEGRATIONS.md: (1) Server aus der Standardbibliothek (http.server, Server-Sent Events) mit Browser-Oberflaeche, (2) pywebview mit WebView2 fuer ein natives Fenster, (3) Zeichnen: Canvas 2D, Three.js, PixiJS, (4) Alternativen PySide6, Dear PyGui, Flet; WebView2-Laufzeit unter Windows 10/11; Lizenzen im Wortlaut (GPL/AGPL ausgeschlossen, LGPL nur mit ausdruecklicher Besitzerfreigabe). Schreibe docs/integrations/control-center-ui.md mit Empfehlung (bevorzugt: moeglichst wenig Abhaengigkeiten). PRUEFUNG NUR AN OFFIZIELLEN QUELLEN (Repository, LICENSE-Datei, Release-Seite, PyPI, Sicherheitshinweise): Lizenz im Wortlaut mit Fundstelle, letzte Version und Datum, Wartung, Python- und Windows-Kompatibilitaet, transitive Abhaengigkeiten, Sicherheitshinweise, Datenabfluss, Hashes. Keine Angabe aus dem Gedaechtnis; ist eine Quelle nicht erreichbar, melde blocked. Ergebnis: ein Dokument unter docs/integrations/ nach docs/INTEGRATIONS.md, KEIN Code, keine Installation, ausdrueckliche Empfehlung. AGPL/GPL nur als getrennter Prozess.",
       "acceptance": [
-        "docs/MCP_SECURITY.md mit Bedrohungsmodell, Schutzmassnahmen und Abnahmetests fuer eine spaetere Umsetzung",
-        "Lizenz und Version des offiziellen SDK mit Quelle; bei unerreichbarer Quelle blocked",
-        "Kein Code; es gibt bewusst keinen Umsetzungsschritt, bis der Besitzer ihn nach diesem Dokument anlegt"
+        "docs/integrations/control-center-ui.md mit Lizenz-Wortlaut, Version, Pflege und Windows-Eignung je Kandidat (mit Quelle)",
+        "Ausdrueckliche Empfehlung und offene Fragen fuer den Besitzer",
+        "Kein Code, keine Installation; bei unerreichbarer Quelle blocked"
       ],
-      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+      "scope": [
+        "docs/integrations/",
+        "docs/UI_CONTRACT.md"
+      ],
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+    },
+    {
+      "id": "cc-shell",
+      "title": "Control Center: Server auf Loopback mit Token, Oberflaechen-Huelle gegen das Fake-Backend",
+      "approved": false,
+      "depends_on": [
+        "ui-tech-evaluation"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 150,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. VORAUSSETZUNG (Besitzer-Freigabe der Bibliothek): Beginne nur, wenn docs/integrations/control-center-ui.md die Entscheidung 'nehmen' enthaelt UND eine Zeile 'Besitzer-Freigabe: <Datum>' traegt, die der Besitzer selbst per PR ergaenzt hat. Fehlt eines davon, melde den Schritt als blocked, aendere nichts und lege diese Zeile niemals selbst an. Strang B, Schritt B1. src/jarvis/control_center/ (server.py, web/index.html, web/app.js, web/styles.css): Server NUR auf 127.0.0.1, Zufalls-Token, Pruefung von Host und Origin, Ereignisse per Server-Sent Events oder WebSocket, Befehle per POST mit Groessenlimit und parse_command; zeigt den Vertrag gegen FakeUiBackend; keine externen Ressourcen (nur lokale Dateien, Content-Security-Policy). Natives Fenster oder Browser genau so, wie der freigegebene Pruefbericht es entscheidet. Optionales Extra cc in pyproject.toml nur fuer dort freigegebene Bibliotheken. Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; Bibliotheken nur als optionales Extra mit fester Mindestversion, lazy importiert, mit klarer Meldung bei Fehlen. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Server nur auf Loopback; ohne gueltiges Token oder mit fremdem Origin nichts (Tests inkl. Missbrauch)",
+        "Ereignisse und Befehle laufen ueber den Vertrag, ungueltige werden abgelehnt (Tests)",
+        "Keine externen Ressourcen, CSP gesetzt; Start nur auf ausdruecklichen Befehl",
+        "Start nur mit Entscheidung 'nehmen' und Besitzer-Freigabe-Zeile im Pruefdokument, sonst blocked ohne Aenderung"
+      ],
+      "scope": [
+        "src/jarvis/control_center/",
+        "pyproject.toml",
+        "tests/test_control_center.py",
+        "docs/UI_CONTRACT.md",
+        "README.md",
+        "docs/TESTING.md"
+      ],
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+    },
+    {
+      "id": "cc-confirmation",
+      "title": "Control Center: Bestaetigungsdialog (fail closed) und Notaus immer sichtbar",
+      "approved": false,
+      "depends_on": [
+        "cc-shell"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang B, Schritt B5. In web/: Dialog fuer confirmation_request (Werkzeug, Aktion, Ressource, Stufe, Grund, Kontext, Wahlmoeglichkeiten, Restzeit); Standard ist Ablehnen; Zeitablauf, Schliessen des Fensters und Verbindungsverlust bedeuten abgelehnt (der Server ruft backend.detach()); Notaus-Knopf immer sichtbar und ohne Rueckfrage; keine Sitzungsfreigabe, die die Anfrage nicht anbietet. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Dialog zeigt alle Felder der Anfrage; Ablehnen ist Standard",
+        "Zeitablauf, Schliessen und Verbindungsverlust gelten als abgelehnt (Server-Tests gegen das Fake-Backend)",
+        "Notaus-Knopf immer erreichbar (Asset-Pruefung); nur angebotene Wahlmoeglichkeiten sind sendbar"
+      ],
+      "scope": [
+        "src/jarvis/control_center/",
+        "tests/test_control_center_confirmation.py",
+        "docs/UI_CONTRACT.md",
+        "README.md"
+      ],
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+    },
+    {
+      "id": "cc-dashboard",
+      "title": "Control Center: Aufgaben- und Agenten-Dashboard live mit Abbrechen",
+      "approved": false,
+      "depends_on": [
+        "cc-shell",
+        "event-bus"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 150,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang B, Schritt B3. In web/: Liste laufender Aufgaben und Agenten (activity, task_update, routing), Details, Abbrechen ueber den Befehl cancel (zeigt die echte Antwort: abgebrochen, Abbruch angefordert, abgelehnt), Ergebnisse (result) mit Belegen; nur Daten aus dem Vertrag, Texte als Text (nie als HTML einsetzen). Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Dashboard folgt den Ereignissen live (Tests gegen das Fake-Backend)",
+        "Abbrechen zeigt die echte Antwort des Backends",
+        "Texte werden nie als HTML eingefuegt (Asset-Pruefung)"
+      ],
+      "scope": [
+        "src/jarvis/control_center/",
+        "tests/test_control_center_dashboard.py",
+        "docs/UI_CONTRACT.md",
+        "README.md"
+      ],
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+    },
+    {
+      "id": "cc-ai-core",
+      "title": "Control Center: animierter KI-Kern mit Zustandsabbildung",
+      "approved": false,
+      "depends_on": [
+        "cc-shell"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 150,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang B, Schritt B2. In web/: animierter Kern (Canvas 2D oder die im Pruefbericht freigegebene Bibliothek) fuer die Zustaende ready, listening, processing, speaking, awaiting_confirmation, error, emergency; die Abbildung Zustand -> Aussehen steht als Tabelle (web/core_states.json) und wird von Python-Tests auf Vollstaendigkeit und Grenzen geprueft; Bewegungsreduktion (prefers-reduced-motion), Notaus sichtbar rot. Es wird nur ein Zustand gezeigt, den das Backend meldet; nichts wird erfunden. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Jeder Zustand des Vertrags ist abgebildet, Werte begrenzt (Tabellen-Test)",
+        "prefers-reduced-motion wird beachtet, keine externen Ressourcen (Asset-Pruefung)",
+        "Gezeigt wird nur ein vom Backend gemeldeter Zustand"
+      ],
+      "scope": [
+        "src/jarvis/control_center/",
+        "tests/test_control_center_core.py",
+        "docs/UI_CONTRACT.md",
+        "README.md"
+      ],
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+    },
+    {
+      "id": "cc-voice-viz",
+      "title": "Control Center: Sprachvisualisierung und Sprachknoepfe",
+      "approved": false,
+      "depends_on": [
+        "cc-shell"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang B, Schritt B4. In web/: Pegel- und Wellenanzeige aus voice_level-Ereignissen, Knoepfe start_voice und stop_voice (Mikrofon nur auf ausdruecklichen Knopfdruck), Anzeige des Zustands listening/processing/speaking; keine Audiodaten im Browser. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Anzeige folgt den voice_level-Ereignissen (Tests gegen das Fake-Backend)",
+        "Mikrofon startet nur durch den Befehl start_voice",
+        "Keine Audiodaten im Frontend (Asset-Pruefung)"
+      ],
+      "scope": [
+        "src/jarvis/control_center/",
+        "tests/test_control_center_voice.py",
+        "docs/UI_CONTRACT.md",
+        "README.md"
+      ],
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+    },
+    {
+      "id": "cc-backend-binding",
+      "title": "Control Center: echtes Backend statt Fake, Startbefehl jarvis-cc",
+      "approved": false,
+      "depends_on": [
+        "cc-shell",
+        "event-bus",
+        "assistant-e2e"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 150,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang B, Schritt B6. Verbinde das Control Center mit dem echten UiBackend (Adapter aus event-bus und Ablauf aus assistant-e2e) und lege den Startbefehl jarvis-cc an (pyproject-Skripte); Einstellung control_center.enabled (Standard false) in src/jarvis/config.py; nur Loopback; nichts startet von selbst; das Backend besteht dieselbe Konformitaetspruefung. Verdrahtung in src/jarvis/bootstrap.py ist zulaessig und additiv; diesen PR mergt der Besitzer (geschuetzter Pfad), das Gate mergt ihn nicht. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "jarvis-cc startet das Control Center nur auf ausdruecklichen Befehl und nur auf Loopback",
+        "Echtes Backend besteht run_conformance (Tests)",
+        "Standard aus; Notaus-Knopf wirkt auf die echte Engine (Test)"
+      ],
+      "scope": [
+        "src/jarvis/control_center/",
+        "src/jarvis/bootstrap.py",
+        "src/jarvis/config.py",
+        "pyproject.toml",
+        "tests/test_control_center_binding.py",
+        "docs/UI_CONTRACT.md",
+        "README.md",
+        "docs/TESTING.md"
+      ],
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+    },
+    {
+      "id": "cc-results-audit",
+      "title": "Control Center: Ergebnis- und Audit-Ansicht (nur lesend)",
+      "approved": false,
+      "depends_on": [
+        "cc-dashboard",
+        "task-journal"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang B, Schritt B7. Nur lesende Ansichten: Ergebnisse und Verlauf aus dem Journal, Audit-Ereignisse (geschwaerzt) mit Filter; keine Aktion, keine Aenderung. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Ansichten sind nur lesend (Strukturtest)",
+        "Geschwaerzte Daten, keine Geheimnisse (Tests)",
+        "Filter und Begrenzung der Eintraege"
+      ],
+      "scope": [
+        "src/jarvis/control_center/",
+        "tests/test_control_center_audit.py",
+        "docs/UI_CONTRACT.md",
+        "README.md"
+      ],
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+    },
+    {
+      "id": "cc-windows-start",
+      "title": "Control Center: Windows-Start und Pruefung in jarvis doctor",
+      "approved": false,
+      "depends_on": [
+        "cc-backend-binding"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 120,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang B, Schritt B8. jarvis doctor prueft (nur lesend) WebView2-Laufzeit und Control-Center-Voraussetzungen und meldet auf Deutsch; Schnellstart im README (Installation, jarvis-cc, was aus ist). Keine Aktivierung, kein Schreiben. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "jarvis doctor meldet die Voraussetzungen nur lesend und deutschsprachig",
+        "Schnellstart fuer Windows im README",
+        "Nichts wird aktiviert"
+      ],
+      "scope": [
+        "src/jarvis/interface/",
+        "src/jarvis/control_center/",
+        "tests/test_doctor.py",
+        "README.md",
+        "docs/TESTING.md"
+      ],
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+    },
+    {
+      "id": "cc-windows-smoke",
+      "title": "Control Center: Windows-Rauchtest auf dem Runner (ohne Oberflaeche)",
+      "approved": false,
+      "depends_on": [
+        "cc-windows-start"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 90,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang B, Schritt B9. Test fuer den Windows-Runner (darf nicht per Skip entfallen): Server starten und beenden, Token und Origin erzwingen, Ereignisstrom lesen, Befehl und Antwort pruefen, ohne Browser und ohne Fenster. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Test laeuft auf dem Windows-Runner und besteht (kein Skip)",
+        "Token und Origin werden erzwungen, Ereignisstrom und Befehl funktionieren",
+        "Der Server wird sauber beendet"
+      ],
+      "scope": [
+        "tests/test_control_center_windows.py",
+        "src/jarvis/control_center/",
+        "docs/TESTING.md"
+      ],
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
     },
     {
       "id": "os-sandbox-design",
@@ -675,6 +1140,85 @@
         "Kein Code"
       ],
       "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+    },
+    {
+      "id": "mail-provider",
+      "title": "E-Mail: lesen und Entwuerfe vorbereiten, Senden nur je Nachricht bestaetigt (vorbereitet, nicht freigegeben)",
+      "approved": false,
+      "depends_on": [
+        "mail-design",
+        "llm-routing-policy"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 150,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang A. Provider fuer E-Mail (IMAP/SMTP aus der Standardbibliothek): Lesen und Entwuerfe; Senden nur als YELLOW mit Einzelbestaetigung je Nachricht (Empfaenger, Betreff, Vorschau), nie automatisch; Zugangsdaten im Windows-Anmeldeinformationsspeicher; Inhalte nie ungefragt an die Cloud (Routing-Richtlinie). Nach dem Entwurf in docs/MAIL_DESIGN.md. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Senden nur mit Einzelbestaetigung je Nachricht (Tests)",
+        "Zugangsdaten nie in Konfiguration oder Logs",
+        "Standard aus; Notaus und Budget wirken"
+      ],
+      "scope": [
+        "src/jarvis/mail/",
+        "src/jarvis/config.py",
+        "src/jarvis/bootstrap.py",
+        "tests/test_mail.py",
+        "README.md",
+        "docs/TESTING.md"
+      ],
+      "_note": "Vorbereitet, NICHT freigegeben: erst nach dem Entwurf mail-design und ausdruecklicher Entscheidung des Besitzers."
+    },
+    {
+      "id": "office-docs",
+      "title": "Dokumente: Tabellen, Texte und Praesentationen im Workspace (vorbereitet, nicht freigegeben)",
+      "approved": false,
+      "depends_on": [
+        "office-design"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 150,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang A. Lesen und Erzeugen von Tabellen, Texten und Praesentationen im bestaetigten Workspace (Bibliotheken nach docs/INTEGRATIONS.md); Makros nie ausfuehren; Schreiben YELLOW mit Vorschau. Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; Bibliotheken nur als optionales Extra mit fester Mindestversion, lazy importiert, mit klarer Meldung bei Fehlen. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Schreiben nur im bestaetigten Workspace, Makros werden nie ausgefuehrt (Tests)",
+        "Bibliotheken nur als Extra nach freigegebenem Pruefbericht",
+        "Standard aus"
+      ],
+      "scope": [
+        "src/jarvis/office/",
+        "src/jarvis/config.py",
+        "src/jarvis/bootstrap.py",
+        "pyproject.toml",
+        "tests/test_office.py",
+        "README.md",
+        "docs/TESTING.md"
+      ],
+      "_note": "Vorbereitet, NICHT freigegeben: erst nach dem Entwurf office-design und Entscheidung des Besitzers."
+    },
+    {
+      "id": "media-agent",
+      "title": "Medien: Bild, Audio, Video mit festen Argumentlisten (vorbereitet, nicht freigegeben)",
+      "approved": false,
+      "depends_on": [
+        "media-design",
+        "os-sandbox-design"
+      ],
+      "max_attempts": 2,
+      "timeout_minutes": 150,
+      "task": "Lies auf dem Basis-Branch CLAUDE.md, README.md (betroffene Abschnitte), docs/BACKLOG.md, docs/PHASE14_AUTONOMY.md, docs/TESTING.md, docs/RELEASE_PLAN.md und docs/UI_CONTRACT.md. Erst Tests (rot), dann Umsetzung (gruen); kleine Commits. Keine Aenderung an .github/, .claude/, CLAUDE.md, config/jarvis.toml, src/jarvis/permissions/, Sicherheitslimits oder Sicherheitstests, keine neue Autonomie (kein Selbststart, keine Hintergrundziele), kein Netzwerkzugriff in Tests. Jede Tool-Aktion bleibt ueber ToolRegistry.execute -> PermissionEngine; Notaus und Sitzungsbudget wirken. Aenderungen nur innerhalb des Aufgabenbereichs (scope) dieses Schritts. Neue Faehigkeiten sind standardmaessig aus. Strang A. Medienbearbeitung ueber FFmpeg als externes Programm mit festen, geprueften Argumentlisten (nie als Kommandozeilentext), Pillow nach Pruefbericht, Ausgabe nur im bestaetigten Workspace, Ressourcengrenzen. Keine neue Pflichtabhaengigkeit: pyproject.toml behaelt dependencies = []; Bibliotheken nur als optionales Extra mit fester Mindestversion, lazy importiert, mit klarer Meldung bei Fehlen. Fuehre die direkt betroffenen Tests und die Sicherheitsregression aus (python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py), berichte ehrlich, was auf Linux lief und was Windows braucht (Windows-Nachweis liefert die CI). Aktualisiere README/docs nur fuer diesen Schritt.",
+      "acceptance": [
+        "Nur feste Argumentlisten, nie eine Kommandozeilenzeichenkette (Tests)",
+        "Ausgabe nur im bestaetigten Workspace, Ressourcengrenzen",
+        "Standard aus"
+      ],
+      "scope": [
+        "src/jarvis/media/",
+        "src/jarvis/config.py",
+        "src/jarvis/bootstrap.py",
+        "pyproject.toml",
+        "tests/test_media.py",
+        "README.md",
+        "docs/TESTING.md"
+      ],
+      "_note": "Vorbereitet, NICHT freigegeben: erst nach media-design und os-sandbox-design und Entscheidung des Besitzers."
     }
   ]
 }

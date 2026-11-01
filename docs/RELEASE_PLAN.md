@@ -76,3 +76,16 @@ Der erste nutzbare Gesamtstand ist M3. Verzögerungen entstehen vor allem durch 
 
 ## Ausführung nach dem Merge
 Die Reihenfolge, in der die Automatik die Schritte wählt (Reihenfolge in `backlog.json`): LLM-Kette (läuft), Sprache, Recherche, UI-Aktionen, Zielplanung, Coding. Start jeder weiteren Kette: Actions → "Trigger Claude Code Routine" mit `backlog_item = next`, `auto_continue = true`, `chain_budget = 5`; sie stoppt an den Besitzer-Merges und den zwei Bibliotheks-Stopps und setzt nach dem Merge fort.
+
+## Roadmap: zwei Arbeitsstränge und das Control Center (Freigabe-PR "Roadmap")
+Verbindlich für die weitere Arbeit bis zum 21.11.2026. Ein gemeinsamer, versionierter Vertrag (`docs/UI_CONTRACT.md`, `src/jarvis/ui_contract/`, PR #73) entkoppelt beide Stränge.
+
+**Strang A (Autonomie und Agenten)** in Ausführungsreihenfolge: LLM-Kette → `llm-goal-planning` → `event-bus` → `task-journal` → `agent-router` → `uia-actions` → `uia-agent-integration` → `agent-error-recovery` → `task-resume` → `file-tools` → `assistant-e2e` → `uia-windows-e2e` → Sprache (3) → Recherche (4) → `coding-llm-edits`. Reihenfolge = Priorität: LLM und Planung, PC-Steuerung, zuverlässige Autonomie, Sprache und Recherche, Coding.
+**Strang B (Control Center):** `ui-tech-evaluation` → `cc-shell` → `cc-confirmation` → `cc-dashboard` → `cc-ai-core` → `cc-voice-viz` → `cc-backend-binding` → `cc-results-audit` → `cc-windows-start` → `cc-windows-smoke`. B hängt nur vom Vertrag ab (`ui-contract-v1`), vom Ereignisbus, vom Journal und vom Ende-zu-Ende-Ablauf; kein Schritt von A hängt von B ab (Test).
+**Danach (nach Verfügbarkeit):** die Entwürfe `os-sandbox-design`, `mail-design`, `office-design`, `media-design` (nur Dokumente). Die Umsetzung von E-Mail, Office und Medien (`mail-provider`, `office-docs`, `media-agent`) steht als **vorbereitete, nicht freigegebene** Einträge im Backlog; E-Mail-Versand bleibt je Nachricht bestätigungspflichtig.
+
+**Ausführung:** Die Kette (ein aktiver Auftrag, höchstens 5 je Kette, Tageslimit `JARVIS_MAX_JOBS_PER_DAY`) arbeitet Strang A nach Dateireihenfolge ab. Strang B läuft parallel in eigenen Sitzungen mit eigenen Branches (ein Schritt je Branch, `backlog_item = <ID>` bzw. direkter Auftrag), weil die Kette nur einen Auftrag zugleich ausführt. Beide nutzen dieselbe Konformitätsprüfung `run_conformance`.
+
+**Aufgabenbereiche:** Jeder neue Schritt trägt einen `scope` (erlaubte Pfade). Änderungen außerhalb hält das Gate zurück. Nur `file-tools`, `assistant-e2e` und `cc-backend-binding` haben `src/jarvis/bootstrap.py` im Bereich: Diese PRs mergt der Besitzer. Es gibt keine `sensitive_edits`-Vorab-Freigabe.
+
+**Besitzer-Stopps, die bleiben:** Bibliotheksfreigabe per Zeile im Prüfdokument vor `stt-local-provider`, `research-extract-backend` und `cc-shell`; Wahl der Suchquelle bei `research-search-provider`; Merges der drei `bootstrap.py`-Schritte; jede Aktion mit Wirkung bleibt YELLOW mit Einzelbestätigung, Notaus und Budget unverändert.

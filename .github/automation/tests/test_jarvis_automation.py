@@ -501,15 +501,59 @@ def test_unapproved_and_unmet_items_never_selected():
     assert ja.select_next_item(items, {"first"}, set())["id"] == "second"
 
 
-PINNED_PLAN = ["windows-capture-tests", "coding-windows-process-tree", "persistent-results", "onboarding-windows", "memory-semantic-search",
-               "voice-barge-in-hotword", "docs-sync",
-               "int-vetting-policy", "uia-vetting", "uia-model-fake", "uia-provider-readonly", "uia-tools-readonly",       # Integrationskette 1 (UIA lesend), gemergt
-               "llm-compat-vetting", "llm-compat-provider", "llm-routing-design", "llm-routing-policy",                   # Integrationskette 2 (LLM)
-               "stt-vetting", "stt-local-provider", "stt-vad-endpointing",                                                  # Release-Freigabe: lokale Sprache
-               "research-vetting", "research-search-interface", "research-extract-backend", "research-search-provider",   # Recherche
-               "uia-actions", "uia-agent-integration", "uia-windows-e2e",                                                   # UI-Aktionen (sicherheitskritisch)
-               "llm-goal-planning", "coding-llm-edits"]                                                                     # LLM-Zielplanung und Coding-Entwuerfe (sicherheitskritisch)
-PINNED_DONE = PINNED_PLAN[:12]          # gemergt (PR #34, #38, #41, #48, #50, #52, #55, #58, #60, #62, #65, #66): done verhindert jede Wiederholung; die vier LLM-Schritte sind offen
+PINNED_PLAN = [   # Reihenfolge in backlog.json = Ausfuehrungsreihenfolge der Automatik
+               "windows-capture-tests",
+               "coding-windows-process-tree",
+               "persistent-results",
+               "onboarding-windows",
+               "memory-semantic-search",
+               "voice-barge-in-hotword",
+               "docs-sync",
+               "int-vetting-policy",
+               "uia-vetting",
+               "uia-model-fake",
+               "uia-provider-readonly",
+               "uia-tools-readonly",
+               "llm-compat-vetting",
+               "llm-compat-provider",
+               "llm-routing-design",
+               "llm-routing-policy",
+               "ui-contract-v1",
+               "llm-goal-planning",
+               "event-bus",
+               "task-journal",
+               "agent-router",
+               "uia-actions",
+               "uia-agent-integration",
+               "agent-error-recovery",
+               "task-resume",
+               "file-tools",
+               "assistant-e2e",
+               "uia-windows-e2e",
+               "stt-vetting",
+               "stt-local-provider",
+               "stt-vad-endpointing",
+               "research-vetting",
+               "research-search-interface",
+               "research-extract-backend",
+               "research-search-provider",
+               "coding-llm-edits",
+               "ui-tech-evaluation",
+               "cc-shell",
+               "cc-confirmation",
+               "cc-dashboard",
+               "cc-ai-core",
+               "cc-voice-viz",
+               "cc-backend-binding",
+               "cc-results-audit",
+               "cc-windows-start",
+               "cc-windows-smoke",
+               "os-sandbox-design",
+               "mail-design",
+               "office-design",
+               "media-design"]
+DONE_AT_RELEASE_PLAN = {"ui-contract-v1"}      # per direktem Auftrag umgesetzt (PR #73), steht als done
+PINNED_DONE = [i for i in PINNED_PLAN if i in set(PINNED_PLAN[:12]) | DONE_AT_RELEASE_PLAN]     # gemergt: done verhindert jede Wiederholung
 
 
 def test_shipped_backlog_approvals_are_exactly_the_owner_approved_steps():
@@ -528,14 +572,28 @@ def test_shipped_backlog_approvals_are_exactly_the_owner_approved_steps():
 
 
 LLM_CHAIN = ["llm-compat-vetting", "llm-compat-provider", "llm-routing-design", "llm-routing-policy"]
-RELEASE_ORDER = PINNED_PLAN[12:]      # die Reihenfolge, in der die Automatik die noch offenen Schritte waehlt (= Reihenfolge in backlog.json): sicherheitskritische zuletzt
-OWNER_APPROVED_SECURITY_CRITICAL = ["uia-actions", "uia-agent-integration", "uia-windows-e2e", "llm-goal-planning", "coding-llm-edits"]
-STILL_BLOCKED = ["audit-hash-chain", "cli-confirm-timeout", "smartphone-api-design", "mcp-security-review", "os-sandbox-design", "mail-design", "office-design", "media-design"]
+RELEASE_ORDER = [i for i in PINNED_PLAN[12:] if i not in DONE_AT_RELEASE_PLAN]      # die Reihenfolge, in der die Automatik die noch offenen Schritte waehlt (= Reihenfolge in backlog.json)
+SECURITY_CRITICAL_APPROVED = ["uia-actions", "uia-agent-integration", "uia-windows-e2e", "llm-goal-planning", "coding-llm-edits"]       # Besitzerentscheidung (Release-Plan)
+ROADMAP_NEW = ["event-bus", "task-journal", "task-resume", "agent-router", "agent-error-recovery", "file-tools", "assistant-e2e", "ui-tech-evaluation", "cc-shell", "cc-confirmation",
+               "cc-dashboard", "cc-ai-core", "cc-voice-viz", "cc-backend-binding", "cc-results-audit", "cc-windows-start", "cc-windows-smoke"]       # Roadmap Control Center und Autonomie
+WIRING_IN_BOOTSTRAP = {"file-tools", "assistant-e2e", "cc-backend-binding"}        # die einzigen neuen Schritte mit bootstrap.py im Aufgabenbereich: der Besitzer mergt sie
+STILL_BLOCKED = ["audit-hash-chain", "cli-confirm-timeout", "smartphone-api-design", "mcp-security-review", "mail-provider", "office-docs", "media-agent"]
 SCOPE_DIGESTS = {      # SHA-256 ueber Aufgabe, Abnahmekriterien, Abhaengigkeiten, Zeit, Versuche, sensitive_edits und scope zum Zeitpunkt der Freigabe: eine Umfangserweiterung schlaegt an
     "llm-compat-vetting": "7889f1b8a1ba2c10095169ebc82be5b21a737d16418d477aa3cf2993fd75d62a",
     "llm-compat-provider": "9fa08b09912cdc285055389c94dda43be9568a3c5189aede0771193a4f9c645c",
     "llm-routing-design": "5edfac70e7b4e9d4a8374ba0ce1e1f3a4ef9e4080d6d3ea5265d48e2c69c5931",
     "llm-routing-policy": "018bdbd7fd938895156f4fcc61372021fe0e5b7303f2e62d785f239030b45919",
+    "llm-goal-planning": "f1674218effceb58d01df6e8b85922fcf04c751038d0f08a9f3f3255dc332e61",
+    "event-bus": "34eb544211ccde719d839d5edcffcdacecda7da1ac827abfe1c58b46981262a3",
+    "task-journal": "fc68c47d6c309e606b3574944dd19d4f348e986ad3b83bd889eec5d34baaf578",
+    "agent-router": "983d0b0adf1ebf8f504dfd2222611653ab2d3335945eb029780076585c13b4aa",
+    "uia-actions": "c098afa47b64a5055e8539c2ef1c0b51e96a009771581c113d4d757edab47c49",
+    "uia-agent-integration": "549856178055bf6fbebbcb9ee3d32cf9c7bbd85e6f4a55f86c582d49012f3b74",
+    "agent-error-recovery": "af72b1eeab0da04767e8625978eb9b05b9c346433cb3c64c35f7807086416911",
+    "task-resume": "b207446b2ae382bed4e607c009405bec1ec9beb9445a030e06c63ef0731a60b2",
+    "file-tools": "e2ab2f42ee51b8075f112de7e810ebc5a28039cf0c8a041ef7666272a7b3bad5",
+    "assistant-e2e": "18194a7f5a30ebcc4664905a2eea46786384ff2fec2e1943d1635ff61016212f",
+    "uia-windows-e2e": "86d44b835803c638bfdb2bbd8675eb8e99e665b9c6a6829a6586f62d4506d9ae",
     "stt-vetting": "a8939a92236283c4a5e4dc12ae935b74f97003d69c6bd5c61a5e470daefb9829",
     "stt-local-provider": "2113225f581e1c13c20e252b63cd77d93d30bfdd9b3a8acaefb16ee776f76e04",
     "stt-vad-endpointing": "ce118d676fc82dd6050939e8c0fc108ed5087020e64abcbaed5a9f8846f81115",
@@ -543,11 +601,21 @@ SCOPE_DIGESTS = {      # SHA-256 ueber Aufgabe, Abnahmekriterien, Abhaengigkeite
     "research-search-interface": "ad2a55bc44aee7f111f66f0cab9c32cc0a951c7d00b4644ebee2491b4928eabb",
     "research-extract-backend": "9c2d9abd6ec7e0ab8935fc1886f8e00ee9c8c969f6cdf59e7576890e00ff421f",
     "research-search-provider": "7426d5f463f9372c626ba9fc3ba72cb881de84572dfc7e13377f4a23ea1a9e80",
-    "uia-actions": "c098afa47b64a5055e8539c2ef1c0b51e96a009771581c113d4d757edab47c49",
-    "uia-agent-integration": "549856178055bf6fbebbcb9ee3d32cf9c7bbd85e6f4a55f86c582d49012f3b74",
-    "uia-windows-e2e": "86d44b835803c638bfdb2bbd8675eb8e99e665b9c6a6829a6586f62d4506d9ae",
-    "llm-goal-planning": "f1674218effceb58d01df6e8b85922fcf04c751038d0f08a9f3f3255dc332e61",
     "coding-llm-edits": "9920c14187f22e28ba40e86f9f1bd21fb263dc8356b9f02deeee53f9a64dd4e8",
+    "ui-tech-evaluation": "90f2749af053fec14c990e69e0e279b1df5a68c53929ba664f94dcbf56b13eab",
+    "cc-shell": "8cadff33bc30a2aeb8c00b5a98d3482915bfc3681c6e94ff83152dd3f5d236b1",
+    "cc-confirmation": "687916d3849acb84c69b31e30156a9a42269077379b43faf3fa35bc2b38fd6d7",
+    "cc-dashboard": "11a6921e9c4fbf716bc29e1b325be351223dd0ef7bee7d1fbace3929add2a9be",
+    "cc-ai-core": "350d92c86faf11ff10f999ab28da105c20633b8683eb37b0f88c8518f512d351",
+    "cc-voice-viz": "b2137aef5c11fe6d7a22b8c63028aee70cd288a2d5b8e1d72f31fe346ff16cc2",
+    "cc-backend-binding": "aeecf066beec0da47f55902fff7b184ff33c02a296d9dccf8fe68d88c6df6fde",
+    "cc-results-audit": "dea33b549a0f7d8b925281ea1f16f2454e4827bc3d8913807e8d1c4f8820d5f9",
+    "cc-windows-start": "8ed3484d78ac339cc804759a8848452dd8f04fe2511b659099afc9e8f556065a",
+    "cc-windows-smoke": "cdd2810f85b01c550e9452099e7cb6204a8d4675c12d6b459535b7ce22be4908",
+    "os-sandbox-design": "03d2f95ad9d2cb135d3e2cbb1d2903bcae0d2554d38847a1fcec0f7e1159dd1d",
+    "mail-design": "9d1002498bb3ea3e8a56f60c7a998c3341df952c4709a4aac22cef6a748db1fc",
+    "office-design": "d362831f023a37326840e7d95eda60acc96cbe0d523d8fd51e0987754908aefd",
+    "media-design": "aa9a1bf2ba706ecf37e9aa4687a8f9e3625a99c6d40036e525e3a338eeffbc85",
 }
 
 
@@ -556,40 +624,62 @@ def _scope_digest(item):
                                      sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-def test_the_open_approved_steps_run_in_dependency_order_with_security_critical_ones_last():
-    """Nach den zwoelf erledigten Schritten waehlt 'next' nacheinander genau die freigegebenen Schritte in Abhaengigkeitsreihenfolge (LLM, Sprache, Recherche, dann UI-Aktionen,
-    Zielplanung, Coding); danach nichts mehr. Die Reihenfolge in backlog.json ist die Ausfuehrungsreihenfolge: sicherheitskritische Schritte stehen am Ende."""
+def test_the_open_approved_steps_run_in_dependency_order_llm_first_and_the_control_center_after_the_agents():
+    """Nach den zwoelf erledigten Schritten waehlt 'next' nacheinander die freigegebenen Schritte in Abhaengigkeitsreihenfolge (LLM und Planung zuerst, dann Autonomie und PC-Steuerung,
+    Sprache, Recherche, Coding, Control Center, zuletzt Entwuerfe); danach nichts mehr. Die Reihenfolge in backlog.json ist die Ausfuehrungsreihenfolge."""
     items = ja.load_backlog(ROOT / ".github/automation/backlog.json")
     done = {"autonomy-invariants", "session-budget"} | set(PINNED_DONE)
     order = []
     while (nxt := ja.select_next_item(items, done, set())) is not None:
         order.append(nxt["id"])
         done.add(nxt["id"])
-    assert order == RELEASE_ORDER and order[:4] == LLM_CHAIN and order[-5:] == OWNER_APPROVED_SECURITY_CRITICAL
+    assert order == RELEASE_ORDER and order[:4] == LLM_CHAIN and order[4] == "llm-goal-planning"
+    assert order.index("llm-goal-planning") < order.index("agent-router") < order.index("assistant-e2e") < order.index("cc-backend-binding")
+    assert order.index("coding-llm-edits") < order.index("ui-tech-evaluation")                        # Control Center nach Coding (Prioritaet des Besitzers)
     by_id = {i["id"]: i for i in items}
     assert all(by_id[i]["approved"] is False for i in STILL_BLOCKED)
+    assert {"ui-contract-v1"} <= {i["id"] for i in items if i.get("done")}
 
 
-def test_dependencies_of_the_open_steps_point_only_to_earlier_steps_and_keep_the_llm_chain_first():
+def test_dependencies_of_the_open_steps_point_only_to_earlier_steps_and_the_strands_are_independent():
     items = ja.load_backlog(ROOT / ".github/automation/backlog.json")
     by_id = {i["id"]: i for i in items}
     ids = [i["id"] for i in items]
     assert [by_id[i]["depends_on"] for i in LLM_CHAIN] == [["int-vetting-policy"], ["llm-compat-vetting"], ["llm-compat-vetting"], ["llm-compat-provider", "llm-routing-design"]]
     assert by_id["llm-goal-planning"]["depends_on"] == ["persistent-results", "llm-routing-policy"] and by_id["coding-llm-edits"]["depends_on"] == ["llm-goal-planning"]
-    for step in RELEASE_ORDER:
+    for step in PINNED_PLAN[12:] + ["mail-provider", "office-docs", "media-agent"]:
         assert all(ids.index(d) < ids.index(step) for d in by_id[step]["depends_on"]), step
     base = {"autonomy-invariants", "session-budget"} | set(PINNED_DONE)
     assert ja.select_next_item(items, base, set())["id"] == "llm-compat-vetting"
     for step in RELEASE_ORDER[1:]:                                                                           # kein Schritt ist ohne seine Vorgaenger waehlbar
-        deps = set(by_id[step]["depends_on"]) - base
-        if deps:
+        if set(by_id[step]["depends_on"]) - base:
             assert ja.select_next_item([by_id[step]], base, set()) is None, step
+    # Strang A haengt nie vom Control Center ab; Strang B haengt nur vom Vertrag, vom Ereignisbus, vom Journal, vom Ende-zu-Ende-Ablauf und von sich selbst ab
+    strand_b = [i for i in ids if i.startswith("cc-") or i == "ui-tech-evaluation"]
+    for step in ids:
+        if step not in strand_b:
+            assert not set(by_id[step]["depends_on"]) & set(strand_b), step
+    allowed_b = {"ui-contract-v1", "event-bus", "task-journal", "assistant-e2e", *strand_b}
+    assert all(set(by_id[i]["depends_on"]) <= allowed_b for i in strand_b)
 
 
-def test_the_scope_of_the_approved_open_steps_is_pinned_and_none_declares_protected_edits():
+def test_the_scope_of_the_approved_open_steps_is_pinned_and_protected_files_stay_out_of_it():
     items = {i["id"]: i for i in ja.load_backlog(ROOT / ".github/automation/backlog.json")}
     assert {k: _scope_digest(items[k]) for k in RELEASE_ORDER} == SCOPE_DIGESTS
-    assert all("sensitive_edits" not in items[k] and "scope" not in items[k] for k in RELEASE_ORDER)       # keine Vorab-Freigabe geschuetzter Dateien: bootstrap.py mergt der Besitzer
+    assert all("sensitive_edits" not in items[k] for k in RELEASE_ORDER + ["mail-provider", "office-docs", "media-agent"])          # keine Vorab-Freigabe geschuetzter Dateien
+    never = (".github/", "CLAUDE.md", ".claude/", "config/jarvis.toml", "src/jarvis/permissions/", "tests/test_emergency_stop.py", "tests/test_security_", "tests/test_autonomy_invariants.py")
+    for k in ROADMAP_NEW:
+        scope = items[k]["scope"]
+        assert not [s for s in scope if s.startswith(never)], (k, scope)
+        assert ("src/jarvis/bootstrap.py" in scope) == (k in WIRING_IN_BOOTSTRAP), k
+    assert all("scope" not in items[k] for k in RELEASE_ORDER if k not in ROADMAP_NEW and k != "ui-contract-v1")       # die frueher freigegebenen Schritte sind unveraendert
+
+
+def test_done_roadmap_steps_have_their_artifacts_in_the_repository():
+    """ui-contract-v1 steht als done, weil er per direktem Auftrag umgesetzt wurde (PR #73): Dieser Test wird erst gruen, wenn dessen Code in main liegt."""
+    for item_id, files in {"ui-contract-v1": ["src/jarvis/ui_contract/schema.py", "src/jarvis/ui_contract/backend.py", "src/jarvis/ui_contract/fake.py", "docs/UI_CONTRACT.md"]}.items():
+        missing = [f for f in files if not (ROOT / f).exists()]
+        assert not missing, f"{item_id} ist done, aber es fehlt {missing} (zuerst PR #73 mergen)"
 
 
 def test_retry_after_failure_is_bounded():
