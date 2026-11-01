@@ -108,6 +108,17 @@ Bedingungen und Spannung zum Pruefschema (der Besitzer entscheidet):
 4. Offene Punkte vor dem Einbau: Lizenz-Wortlaut im sdist gegenpruefen, Abhaengigkeiten aufloesen (`pip install --dry-run`), Hashes aller Ziel-Wheels, Netzwerk- und Importverhalten, Verhalten mit erhoehten Rechten, Windows 11.
 5. Nicht Gegenstand dieses Anlaufs: das Paket `uiautomation` und `microsoft/UFO` (nur Architekturvergleich) sind hier nicht neu bewertet; fuer sie gibt es keine Aussage. Falls der Besitzer eine Alternative zu pywinauto will, braucht es einen eigenen Pruefbericht.
 
+## Besitzer-Freigabe
+Besitzer-Freigabe: 2026-10-31
+
+Umfang (vorbereitet im ausdruecklichen Auftrag des Besitzers; wirksam erst mit dem Merge dieses PR durch den Besitzer, der Text darf vorher geaendert werden):
+- Freigegeben ist ausschliesslich der Backlog-Schritt `uia-provider-readonly`: ein nur lesender Provider hinter `UiTreeProvider`, UIA in einem isolierten Worker-Prozess mit einem einzigen Besitzer-Thread, Zeitlimits und Abbruch des Workers.
+- Bibliothek: `pywinauto==0.6.9` mit den geprueften Versionen und Hashes aus `ci/uia-compat/requirements.txt` (`six==1.17.0`, `comtypes==1.4.17`, `pywin32==312`), nur als optionales Windows-Extra `uia`, nur Wheels, mit Hash-Pinning. `dependencies = []` bleibt.
+- Der Provider arbeitet nur lesend und liest nie den Wert eines Passwortfelds. Standardmaessig aus, Verdrahtung nur in `src/jarvis/bootstrap.py` (diesen PR mergt der Besitzer), jede Nutzung laeuft ueber `ToolRegistry` und `PermissionEngine`.
+- Keine Freigabe fuer: `uia-tools-readonly`, `uia-actions`, `uia-agent-integration`, die Beta 1.0.0b1, andere Bibliotheken, Eingaben, Klicks oder das Beenden von Prozessen.
+- Der Windows-Test des Schritts muss auf dem Runner laufen und bestehen (kein Skip). Ist er rot, ist diese Freigabe hinfaellig.
+- Offen bleibt: Python 3.14 gilt erst nach einem CI-Lauf mit 3.14 als unterstuetzt (der Kompatibilitaetstest lief bereits gruen), Windows 11 und moderne Anwendungen sind nicht getestet.
+
 ## Pruefung (Datum und Quelle)
 2026-10-31. Quellen (alle am Pruefdatum abgerufen):
 - https://github.com/pywinauto/pywinauto (README, Lizenzaussage, offene Issues und Pull Requests)

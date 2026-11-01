@@ -245,7 +245,8 @@
         "Ausdrueckliche Empfehlung und Begruendung, offene Fragen fuer den Besitzer",
         "Kein Code, keine Installation; bei unerreichbarer Quelle blocked statt Annahme"
       ],
-      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+      "_note": "Erledigt ohne Routinen-Auftrag: Pruefbericht per PR #60 (Auftrag #59 war blockiert, weil Quellen nicht erreichbar waren). Muss done bleiben, sonst bleibt uia-model-fake gesperrt.",
+      "done": true
     },
     {
       "id": "uia-model-fake",
@@ -262,7 +263,8 @@
         "Fake-Provider mit festem Baum; Passwortfelder ohne Wert (Test)",
         "Keine Aktion, keine Bibliothek, bestehende Computer-Tests unveraendert gruen"
       ],
-      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+      "_note": "Umgesetzt in PR #62 (nur Modell und Fake). Muss done bleiben, sonst wuerde der Schritt erneut gestartet.",
+      "done": true
     },
     {
       "id": "uia-provider-readonly",
