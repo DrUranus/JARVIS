@@ -1,4 +1,4 @@
-# Backlog (Stand: nach PR #66)
+# Backlog (Stand: Release-Plan)
 
 Quelle der Wahrheit fuer die automatische Fortsetzung ist `.github/automation/backlog.json` (nur der Besitzer aendert sie per Pull Request). Diese Datei ist eine lesbare Zusammenfassung und fuehrt nur, was im Repository belegt ist. Die Teilziele von Phase 14 stehen in `docs/PHASE14_AUTONOMY.md`; jedes braucht eine ausdrueckliche Freigabe.
 
@@ -24,9 +24,15 @@ Quelle der Wahrheit fuer die automatische Fortsetzung ist `.github/automation/ba
 
 In `backlog.json` sind diese Schritte als `done` markiert (ein Schritt ohne Vermerk wuerde von der Automatik erneut gestartet). Alle Schritte von `plan.approved_items` sind erledigt: es ist **kein freigegebener Schritt offen**.
 
-## In Arbeit
+## In Arbeit und freigegeben (offen)
 
-Nichts. Die naechste Arbeit braucht eine neue Freigabe des Besitzers (Eintraege in `plan.approved_items`, eigener PR).
+Ausfuehrungsreihenfolge = Reihenfolge in `backlog.json`; Plan, Straenge, Rechte und Risiken: `docs/RELEASE_PLAN.md`, Vertrag: `docs/UI_CONTRACT.md`.
+
+1. **LLM-Kette** (PR #69, laeuft): `llm-compat-vetting`, `llm-compat-provider`, `llm-routing-design`, `llm-routing-policy`.
+2. **Strang A (Autonomie und Agenten):** `llm-goal-planning`, `event-bus`, `task-journal`, `agent-router`, `uia-actions`, `uia-agent-integration`, `agent-error-recovery`, `task-resume`, `file-tools`, `assistant-e2e`, `uia-windows-e2e`, danach Sprache (`stt-*`), Recherche (`research-*`) und `coding-llm-edits`.
+3. **Strang B (Control Center):** `ui-tech-evaluation`, `cc-shell`, `cc-confirmation`, `cc-dashboard`, `cc-ai-core`, `cc-voice-viz`, `cc-backend-binding`, `cc-results-audit`, `cc-windows-start`, `cc-windows-smoke`.
+4. **Entwuerfe (nur Dokumente):** `os-sandbox-design`, `mail-design`, `office-design`, `media-design`.
+5. **Erledigt per direktem Auftrag:** `ui-contract-v1` (PR #73).
 
 ## Offen, nicht freigegeben (nicht begonnen)
 
@@ -34,16 +40,11 @@ Nichts. Die naechste Arbeit braucht eine neue Freigabe des Besitzers (Eintraege 
 |---|---|
 | `audit-hash-chain` | Audit-Log: Hash-Kette und Rotation (sicherheitskritisch) |
 | `cli-confirm-timeout` | CLI-Bestaetigung mit Zeitlimit (sicherheitskritisch) |
-| `llm-goal-planning` | Goal Engine: LLM-gestuetzte Zielzerlegung (sicherheitskritisch) |
-| `coding-llm-edits` | Coding-Agent: eigene Aenderungsentwuerfe (sicherheitskritisch) |
 | `smartphone-api-design` | Phase 12: Entwurf der Smartphone-Schnittstelle, nur Dokument (zuletzt) |
-| `uia-actions`, `uia-agent-integration`, `uia-windows-e2e` | UI-Aktionen ueber UIA-Muster (Eingriffe in den PC!), Agent-Anbindung, Windows-Ende-zu-Ende-Test mit Aktionen |
-| `llm-compat-vetting`, `llm-compat-provider`, `llm-routing-design`, `llm-routing-policy` | OpenAI-kompatibler LLM-Provider, Hybrid-Routing |
-| `stt-vetting`, `stt-local-provider`, `stt-vad-endpointing` | lokale Spracherkennung |
-| `research-vetting`, `research-search-interface`, `research-extract-backend`, `research-search-provider` | Recherche: Suche und Textextraktion |
-| `mcp-security-review`, `os-sandbox-design`, `mail-design`, `office-design`, `media-design` | spaetere Entwuerfe (nur Dokumente) |
+| `mcp-security-review` | MCP-Bruecke: Sicherheitspruefung (nur Dokument) |
+| `mail-provider`, `office-docs`, `media-agent` | E-Mail, Dokumente, Medien: vorbereitet, **nicht freigegeben** (erst nach den Entwuerfen und Entscheidung des Besitzers) |
 
-Sicherheitskritische Schritte sind bewusst nicht in `approved_items` der Freigabe.
+Sicherheitskritische Schritte stehen nur dann in `approved_items`, wenn der Besitzer sie ausdruecklich freigibt.
 
 ## Bekannte offene Punkte (Windows/Hardware)
 
