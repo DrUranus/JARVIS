@@ -164,9 +164,14 @@ def test_daily_limit():
 
 
 def test_chain_budget_is_hard_capped():
+    assert ja.HARD_MAX_CHAIN_JOBS == 30
     api = FakeApi()
-    r = start(api, chain_budget=99)
-    assert state_of(api, r["issue"])["chain"]["budget"] == ja.HARD_MAX_CHAIN_JOBS
+    r = start(api, chain_budget=99, c=cfg(JARVIS_MAX_CHAIN_JOBS="30"))
+    assert state_of(api, r["issue"])["chain"]["budget"] == 30
+    limited = start(FakeApi(), chain_budget=30, c=cfg(JARVIS_MAX_CHAIN_JOBS="5"))
+    assert limited["state"]["chain"]["budget"] == 5
+    over_limit = start(FakeApi(), chain_budget=99, c=cfg(JARVIS_MAX_CHAIN_JOBS="999"))
+    assert over_limit["state"]["chain"]["budget"] == 30
 
 
 # ---- Berichtsvalidierung -----------------------------------------------------------------------------------------
