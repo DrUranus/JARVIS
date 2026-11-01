@@ -1,4 +1,4 @@
-# Backlog (Stand: nach PR #66)
+# Backlog (Stand: Release-Plan)
 
 Quelle der Wahrheit fuer die automatische Fortsetzung ist `.github/automation/backlog.json` (nur der Besitzer aendert sie per Pull Request). Diese Datei ist eine lesbare Zusammenfassung und fuehrt nur, was im Repository belegt ist. Die Teilziele von Phase 14 stehen in `docs/PHASE14_AUTONOMY.md`; jedes braucht eine ausdrueckliche Freigabe.
 
@@ -24,9 +24,15 @@ Quelle der Wahrheit fuer die automatische Fortsetzung ist `.github/automation/ba
 
 In `backlog.json` sind diese Schritte als `done` markiert (ein Schritt ohne Vermerk wuerde von der Automatik erneut gestartet). Alle Schritte von `plan.approved_items` sind erledigt: es ist **kein freigegebener Schritt offen**.
 
-## In Arbeit
+## In Arbeit und freigegeben (offen)
 
-Nichts. Die naechste Arbeit braucht eine neue Freigabe des Besitzers (Eintraege in `plan.approved_items`, eigener PR).
+Reihenfolge, in der die Automatik die Schritte waehlt (Reihenfolge in `backlog.json`; Planung, Rechte und Risiken: `docs/RELEASE_PLAN.md`):
+
+1. **LLM-Kette** (freigegeben mit PR #69, Kette gestartet): `llm-compat-vetting`, `llm-compat-provider`, `llm-routing-design`, `llm-routing-policy`.
+2. **Lokale Sprache:** `stt-vetting`, `stt-local-provider` (Besitzer-Freigabezeile im Pruefdokument noetig), `stt-vad-endpointing`.
+3. **Recherche:** `research-vetting`, `research-search-interface`, `research-extract-backend` (Besitzer-Freigabezeile noetig), `research-search-provider` (Suchquelle waehlt der Besitzer).
+4. **UI-Aktionen (sicherheitskritisch):** `uia-actions`, `uia-agent-integration`, `uia-windows-e2e`.
+5. **Zielplanung und Coding (sicherheitskritisch):** `llm-goal-planning` (haengt zusaetzlich von `llm-routing-policy` ab), `coding-llm-edits`.
 
 ## Offen, nicht freigegeben (nicht begonnen)
 
@@ -34,16 +40,10 @@ Nichts. Die naechste Arbeit braucht eine neue Freigabe des Besitzers (Eintraege 
 |---|---|
 | `audit-hash-chain` | Audit-Log: Hash-Kette und Rotation (sicherheitskritisch) |
 | `cli-confirm-timeout` | CLI-Bestaetigung mit Zeitlimit (sicherheitskritisch) |
-| `llm-goal-planning` | Goal Engine: LLM-gestuetzte Zielzerlegung (sicherheitskritisch) |
-| `coding-llm-edits` | Coding-Agent: eigene Aenderungsentwuerfe (sicherheitskritisch) |
 | `smartphone-api-design` | Phase 12: Entwurf der Smartphone-Schnittstelle, nur Dokument (zuletzt) |
-| `uia-actions`, `uia-agent-integration`, `uia-windows-e2e` | UI-Aktionen ueber UIA-Muster (Eingriffe in den PC!), Agent-Anbindung, Windows-Ende-zu-Ende-Test mit Aktionen |
-| `llm-compat-vetting`, `llm-compat-provider`, `llm-routing-design`, `llm-routing-policy` | OpenAI-kompatibler LLM-Provider, Hybrid-Routing |
-| `stt-vetting`, `stt-local-provider`, `stt-vad-endpointing` | lokale Spracherkennung |
-| `research-vetting`, `research-search-interface`, `research-extract-backend`, `research-search-provider` | Recherche: Suche und Textextraktion |
 | `mcp-security-review`, `os-sandbox-design`, `mail-design`, `office-design`, `media-design` | spaetere Entwuerfe (nur Dokumente) |
 
-Sicherheitskritische Schritte sind bewusst nicht in `approved_items` der Freigabe.
+Sicherheitskritische Schritte stehen nur dann in `approved_items`, wenn der Besitzer sie ausdruecklich freigibt.
 
 ## Bekannte offene Punkte (Windows/Hardware)
 
