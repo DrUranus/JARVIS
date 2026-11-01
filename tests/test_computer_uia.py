@@ -346,9 +346,12 @@ def test_importing_the_model_loads_no_automation_library():
         assert name not in sys.modules, name
 
 
-def test_no_tool_was_added_and_the_only_new_setting_and_extra_are_the_read_only_provider_ones():
-    """Seit uia-provider-readonly: weiterhin keine Tools; Einstellungen nur die drei uia_*-Felder (Standard aus), die Bibliothek nur als Extra, keine Pflichtabhaengigkeit."""
-    assert "uia" not in (COMP / "tools.py").read_text(encoding="utf-8").lower() and "ui_tree" not in (COMP / "resources.py").read_text(encoding="utf-8")
+def test_only_the_read_only_ui_tool_exists_and_the_only_new_setting_and_extra_are_the_read_only_provider_ones():
+    """Seit uia-tools-readonly genau ein Tool `ui` (nur lesend, nur mit Provider registriert, siehe tests/test_computer_uia_tools.py); Einstellungen nur die drei uia_*-Felder
+    (Standard aus), die Bibliothek nur als Extra, keine Pflichtabhaengigkeit."""
+    tools = (COMP / "tools.py").read_text(encoding="utf-8")
+    assert tools.count("class UiTool(") == 1 and "uia_actions" not in tools and "ui_click" not in tools and "ui_type" not in tools
+    assert "ui_tree" not in (COMP / "resources.py").read_text(encoding="utf-8")
     from jarvis.config import ComputerSettings
     assert sorted(f.name for f in dataclasses.fields(ComputerSettings) if "uia" in f.name or f.name.startswith("ui")) == [
         "uia_call_timeout", "uia_enabled", "uia_max_calls_per_session"]
