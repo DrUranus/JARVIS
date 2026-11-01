@@ -222,7 +222,12 @@ def test_the_workflow_proves_that_the_test_really_fails():
 
 
 def test_nothing_else_in_the_repository_depends_on_the_new_test():
-    for path in (ROOT / "pyproject.toml", ROOT / ".github/workflows/pr-tests.yml", ROOT / ".github/workflows/tests.yml"):
+    """Der Kompatibilitaetstest bleibt isoliert. Seit dem freigegebenen Schritt uia-provider-readonly (PR #65) steht pywinauto in pyproject.toml, aber nur in den beiden
+    Extras `uia` und `dev` (Windows-only, nie in den Pflicht-Abhaengigkeiten); die Pflicht-Workflows kennen weder den Test noch die Bibliothek."""
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert "uia-compat" not in pyproject and "dependencies = []" in pyproject
+    assert [l for l in pyproject.splitlines() if "pywinauto" in l and not l.startswith(("uia = [", "dev = ["))] == []
+    for path in (ROOT / ".github/workflows/pr-tests.yml", ROOT / ".github/workflows/tests.yml"):
         assert "uia-compat" not in path.read_text(encoding="utf-8") and "pywinauto" not in path.read_text(encoding="utf-8"), path.name
 
 
