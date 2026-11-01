@@ -42,7 +42,7 @@ Auftrags-Issue; es wird nichts erraten oder umgangen. Erledigte Schritte stehen 
 
 **Sensible Pfade** (`.github/`, `CLAUDE.md`, `.claude/`, `config/jarvis.toml`, `src/jarvis/permissions/`, `src/jarvis/bootstrap.py`, Sicherheits-/Notaus-/Invariantentests) haben **keine pauschale Dateisperre mehr**:
 sie werden automatisch gemergt, wenn der genehmigte Auftrag sie konkret freigibt (siehe „Sensible Pfade im genehmigten Auftrag“). `backlog.json`, `.github/CODEOWNERS`, `CLAUDE.md` und `.claude/**` sind nie per Auftrag freigebbar.
-Grenzen der Kette: `chain_budget` hart ≤ 5 Aufträge je Kette, `JARVIS_MAX_JOBS_PER_DAY` (Standard 10, hart ≤ 50), ein aktiver Auftrag, höchstens 3 Versuche je Schritt,
+Grenzen der Kette: `chain_budget` hart ≤ 30 Aufträge je Kette, `JARVIS_MAX_JOBS_PER_DAY` (Standard 10, hart ≤ 50), ein aktiver Auftrag, höchstens 3 Versuche je Schritt,
 Stopp per `JARVIS_AUTOMATION_HALT=true` oder Label `jarvis:stop`. Neustart-fest: der Zustand liegt in den Tracking-Issues; der Watchdog (15 min) holt verlorene Berichte,
 Timeouts und verlorene Controller-Anstöße (≤ 2 h) nach.
 
@@ -53,9 +53,9 @@ einer CODEOWNERS-geschützten Datei). Danach gelten genau die in `approved_items
 (`depends_on`), Zeitlimit und höchstens 3 Versuche. Die Liste ist im Test festgenagelt (`PINNED_PLAN`): ein weiterer Schritt braucht eine bewusste Änderung von Besitzer und Test.
 Sicherheitskritische Schritte stehen nicht im Plan und bleiben `approved: false`.
 
-Start: Actions → „Trigger Claude Code Routine“ mit `backlog_item = next` (oder einer Schritt-ID), `auto_continue = true`, `chain_budget = 5`. Der Auftragstext samt Abnahmekriterien kommt aus
-dem Backlog (nie aus Berichten). Weitere Schritte folgen automatisch nach Merge (Variablen `JARVIS_AUTO_CONTINUE_ENABLED` und `JARVIS_AUTO_MERGE_ENABLED`); eine Kette hat höchstens 5 Aufträge,
-bei 7 Plan-Schritten ist deshalb ein zweiter Start nötig. Ein Schritt gilt mit Auto-Merge erst als erledigt, wenn sein PR gemergt ist (`merged`); auch ein vom Besitzer selbst gemergter PR
+Start: Actions → „Trigger Claude Code Routine“ mit `backlog_item = next` (oder einer Schritt-ID), `auto_continue = true`, `chain_budget = 30`. Der Auftragstext samt Abnahmekriterien kommt aus
+dem Backlog (nie aus Berichten). Weitere Schritte folgen automatisch nach Merge (Variablen `JARVIS_AUTO_CONTINUE_ENABLED` und `JARVIS_AUTO_MERGE_ENABLED`); eine Kette hat höchstens 30 Aufträge,
+die Kette endet bei Budget-, Tageslimit- oder Freigabesperren; sie überspringt keine Prüfungen. Ein Schritt gilt mit Auto-Merge erst als erledigt, wenn sein PR gemergt ist (`merged`); auch ein vom Besitzer selbst gemergter PR
 setzt die Kette fort (das Gate prüft alle 20 min). Sensible Pfade ohne konkrete Freigabe im Auftrag mergt der Besitzer; die Kette wartet dann.
 
 ## Bericht vor Abschluss der CI (`awaiting_ci`)
@@ -135,7 +135,7 @@ ein manueller Override (Besitzer). Ein Schritt, der schon einen laufenden Auftra
 - Start mit `auto_continue=true` **und** Repository-Variable `JARVIS_AUTO_CONTINUE_ENABLED=true`
 - nicht angehalten (`JARVIS_AUTOMATION_HALT`), kein Label `jarvis:stop`
 - Auftragsstatus `completed`, Bericht `next_action.type = continue`, mindestens ein Test `passed` und keiner `failed`
-- Kettenbudget (`chain_budget`, hart ≤ 5, Variable `JARVIS_MAX_CHAIN_JOBS`) und Tageslimit (`JARVIS_MAX_JOBS_PER_DAY`, Standard 10) nicht ausgeschöpft
+- Kettenbudget (`chain_budget`, hart ≤ 30, Variable `JARVIS_MAX_CHAIN_JOBS`) und Tageslimit (`JARVIS_MAX_JOBS_PER_DAY`, Standard 10) nicht ausgeschöpft
 - gemeldeter Branch existiert und passt auf `claude/…`
 - Der nächste Schritt kommt **ausschließlich aus `backlog.json`** (auf dem Standard-Branch): `approved: true`, Abhängigkeiten erledigt.
   Text aus Berichten wird nie als Auftrag verwendet.
@@ -179,7 +179,7 @@ exakte Commit-Prüfung, Merge und Not-Aus (`JARVIS_AUTOMATION_HALT`) bleiben im 
    (dann braucht nur ein PR mit Dateien aus `.github/CODEOWNERS` den Besitzer; alle anderen kann das Gate mergen), keine Direkt-Pushes, kein Force-Push.
    Bei „1 Approval für alle PRs“ lehnt GitHub den Gate-Merge ab (HTTP 405, im PR-Statuskommentar sichtbar) – dann läuft nichts automatisch.
 8. **Auto-Merge einschalten** erst nach dem ersten grünen Trockenlauf (Statuskommentar „Bereit zum Merge“): Variablen `JARVIS_AUTO_MERGE_ENABLED=true` und `JARVIS_AUTO_CONTINUE_ENABLED=true`.
-   Start der Kette: Actions → „Trigger Claude Code Routine“ mit `auto_continue=true`, `chain_budget` (≤ 5). Notbremse: `JARVIS_AUTOMATION_HALT=true`.
+   Start der Kette: Actions → „Trigger Claude Code Routine“ mit `auto_continue=true`, `chain_budget` (≤ 30). Notbremse: `JARVIS_AUTOMATION_HALT=true`.
 
 ## Erster Test (klein, nach dem Merge)
 

@@ -54,7 +54,7 @@ ACCEPTANCE_RESULTS = {"met", "not_met", "awaiting_ci"}
 CI_WAIT_MIN = 180                 # so lange darf ein Auftrag hoechstens auf das CI-Ergebnis seines PR warten (danach timeout, Kette endet)
 
 MAX_CONTEXT_CHARS = 50_000        # Fire-API erlaubt 65.536 Zeichen; Rest fuer die feste Einleitung
-HARD_MAX_CHAIN_JOBS = 5           # absolute Obergrenze, unabhaengig von Eingaben und Variablen
+HARD_MAX_CHAIN_JOBS = 30          # absolute Obergrenze, unabhaengig von Eingaben und Variablen
 HARD_MAX_ATTEMPTS = 3             # Versuche je Backlog-Schritt
 HARD_MAX_TIMEOUT_MIN = 240
 # Sensible Pfade: eine Aenderung daran braucht eine KONKRETE Freigabe im genehmigten Auftrag (sensitive_edits im Plan), keine pauschale Dateisperre und keinen Besitzer-Merge je PR.
