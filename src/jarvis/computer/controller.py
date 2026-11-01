@@ -126,9 +126,17 @@ class ComputerController:
     def halt(self, reason: str = "stopped by user") -> None:
         """Emergency stop: every further action fails with `failsafe` until resume()."""
         self._halted = reason
+        self._ui_call("halt", reason)
 
     def resume(self) -> None:
         self._halted = None
+        self._ui_call("resume")
+
+    def _ui_call(self, method: str, *args: Any) -> None:
+        """Pass the emergency stop on to the read-only UI provider, if it has one that can be stopped."""
+        fn = getattr(self._backend.ui, method, None)
+        if callable(fn):
+            fn(*args)
 
     def describe(self) -> dict[str, Any]:
         return {"backend": self._backend.name, "capabilities": self._backend.capabilities(),

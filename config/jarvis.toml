@@ -74,6 +74,11 @@ use_default_apps = true     # Notepad/Calculator/Paint aliases on Windows
 allow_unlisted_apps = false # true: absolute .exe paths may be launched (still confirmed and filtered)
 blocked_processes = ["explorer.exe"]  # extra processes that receive no input (built-in: terminals, shells, security tools...)
 blocked_titles = []
+# Read-only Windows UI Automation (window list, control tree, find): optional extra  pip install -e ".[uia]"  (Windows only). OFF by default,
+# needs computer.enabled; follows the emergency stop and the session budget. No input, no clicks.
+uia_enabled = false
+uia_max_calls_per_session = 200
+uia_call_timeout = 20.0
 # Application aliases: only these can be launched (unless allow_unlisted_apps). Terminals/shells/script hosts are always refused.
 # [computer.apps]
 # notepad = "%SystemRoot%\\System32\\notepad.exe"

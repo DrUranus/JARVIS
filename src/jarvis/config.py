@@ -114,6 +114,9 @@ class ComputerSettings:
     allow_unlisted_apps: bool = False  # True: absolute .exe paths may be launched too (still confirmed, still filtered)
     blocked_processes: tuple[str, ...] = ("explorer.exe",)  # input/close refused for these (adds to the built-in list)
     blocked_titles: tuple[str, ...] = ()                     # window-title fragments to refuse (adds to the built-in list)
+    uia_enabled: bool = False          # read-only Windows UI-Automation provider (extra "uia"); off by default, needs computer.enabled
+    uia_max_calls_per_session: int = 200   # session budget of UI reads (1..10000); never reset by halt/resume
+    uia_call_timeout: float = 20.0     # seconds before a hanging UIA worker is stopped (0..600)
 
 
 @dataclass(frozen=True)
@@ -345,6 +348,8 @@ class Settings:
                 raise ConfigError(f"computer.apps: invalid entry {alias!r} (alias: letters/digits/_/-, path non-empty)")
         if any(not x.strip() for x in (*c.blocked_processes, *c.blocked_titles)):
             raise ConfigError("computer.blocked_processes/blocked_titles must not contain empty entries")
+        if not 1 <= c.uia_max_calls_per_session <= 10_000 or not 0 < c.uia_call_timeout <= 600:
+            raise ConfigError("computer.uia_max_calls_per_session must be 1..10000 and uia_call_timeout 0..600 seconds")
         b = self.browser
         if b.provider not in BROWSER_PROVIDERS or b.browser not in BROWSER_KINDS:
             raise ConfigError(f"browser.provider must be one of {BROWSER_PROVIDERS}, browser.browser one of {BROWSER_KINDS}")
