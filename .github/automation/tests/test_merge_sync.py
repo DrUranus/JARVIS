@@ -171,8 +171,14 @@ def test_the_shipped_plan_never_selects_a_security_critical_step():
     items = ja.load_backlog(ROOT / ".github/automation/backlog.json")
     raw = json.loads((ROOT / ".github/automation/backlog.json").read_text(encoding="utf-8"))
     approved_by_plan = set(raw["plan"]["approved_items"])
-    for step in ("audit-hash-chain", "cli-confirm-timeout", "llm-goal-planning", "coding-llm-edits", "smartphone-api-design"):
+    for step in ("audit-hash-chain", "cli-confirm-timeout", "smartphone-api-design"):
         assert step not in approved_by_plan and not next(i for i in items if i["id"] == step).get("approved")
+    # Ausdrueckliche Entscheidung des Besitzers (Freigabe-PR zum Release-Plan, docs/RELEASE_PLAN.md): LLM-Zielplanung und Coding-Entwuerfe sind freigegeben, jeweils nur mit allen
+    # Abhaengigkeiten; kein weiterer sicherheitskritischer Schritt kommt dazu (siehe PINNED_PLAN in test_jarvis_automation.py).
+    by_id = {i["id"]: i for i in items}
+    for step in ("llm-goal-planning", "coding-llm-edits"):
+        assert step in approved_by_plan and by_id[step]["approved"] is True
+    assert by_id["llm-goal-planning"]["depends_on"] == ["persistent-results", "llm-routing-policy"] and by_id["coding-llm-edits"]["depends_on"] == ["llm-goal-planning"]
 
 
 # ---- 11: CI fehlgeschlagen -> begrenzte Korrekturschleife --------------------------------------------------------------------------------

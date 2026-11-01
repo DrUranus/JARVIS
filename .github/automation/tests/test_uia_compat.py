@@ -243,7 +243,5 @@ def test_the_owner_release_for_the_provider_step_is_one_dated_line_and_does_not_
         assert must in scope, must
     for step in ("uia-tools-readonly", "uia-actions"):
         assert step in scope.split("Keine Freigabe fuer", 1)[1], step               # ausdruecklich NICHT freigegeben
-    import json
-    backlog = json.loads((ROOT / ".github/automation/backlog.json").read_text(encoding="utf-8"))
-    approved = {i["id"] for i in backlog["items"] if i.get("approved") is True}
-    assert "uia-actions" not in approved and "uia-actions" not in backlog["plan"]["approved_items"]
+    # Die Zeile gilt nur fuer den Provider-Schritt. Spaeter freigegebene Schritte (z. B. uia-actions im Freigabe-PR zum Release-Plan) stehen in plan.approved_items,
+    # ihre Freigabe ist eine eigene Entscheidung des Besitzers und wird nicht durch diese Zeile ausgesprochen oder erweitert.
