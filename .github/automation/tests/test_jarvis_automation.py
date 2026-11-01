@@ -503,8 +503,12 @@ def test_unapproved_and_unmet_items_never_selected():
 
 PINNED_PLAN = ["windows-capture-tests", "coding-windows-process-tree", "persistent-results", "onboarding-windows", "memory-semantic-search",
                "voice-barge-in-hotword", "docs-sync",
-               "int-vetting-policy", "uia-vetting", "uia-model-fake", "uia-provider-readonly", "uia-tools-readonly",       # Integrationskette 1 (UIA), gemergt
-               "llm-compat-vetting", "llm-compat-provider", "llm-routing-design", "llm-routing-policy"]                   # Integrationskette 2 (LLM), Besitzer-Freigabe
+               "int-vetting-policy", "uia-vetting", "uia-model-fake", "uia-provider-readonly", "uia-tools-readonly",       # Integrationskette 1 (UIA lesend), gemergt
+               "llm-compat-vetting", "llm-compat-provider", "llm-routing-design", "llm-routing-policy",                   # Integrationskette 2 (LLM)
+               "stt-vetting", "stt-local-provider", "stt-vad-endpointing",                                                  # Release-Freigabe: lokale Sprache
+               "research-vetting", "research-search-interface", "research-extract-backend", "research-search-provider",   # Recherche
+               "uia-actions", "uia-agent-integration", "uia-windows-e2e",                                                   # UI-Aktionen (sicherheitskritisch)
+               "llm-goal-planning", "coding-llm-edits"]                                                                     # LLM-Zielplanung und Coding-Entwuerfe (sicherheitskritisch)
 PINNED_DONE = PINNED_PLAN[:12]          # gemergt (PR #34, #38, #41, #48, #50, #52, #55, #58, #60, #62, #65, #66): done verhindert jede Wiederholung; die vier LLM-Schritte sind offen
 
 
@@ -524,11 +528,27 @@ def test_shipped_backlog_approvals_are_exactly_the_owner_approved_steps():
 
 
 LLM_CHAIN = ["llm-compat-vetting", "llm-compat-provider", "llm-routing-design", "llm-routing-policy"]
-LLM_SCOPE_DIGESTS = {      # SHA-256 ueber Aufgabe, Abnahmekriterien, Abhaengigkeiten, Zeit, Versuche, sensitive_edits und scope zum Zeitpunkt der Freigabe: eine Umfangserweiterung schlaegt an
+RELEASE_ORDER = PINNED_PLAN[12:]      # die Reihenfolge, in der die Automatik die noch offenen Schritte waehlt (= Reihenfolge in backlog.json): sicherheitskritische zuletzt
+OWNER_APPROVED_SECURITY_CRITICAL = ["uia-actions", "uia-agent-integration", "uia-windows-e2e", "llm-goal-planning", "coding-llm-edits"]
+STILL_BLOCKED = ["audit-hash-chain", "cli-confirm-timeout", "smartphone-api-design", "mcp-security-review", "os-sandbox-design", "mail-design", "office-design", "media-design"]
+SCOPE_DIGESTS = {      # SHA-256 ueber Aufgabe, Abnahmekriterien, Abhaengigkeiten, Zeit, Versuche, sensitive_edits und scope zum Zeitpunkt der Freigabe: eine Umfangserweiterung schlaegt an
     "llm-compat-vetting": "7889f1b8a1ba2c10095169ebc82be5b21a737d16418d477aa3cf2993fd75d62a",
     "llm-compat-provider": "9fa08b09912cdc285055389c94dda43be9568a3c5189aede0771193a4f9c645c",
     "llm-routing-design": "5edfac70e7b4e9d4a8374ba0ce1e1f3a4ef9e4080d6d3ea5265d48e2c69c5931",
-    "llm-routing-policy": "018bdbd7fd938895156f4fcc61372021fe0e5b7303f2e62d785f239030b45919",}
+    "llm-routing-policy": "018bdbd7fd938895156f4fcc61372021fe0e5b7303f2e62d785f239030b45919",
+    "stt-vetting": "a8939a92236283c4a5e4dc12ae935b74f97003d69c6bd5c61a5e470daefb9829",
+    "stt-local-provider": "2113225f581e1c13c20e252b63cd77d93d30bfdd9b3a8acaefb16ee776f76e04",
+    "stt-vad-endpointing": "ce118d676fc82dd6050939e8c0fc108ed5087020e64abcbaed5a9f8846f81115",
+    "research-vetting": "78f02ce93ff52c2f7b2ceec2637f60fcf25fde02773d1424f3f2d08378cbf8a0",
+    "research-search-interface": "ad2a55bc44aee7f111f66f0cab9c32cc0a951c7d00b4644ebee2491b4928eabb",
+    "research-extract-backend": "9c2d9abd6ec7e0ab8935fc1886f8e00ee9c8c969f6cdf59e7576890e00ff421f",
+    "research-search-provider": "7426d5f463f9372c626ba9fc3ba72cb881de84572dfc7e13377f4a23ea1a9e80",
+    "uia-actions": "c098afa47b64a5055e8539c2ef1c0b51e96a009771581c113d4d757edab47c49",
+    "uia-agent-integration": "549856178055bf6fbebbcb9ee3d32cf9c7bbd85e6f4a55f86c582d49012f3b74",
+    "uia-windows-e2e": "86d44b835803c638bfdb2bbd8675eb8e99e665b9c6a6829a6586f62d4506d9ae",
+    "llm-goal-planning": "f1674218effceb58d01df6e8b85922fcf04c751038d0f08a9f3f3255dc332e61",
+    "coding-llm-edits": "9920c14187f22e28ba40e86f9f1bd21fb263dc8356b9f02deeee53f9a64dd4e8",
+}
 
 
 def _scope_digest(item):
@@ -536,42 +556,40 @@ def _scope_digest(item):
                                      sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-def test_the_llm_chain_runs_in_dependency_order_and_ends_after_exactly_four_steps():
-    """Nach den zwoelf erledigten Schritten waehlt 'next' nacheinander genau die vier freigegebenen LLM-Schritte in Abhaengigkeitsreihenfolge, danach nichts mehr; die Kette
-    (hoechstens HARD_MAX_CHAIN_JOBS = 5 Auftraege) reicht dafuer. Kein weiterer Eintrag der Integrations-Planung ist freigegeben."""
+def test_the_open_approved_steps_run_in_dependency_order_with_security_critical_ones_last():
+    """Nach den zwoelf erledigten Schritten waehlt 'next' nacheinander genau die freigegebenen Schritte in Abhaengigkeitsreihenfolge (LLM, Sprache, Recherche, dann UI-Aktionen,
+    Zielplanung, Coding); danach nichts mehr. Die Reihenfolge in backlog.json ist die Ausfuehrungsreihenfolge: sicherheitskritische Schritte stehen am Ende."""
     items = ja.load_backlog(ROOT / ".github/automation/backlog.json")
     done = {"autonomy-invariants", "session-budget"} | set(PINNED_DONE)
     order = []
     while (nxt := ja.select_next_item(items, done, set())) is not None:
         order.append(nxt["id"])
         done.add(nxt["id"])
-    assert order == LLM_CHAIN and len(order) <= ja.HARD_MAX_CHAIN_JOBS == 5
+    assert order == RELEASE_ORDER and order[:4] == LLM_CHAIN and order[-5:] == OWNER_APPROVED_SECURITY_CRITICAL
     by_id = {i["id"]: i for i in items}
-    not_approved = ["uia-actions", "uia-agent-integration", "uia-windows-e2e", "stt-vetting", "stt-local-provider", "stt-vad-endpointing", "research-vetting",
-                    "research-search-interface", "research-extract-backend", "research-search-provider", "mcp-security-review", "os-sandbox-design", "mail-design",
-                    "office-design", "media-design"]
-    assert all(by_id[i]["approved"] is False for i in not_approved)
+    assert all(by_id[i]["approved"] is False for i in STILL_BLOCKED)
 
 
-def test_the_llm_steps_depend_only_on_earlier_steps_and_are_blocked_until_their_predecessors_are_done():
+def test_dependencies_of_the_open_steps_point_only_to_earlier_steps_and_keep_the_llm_chain_first():
     items = ja.load_backlog(ROOT / ".github/automation/backlog.json")
     by_id = {i["id"]: i for i in items}
+    ids = [i["id"] for i in items]
     assert [by_id[i]["depends_on"] for i in LLM_CHAIN] == [["int-vetting-policy"], ["llm-compat-vetting"], ["llm-compat-vetting"], ["llm-compat-provider", "llm-routing-design"]]
+    assert by_id["llm-goal-planning"]["depends_on"] == ["persistent-results", "llm-routing-policy"] and by_id["coding-llm-edits"]["depends_on"] == ["llm-goal-planning"]
+    for step in RELEASE_ORDER:
+        assert all(ids.index(d) < ids.index(step) for d in by_id[step]["depends_on"]), step
     base = {"autonomy-invariants", "session-budget"} | set(PINNED_DONE)
     assert ja.select_next_item(items, base, set())["id"] == "llm-compat-vetting"
-    for step, needs in (("llm-compat-provider", {"llm-compat-vetting"}), ("llm-routing-design", {"llm-compat-vetting"}),
-                        ("llm-routing-policy", {"llm-compat-provider", "llm-routing-design"})):
-        others = {i for i in LLM_CHAIN if i != step}
-        blocked = ja.select_next_item([i for i in items if i["id"] == step], base, set())              # nur dieser Schritt zur Wahl, Vorgaenger nicht erledigt
-        assert blocked is None, step
-        assert ja.select_next_item([i for i in items if i["id"] == step], base | needs, set())["id"] == step
-        assert others                                                                             # Vorgaenger sind echte, andere Schritte
+    for step in RELEASE_ORDER[1:]:                                                                           # kein Schritt ist ohne seine Vorgaenger waehlbar
+        deps = set(by_id[step]["depends_on"]) - base
+        if deps:
+            assert ja.select_next_item([by_id[step]], base, set()) is None, step
 
 
-def test_the_scope_of_the_four_llm_steps_is_pinned_and_none_declares_protected_edits():
+def test_the_scope_of_the_approved_open_steps_is_pinned_and_none_declares_protected_edits():
     items = {i["id"]: i for i in ja.load_backlog(ROOT / ".github/automation/backlog.json")}
-    assert {k: _scope_digest(items[k]) for k in LLM_CHAIN} == LLM_SCOPE_DIGESTS
-    assert all("sensitive_edits" not in items[k] and "scope" not in items[k] for k in LLM_CHAIN)         # keine Vorab-Freigabe geschuetzter Dateien: bootstrap.py mergt der Besitzer
+    assert {k: _scope_digest(items[k]) for k in RELEASE_ORDER} == SCOPE_DIGESTS
+    assert all("sensitive_edits" not in items[k] and "scope" not in items[k] for k in RELEASE_ORDER)       # keine Vorab-Freigabe geschuetzter Dateien: bootstrap.py mergt der Besitzer
 
 
 def test_retry_after_failure_is_bounded():
