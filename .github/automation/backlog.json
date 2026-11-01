@@ -74,7 +74,9 @@
         "Linux-Verhalten und Allow-Liste unveraendert",
         "Vorhandenes winjob-Modul wiederverwendet, keine neue Prozesskontrolle",
         "tests-windows und tests-linux gruen"
-      ]
+      ],
+      "done": true,
+      "_note": "Umgesetzt und gemergt in PR #38. Muss done bleiben, sonst wuerde der Schritt erneut gestartet."
     },
     {
       "id": "persistent-results",
@@ -99,7 +101,9 @@
           ],
           "max_added": 6
         }
-      }
+      },
+      "done": true,
+      "_note": "Umgesetzt und gemergt in PR #41. Muss done bleiben, sonst wuerde der Schritt erneut gestartet."
     },
     {
       "id": "onboarding-windows",
@@ -114,7 +118,9 @@
         "Exit-Code und Tests ohne Netz und ohne echte Schluessel",
         "Windows-Schnellstart im README",
         "Kein Subsystem wird aktiviert"
-      ]
+      ],
+      "done": true,
+      "_note": "Umgesetzt und gemergt in PR #48. Muss done bleiben, sonst wuerde der Schritt erneut gestartet."
     },
     {
       "id": "memory-semantic-search",
@@ -129,7 +135,9 @@
         "Kein Netzwerk, keine neue Pflichtabhaengigkeit",
         "Secret-Schutz und 'nur auf Wunsch merken' unveraendert (Tests)",
         "Ranking-Tests deutsch/englisch"
-      ]
+      ],
+      "done": true,
+      "_note": "Umgesetzt und gemergt in PR #50. Muss done bleiben, sonst wuerde der Schritt erneut gestartet."
     },
     {
       "id": "voice-barge-in-hotword",
@@ -144,7 +152,9 @@
         "Lokaler Hotword-Detektor austauschbar, ohne Cloud, mit Fake-Audio getestet",
         "Wake-Word loest nie eine bestaetigungspflichtige Aktion aus (Test)",
         "Notaus-Verhalten unveraendert; echte Hardware als manuell dokumentiert"
-      ]
+      ],
+      "done": true,
+      "_note": "Umgesetzt und gemergt in PR #52. Muss done bleiben, sonst wuerde der Schritt erneut gestartet."
     },
     {
       "id": "docs-sync",
@@ -162,7 +172,9 @@
         "docs/TESTING.md nennt die aktuellen Workflows und nur belegte Laeufe",
         "docs/BACKLOG.md aktualisiert",
         "Nur Dokumentation geaendert"
-      ]
+      ],
+      "done": true,
+      "_note": "Umgesetzt und gemergt in PR #55. Muss done bleiben, sonst wuerde der Schritt erneut gestartet."
     },
     {
       "id": "audit-hash-chain",
@@ -228,7 +240,8 @@
         "tests/test_integration_docs.py schlaegt bei fehlendem Pflichtfeld an (Gegenprobe vorhanden)",
         "Kein Produktionscode, keine Abhaengigkeit, kein Netzwerk"
       ],
-      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+      "_note": "Umgesetzt und gemergt in PR #58. Muss done bleiben, sonst wuerde der Schritt erneut gestartet.",
+      "done": true
     },
     {
       "id": "uia-vetting",
@@ -282,7 +295,8 @@
         "Keine Eingabe- oder Klickfunktion im Provider (Strukturtest)",
         "Start nur mit Entscheidung 'nehmen' und Besitzer-Freigabe-Zeile im Pruefdokument, sonst blocked ohne Aenderung"
       ],
-      "_note": "Fuegt ein optionales Extra in pyproject.toml hinzu: eine neue Bibliothek. Der Besitzer gibt das mit der Freigabe dieses Schritts frei."
+      "_note": "Umgesetzt und gemergt in PR #65. Muss done bleiben, sonst wuerde der Schritt erneut gestartet.",
+      "done": true
     },
     {
       "id": "uia-tools-readonly",
@@ -299,7 +313,8 @@
         "Sperrliste, Passwortfelder und Redaktion wirken (Tests mit Fake-Baum)",
         "Notaus und Sitzungsbudget wirken auf die neuen Tools (Tests)"
       ],
-      "_note": "Verdrahtung in src/jarvis/bootstrap.py: ohne konkrete sensitive_edits-Freigabe merged der Besitzer den PR."
+      "_note": "Umgesetzt und gemergt in PR #66. Muss done bleiben, sonst wuerde der Schritt erneut gestartet.",
+      "done": true
     },
     {
       "id": "uia-actions",
