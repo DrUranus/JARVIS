@@ -15,7 +15,11 @@
       "uia-vetting",
       "uia-model-fake",
       "uia-provider-readonly",
-      "uia-tools-readonly"
+      "uia-tools-readonly",
+      "llm-compat-vetting",
+      "llm-compat-provider",
+      "llm-routing-design",
+      "llm-routing-policy"
     ],
     "_hinweis": "EINMALIGE FREIGABE: nur 'approved' auf true setzen (Besitzer, CODEOWNERS). Die Liste approved_items ist im Test festgenagelt; sicherheitskritische Schritte (audit-hash-chain, cli-confirm-timeout, llm-goal-planning, coding-llm-edits, smartphone-api-design) stehen bewusst nicht darin. scopes_approved: wirkt erst, wenn der Besitzer es auf true setzt (einmalig); dann gelten die sensitive_edits/scope-Deklarationen der Plan-Schritte. Freigabe-Instanzen (backlog.json, CODEOWNERS, CLAUDE.md, .claude) sind nie deklarierbar.",
     "scopes_approved": true

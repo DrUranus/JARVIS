@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import hashlib
 import json
 import re
 import sys
@@ -502,8 +503,9 @@ def test_unapproved_and_unmet_items_never_selected():
 
 PINNED_PLAN = ["windows-capture-tests", "coding-windows-process-tree", "persistent-results", "onboarding-windows", "memory-semantic-search",
                "voice-barge-in-hotword", "docs-sync",
-               "int-vetting-policy", "uia-vetting", "uia-model-fake", "uia-provider-readonly", "uia-tools-readonly"]       # Integrationskette (Besitzer-Freigabe), genau 5 Schritte
-PINNED_DONE = list(PINNED_PLAN)          # alle Planschritte sind gemergt (PR #34, #38, #41, #48, #50, #52, #55, #58, #60, #62, #65, #66): done verhindert jede Wiederholung
+               "int-vetting-policy", "uia-vetting", "uia-model-fake", "uia-provider-readonly", "uia-tools-readonly",       # Integrationskette 1 (UIA), gemergt
+               "llm-compat-vetting", "llm-compat-provider", "llm-routing-design", "llm-routing-policy"]                   # Integrationskette 2 (LLM), Besitzer-Freigabe
+PINNED_DONE = PINNED_PLAN[:12]          # gemergt (PR #34, #38, #41, #48, #50, #52, #55, #58, #60, #62, #65, #66): done verhindert jede Wiederholung; die vier LLM-Schritte sind offen
 
 
 def test_shipped_backlog_approvals_are_exactly_the_owner_approved_steps():
@@ -521,21 +523,55 @@ def test_shipped_backlog_approvals_are_exactly_the_owner_approved_steps():
     assert (nxt["id"] if nxt else None) == expected_next          # Teilziel 3 und 4 sind erledigt; ohne freigegebenen Plan gibt es keinen naechsten Schritt
 
 
-def test_the_integration_chain_runs_in_dependency_order_and_ends_after_exactly_five_steps():
-    """Nach den sieben abgeschlossenen Schritten waehlt 'next' nacheinander genau die fuenf freigegebenen Integrationsschritte; danach gibt es nichts mehr,
-    kein weiterer Eintrag der Integrations-Planung ist freigegeben (die Kettenlaenge ist hart auf HARD_MAX_CHAIN_JOBS begrenzt)."""
+LLM_CHAIN = ["llm-compat-vetting", "llm-compat-provider", "llm-routing-design", "llm-routing-policy"]
+LLM_SCOPE_DIGESTS = {      # SHA-256 ueber Aufgabe, Abnahmekriterien, Abhaengigkeiten, Zeit, Versuche, sensitive_edits und scope zum Zeitpunkt der Freigabe: eine Umfangserweiterung schlaegt an
+    "llm-compat-vetting": "7889f1b8a1ba2c10095169ebc82be5b21a737d16418d477aa3cf2993fd75d62a",
+    "llm-compat-provider": "9fa08b09912cdc285055389c94dda43be9568a3c5189aede0771193a4f9c645c",
+    "llm-routing-design": "5edfac70e7b4e9d4a8374ba0ce1e1f3a4ef9e4080d6d3ea5265d48e2c69c5931",
+    "llm-routing-policy": "018bdbd7fd938895156f4fcc61372021fe0e5b7303f2e62d785f239030b45919",}
+
+
+def _scope_digest(item):
+    return hashlib.sha256(json.dumps({x: item.get(x) for x in ("task", "acceptance", "depends_on", "timeout_minutes", "max_attempts", "sensitive_edits", "scope")},
+                                     sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def test_the_llm_chain_runs_in_dependency_order_and_ends_after_exactly_four_steps():
+    """Nach den zwoelf erledigten Schritten waehlt 'next' nacheinander genau die vier freigegebenen LLM-Schritte in Abhaengigkeitsreihenfolge, danach nichts mehr; die Kette
+    (hoechstens HARD_MAX_CHAIN_JOBS = 5 Auftraege) reicht dafuer. Kein weiterer Eintrag der Integrations-Planung ist freigegeben."""
     items = ja.load_backlog(ROOT / ".github/automation/backlog.json")
-    done = {"autonomy-invariants", "session-budget"} | set(PINNED_PLAN[:7])
+    done = {"autonomy-invariants", "session-budget"} | set(PINNED_DONE)
     order = []
     while (nxt := ja.select_next_item(items, done, set())) is not None:
         order.append(nxt["id"])
         done.add(nxt["id"])
-    assert order == [i for i in PINNED_PLAN[7:] if i not in PINNED_DONE] == [] and len(order) <= ja.HARD_MAX_CHAIN_JOBS == 5
-    not_approved = ["uia-actions", "uia-agent-integration", "uia-windows-e2e", "llm-compat-vetting", "llm-compat-provider", "llm-routing-design", "llm-routing-policy",
-                    "stt-vetting", "stt-local-provider", "stt-vad-endpointing", "research-vetting", "research-search-interface", "research-extract-backend",
-                    "research-search-provider", "mcp-security-review", "os-sandbox-design", "mail-design", "office-design", "media-design"]
+    assert order == LLM_CHAIN and len(order) <= ja.HARD_MAX_CHAIN_JOBS == 5
     by_id = {i["id"]: i for i in items}
+    not_approved = ["uia-actions", "uia-agent-integration", "uia-windows-e2e", "stt-vetting", "stt-local-provider", "stt-vad-endpointing", "research-vetting",
+                    "research-search-interface", "research-extract-backend", "research-search-provider", "mcp-security-review", "os-sandbox-design", "mail-design",
+                    "office-design", "media-design"]
     assert all(by_id[i]["approved"] is False for i in not_approved)
+
+
+def test_the_llm_steps_depend_only_on_earlier_steps_and_are_blocked_until_their_predecessors_are_done():
+    items = ja.load_backlog(ROOT / ".github/automation/backlog.json")
+    by_id = {i["id"]: i for i in items}
+    assert [by_id[i]["depends_on"] for i in LLM_CHAIN] == [["int-vetting-policy"], ["llm-compat-vetting"], ["llm-compat-vetting"], ["llm-compat-provider", "llm-routing-design"]]
+    base = {"autonomy-invariants", "session-budget"} | set(PINNED_DONE)
+    assert ja.select_next_item(items, base, set())["id"] == "llm-compat-vetting"
+    for step, needs in (("llm-compat-provider", {"llm-compat-vetting"}), ("llm-routing-design", {"llm-compat-vetting"}),
+                        ("llm-routing-policy", {"llm-compat-provider", "llm-routing-design"})):
+        others = {i for i in LLM_CHAIN if i != step}
+        blocked = ja.select_next_item([i for i in items if i["id"] == step], base, set())              # nur dieser Schritt zur Wahl, Vorgaenger nicht erledigt
+        assert blocked is None, step
+        assert ja.select_next_item([i for i in items if i["id"] == step], base | needs, set())["id"] == step
+        assert others                                                                             # Vorgaenger sind echte, andere Schritte
+
+
+def test_the_scope_of_the_four_llm_steps_is_pinned_and_none_declares_protected_edits():
+    items = {i["id"]: i for i in ja.load_backlog(ROOT / ".github/automation/backlog.json")}
+    assert {k: _scope_digest(items[k]) for k in LLM_CHAIN} == LLM_SCOPE_DIGESTS
+    assert all("sensitive_edits" not in items[k] and "scope" not in items[k] for k in LLM_CHAIN)         # keine Vorab-Freigabe geschuetzter Dateien: bootstrap.py mergt der Besitzer
 
 
 def test_retry_after_failure_is_bounded():

@@ -263,3 +263,31 @@ def test_flipping_the_single_plan_switch_in_the_shipped_backlog_approves_exactly
     assert order == [i for i in raw["plan"]["approved_items"] if i not in done]                              # nur offene Schritte laufen, jeder genau einmal
     for sensitive in ("audit-hash-chain", "cli-confirm-timeout", "llm-goal-planning", "coding-llm-edits", "smartphone-api-design"):
         assert not next(i for i in items if i["id"] == sensitive)["approved"]
+
+
+# ---- die ausgelieferte Freigabe: die vier LLM-Schritte laufen nacheinander ueber die vorhandene Routine ------------------------------------
+SHIPPED = ROOT / ".github/automation/backlog.json"
+
+
+def test_the_shipped_plan_starts_the_llm_chain_step_by_step_through_the_existing_routine():
+    api, fire = FakeApi(), Fire()
+    first = begin(api, "next", path=SHIPPED, fire=fire, chain_budget=5)
+    st = state_of(api, first["issue"])
+    assert st["chain"]["item_id"] == "llm-compat-vetting" and st["chain"]["budget"] == 5 and st["chain"]["auto_continue"] is True
+    assert "ABNAHMEKRITERIEN" in fire.calls[0]
+    for ref, why in (("llm-compat-provider", "(?i)abhaengigkeit"), ("llm-routing-design", "(?i)abhaengigkeit"), ("llm-routing-policy", "(?i)abhaengigkeit"),
+                     ("uia-actions", "(?i)nicht freigegeben"), ("stt-vetting", "(?i)nicht freigegeben")):
+        with pytest.raises(ja.AutomationError, match=why):
+            begin(FakeApi(), ref, path=SHIPPED)
+    order, api2 = [], FakeApi()
+    for _ in range(4):
+        r = begin(api2, "next", path=SHIPPED, chain_budget=5, run_id=str(600 + len(order)))
+        item = state_of(api2, r["issue"])["chain"]["item_id"]
+        order.append(item)
+        n = r["issue"]
+        ja.set_state(api2, api2.get_issue(n), state_of(api2, n), "completed", extra={"report": {"branch": f"claude/{item}", "pr_url": f"https://github.com/DrUranus/JARVIS/pull/{100 + len(order)}",
+                                                                                                "commits": ["d" * 40], "tests": [], "next_action": "continue", "status": "success"}})
+        ja.mark_merged(api2, n, pr_number=100 + len(order), sha="d" * 40, now=NOW)
+    assert order == ["llm-compat-vetting", "llm-compat-provider", "llm-routing-design", "llm-routing-policy"]
+    with pytest.raises(ja.AutomationError, match="(?i)kein freigegebener"):
+        begin(api2, "next", path=SHIPPED, chain_budget=5, run_id="699")                    # danach ist nichts mehr freigegeben
