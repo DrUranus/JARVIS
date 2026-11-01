@@ -846,7 +846,9 @@
       "acceptance": [
         "docs/integrations/control-center-ui.md mit Lizenz-Wortlaut, Version, Pflege und Windows-Eignung je Kandidat (mit Quelle)",
         "Ausdrueckliche Empfehlung und offene Fragen fuer den Besitzer",
-        "Kein Code, keine Installation; bei unerreichbarer Quelle blocked"
+        "Kein Code, keine Installation; bei unerreichbarer Quelle blocked",
+        "Premium V2: Three.js/WebGL-3D, WebView2/pywebview, Windows-Mini-Overlay (ca. 140x140, verschiebbar, optional Always-on-Top, Klick oeffnet Hauptfenster, nicht standardmaessig klickdurchlaessig) und Canvas-2D-Fallback vergleichen; GPU-Ausfall und reduzierte Effekte beruecksichtigen.",
+        "Pruefbericht bewertet lokale Assets, Performance, Windows-GUI-Testbarkeit, Notaus-Erreichbarkeit und Sicherheits-/Lizenzrisiken anhand offizieller Quellen; keine Implementierung oder Bibliotheksfreigabe."
       ],
       "scope": [
         "docs/integrations/",
@@ -868,7 +870,8 @@
         "Server nur auf Loopback; ohne gueltiges Token oder mit fremdem Origin nichts (Tests inkl. Missbrauch)",
         "Ereignisse und Befehle laufen ueber den Vertrag, ungueltige werden abgelehnt (Tests)",
         "Keine externen Ressourcen, CSP gesetzt; Start nur auf ausdruecklichen Befehl",
-        "Start nur mit Entscheidung 'nehmen' und Besitzer-Freigabe-Zeile im Pruefdokument, sonst blocked ohne Aenderung"
+        "Start nur mit Entscheidung 'nehmen' und Besitzer-Freigabe-Zeile im Pruefdokument, sonst blocked ohne Aenderung",
+        "Premium V2: Start im Orb-Modus, jederzeit manuell zum Dashboard und zurueck; UI-Modus ist rein lokal und darf X0, PermissionEngine oder Notaus nicht veraendern."
       ],
       "scope": [
         "src/jarvis/control_center/",
@@ -893,7 +896,9 @@
       "acceptance": [
         "Dialog zeigt alle Felder der Anfrage; Ablehnen ist Standard",
         "Zeitablauf, Schliessen und Verbindungsverlust gelten als abgelehnt (Server-Tests gegen das Fake-Backend)",
-        "Notaus-Knopf immer erreichbar (Asset-Pruefung); nur angebotene Wahlmoeglichkeiten sind sendbar"
+        "Notaus-Knopf immer erreichbar (Asset-Pruefung); nur angebotene Wahlmoeglichkeiten sind sendbar",
+        "Premium V2: Offene Freigaben und Notaus sind im Orb-, Dashboard- und Overlay-Modus unabhaengig vom UI-Modus erreichbar; keine verdeckten Freigaben.",
+        "Fensterverlust, Timeout und Verbindungsabbruch bleiben fail-closed; Overlay darf Notaus-Erreichbarkeit nicht verschlechtern."
       ],
       "scope": [
         "src/jarvis/control_center/",
@@ -917,7 +922,9 @@
       "acceptance": [
         "Dashboard folgt den Ereignissen live (Tests gegen das Fake-Backend)",
         "Abbrechen zeigt die echte Antwort des Backends",
-        "Texte werden nie als HTML eingefuegt (Asset-Pruefung)"
+        "Texte werden nie als HTML eingefuegt (Asset-Pruefung)",
+        "Premium V2: Agenten links, Kugel mittig, Aufgaben und Freigaben rechts; automatischer Dashboard-Wechsel nur bei mindestens drei belegbaren geplanten Schritten oder mehreren belegbar beteiligten Agenten.",
+        "Fehlen verlaessliche X0-Daten zur Komplexitaet, kein automatischer Wechsel und Datenluecke dokumentieren; manuelle Umschaltung bleibt moeglich."
       ],
       "scope": [
         "src/jarvis/control_center/",
@@ -940,7 +947,9 @@
       "acceptance": [
         "Jeder Zustand des Vertrags ist abgebildet, Werte begrenzt (Tabellen-Test)",
         "prefers-reduced-motion wird beachtet, keine externen Ressourcen (Asset-Pruefung)",
-        "Gezeigt wird nur ein vom Backend gemeldeter Zustand"
+        "Gezeigt wird nur ein vom Backend gemeldeter Zustand",
+        "Premium V2: 3D-Kugel mit Energie-/Ringeffekten oder dokumentiertem 2D-Fallback; ready gruen, listening blau, processing violett, speaking tuerkis, awaiting_confirmation goldgelb, error/emergency rot.",
+        "Effekte abschaltbar und bei geringer Leistung reduziert; nur echte Backend-Zustaende, keine erfundenen Statuswerte im Echtbetrieb."
       ],
       "scope": [
         "src/jarvis/control_center/",
@@ -963,7 +972,8 @@
       "acceptance": [
         "Anzeige folgt den voice_level-Ereignissen (Tests gegen das Fake-Backend)",
         "Mikrofon startet nur durch den Befehl start_voice",
-        "Keine Audiodaten im Frontend (Asset-Pruefung)"
+        "Keine Audiodaten im Frontend (Asset-Pruefung)",
+        "Premium V2: Sprach- und Kernanimationen nur aus echten voice_level- und Zustandsereignissen; bei deaktivierten Effekten bleibt die Statusanzeige lesbar."
       ],
       "scope": [
         "src/jarvis/control_center/",
@@ -988,7 +998,8 @@
       "acceptance": [
         "jarvis-cc startet das Control Center nur auf ausdruecklichen Befehl und nur auf Loopback",
         "Echtes Backend besteht run_conformance (Tests)",
-        "Standard aus; Notaus-Knopf wirkt auf die echte Engine (Test)"
+        "Standard aus; Notaus-Knopf wirkt auf die echte Engine (Test)",
+        "Premium V2: Produktivmodus verwendet ausschliesslich echte UiBackend-Ereignisse, FakeUiBackend nur fuer Tests; kein zweiter Berechtigungsweg, keine X0-Aenderung ohne gesonderte Freigabe."
       ],
       "scope": [
         "src/jarvis/control_center/",
@@ -1016,7 +1027,8 @@
       "acceptance": [
         "Ansichten sind nur lesend (Strukturtest)",
         "Geschwaerzte Daten, keine Geheimnisse (Tests)",
-        "Filter und Begrenzung der Eintraege"
+        "Filter und Begrenzung der Eintraege",
+        "Premium V2: Aufgaben-, Ergebnis- und Auditdetails sind im Dashboard lesend erreichbar; keine simulierten Eintraege oder ungeprueften Statusmeldungen."
       ],
       "scope": [
         "src/jarvis/control_center/",
@@ -1039,7 +1051,9 @@
       "acceptance": [
         "jarvis doctor meldet die Voraussetzungen nur lesend und deutschsprachig",
         "Schnellstart fuer Windows im README",
-        "Nichts wird aktiviert"
+        "Nichts wird aktiviert",
+        "Premium V2: Optionales Windows-Mini-Overlay (ca. 140x140) verschiebbar, optional Always-on-Top, Klick oeffnet Hauptfenster, keine standardmaessige Klickdurchlaessigkeit; Start nur explizit.",
+        "Windows-Diagnose benennt WebView2-/3D-Voraussetzungen und 2D-Fallback; Notaus bleibt auch bei Overlay und geschlossenem Hauptfenster erreichbar."
       ],
       "scope": [
         "src/jarvis/interface/",
@@ -1063,7 +1077,8 @@
       "acceptance": [
         "Test laeuft auf dem Windows-Runner und besteht (kein Skip)",
         "Token und Origin werden erzwungen, Ereignisstrom und Befehl funktionieren",
-        "Der Server wird sauber beendet"
+        "Der Server wird sauber beendet",
+        "Premium V2: Zusaetzlich zum headless Server-Smoke sind echte Windows-GUI-Abnahmen fuer Orb/Dashboard-Umschaltung, Overlay-Fokus, Freigaben, Notaus und 2D-Fallback erforderlich; headless allein genuegt nicht."
       ],
       "scope": [
         "tests/test_control_center_windows.py",
