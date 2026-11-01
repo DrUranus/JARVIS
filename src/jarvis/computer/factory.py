@@ -80,6 +80,17 @@ def create_backend(settings: ComputerSettings, platform: str | None = None) -> C
     return backend
 
 
+def _create_uia(settings: ComputerSettings, backend: ComputerBackend):
+    """The read-only UI provider for `backend`: the deterministic fake for the fake backend, pywinauto (worker process) on Windows."""
+    if backend.name == "fake":
+        from jarvis.computer.providers.fake_uia import FakeUiaProvider
+        return FakeUiaProvider()
+    if backend.name != "win32":
+        raise ComputerUnavailableError("UI Automation reading is only available on Windows")
+    from jarvis.computer.providers.pywinauto_uia import create_uia_provider
+    return create_uia_provider(max_calls=settings.uia_max_calls_per_session, call_timeout=settings.uia_call_timeout)
+
+
 @dataclass
 class ComputerSubsystem:
     """What the rest of the application sees (the Core stores it as an opaque subsystem)."""
@@ -125,6 +136,14 @@ def build_computer(settings: Settings, registry: ToolRegistry, engine: Permissio
     except Exception as exc:  # whatever a backend does, JARVIS still starts
         log.warning("computer control unavailable: %s", type(exc).__name__)
         return ComputerSubsystem("unavailable", f"backend failed to initialise ({type(exc).__name__})")
+    uia_note = ""
+    if cs.uia_enabled:
+        try:
+            backend.ui = _create_uia(cs, backend)
+        except Exception as exc:  # a missing library or platform never stops the rest of computer control
+            message = exc.message if isinstance(exc, ComputerError) else f"{type(exc).__name__}"
+            uia_note = f"; UI Automation unavailable: {message}"
+            log.warning("UI Automation unavailable: %s", message)
     previous_policy = engine.policy
     try:
         # baseline rules first: if they cannot be installed, no computer tool is registered at all (fail closed)
@@ -139,4 +158,4 @@ def build_computer(settings: Settings, registry: ToolRegistry, engine: Permissio
         log.warning("computer control not enabled: %s", exc)
         return ComputerSubsystem("unavailable", f"could not install the safety rules or tools: {type(exc).__name__}: {exc}")
     log.info("computer control enabled (backend=%s, capabilities=%s)", backend.name, backend.capabilities())
-    return ComputerSubsystem("enabled", f"backend {backend.name}", controller, names)
+    return ComputerSubsystem("enabled", f"backend {backend.name}{uia_note}", controller, names)
