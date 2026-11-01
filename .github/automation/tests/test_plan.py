@@ -276,7 +276,7 @@ def test_the_shipped_plan_starts_the_open_steps_one_by_one_through_the_existing_
     st = state_of(api, first["issue"])
     assert st["chain"]["item_id"] == "llm-compat-provider" and st["chain"]["budget"] == 5 and st["chain"]["auto_continue"] is True
     assert "ABNAHMEKRITERIEN" in fire.calls[0]
-    for ref, why in (("llm-compat-provider", "(?i)abhaengigkeit"), ("llm-routing-policy", "(?i)abhaengigkeit"), ("stt-local-provider", "(?i)abhaengigkeit"),
+    for ref, why in (("llm-routing-policy", "(?i)abhaengigkeit"), ("stt-local-provider", "(?i)abhaengigkeit"),
                      ("research-search-interface", "(?i)abhaengigkeit"), ("coding-llm-edits", "(?i)abhaengigkeit"), ("llm-goal-planning", "(?i)abhaengigkeit"),
                      ("task-resume", "(?i)abhaengigkeit"), ("cc-shell", "(?i)abhaengigkeit"), ("agent-router", "(?i)abhaengigkeit"),
                      ("audit-hash-chain", "(?i)nicht freigegeben"), ("mail-provider", "(?i)nicht freigegeben"), ("smartphone-api-design", "(?i)nicht freigegeben")):
