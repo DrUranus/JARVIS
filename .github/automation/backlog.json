@@ -354,6 +354,7 @@
       "id": "llm-compat-vetting",
       "title": "LLM: OpenAI-kompatible Schnittstelle und lokale Server pruefen",
       "approved": false,
+      "done": true,
       "depends_on": [
         "int-vetting-policy"
       ],

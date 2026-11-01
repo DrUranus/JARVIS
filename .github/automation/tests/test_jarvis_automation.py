@@ -552,7 +552,7 @@ PINNED_PLAN = [   # Reihenfolge in backlog.json = Ausfuehrungsreihenfolge der Au
                "mail-design",
                "office-design",
                "media-design"]
-DONE_AT_RELEASE_PLAN = {"ui-contract-v1"}      # per direktem Auftrag umgesetzt (PR #73), steht als done
+DONE_AT_RELEASE_PLAN = {"ui-contract-v1", "llm-compat-vetting"}      # per direktem Auftrag umgesetzt (PR #73), steht als done
 PINNED_DONE = [i for i in PINNED_PLAN if i in set(PINNED_PLAN[:12]) | DONE_AT_RELEASE_PLAN]     # gemergt: done verhindert jede Wiederholung
 
 
@@ -579,7 +579,7 @@ ROADMAP_NEW = ["event-bus", "task-journal", "task-resume", "agent-router", "agen
 WIRING_IN_BOOTSTRAP = {"file-tools", "assistant-e2e", "cc-backend-binding"}        # die einzigen neuen Schritte mit bootstrap.py im Aufgabenbereich: der Besitzer mergt sie
 STILL_BLOCKED = ["audit-hash-chain", "cli-confirm-timeout", "smartphone-api-design", "mcp-security-review", "mail-provider", "office-docs", "media-agent"]
 SCOPE_DIGESTS = {      # SHA-256 ueber Aufgabe, Abnahmekriterien, Abhaengigkeiten, Zeit, Versuche, sensitive_edits und scope zum Zeitpunkt der Freigabe: eine Umfangserweiterung schlaegt an
-    "llm-compat-vetting": "7889f1b8a1ba2c10095169ebc82be5b21a737d16418d477aa3cf2993fd75d62a",
+
     "llm-compat-provider": "9fa08b09912cdc285055389c94dda43be9568a3c5189aede0771193a4f9c645c",
     "llm-routing-design": "5edfac70e7b4e9d4a8374ba0ce1e1f3a4ef9e4080d6d3ea5265d48e2c69c5931",
     "llm-routing-policy": "018bdbd7fd938895156f4fcc61372021fe0e5b7303f2e62d785f239030b45919",
@@ -633,7 +633,7 @@ def test_the_open_approved_steps_run_in_dependency_order_llm_first_and_the_contr
     while (nxt := ja.select_next_item(items, done, set())) is not None:
         order.append(nxt["id"])
         done.add(nxt["id"])
-    assert order == RELEASE_ORDER and order[:4] == LLM_CHAIN and order[4] == "llm-goal-planning"
+    assert order == RELEASE_ORDER and order[:3] == LLM_CHAIN[1:] and order[3] == "llm-goal-planning"
     assert order.index("llm-goal-planning") < order.index("agent-router") < order.index("assistant-e2e") < order.index("cc-backend-binding")
     assert order.index("coding-llm-edits") < order.index("ui-tech-evaluation")                        # Control Center nach Coding (Prioritaet des Besitzers)
     by_id = {i["id"]: i for i in items}
@@ -650,7 +650,7 @@ def test_dependencies_of_the_open_steps_point_only_to_earlier_steps_and_the_stra
     for step in PINNED_PLAN[12:] + ["mail-provider", "office-docs", "media-agent"]:
         assert all(ids.index(d) < ids.index(step) for d in by_id[step]["depends_on"]), step
     base = {"autonomy-invariants", "session-budget"} | set(PINNED_DONE)
-    assert ja.select_next_item(items, base, set())["id"] == "llm-compat-vetting"
+    assert ja.select_next_item(items, base, set())["id"] == "llm-compat-provider"
     for step in RELEASE_ORDER[1:]:                                                                           # kein Schritt ist ohne seine Vorgaenger waehlbar
         if set(by_id[step]["depends_on"]) - base:
             assert ja.select_next_item([by_id[step]], base, set()) is None, step
