@@ -28,7 +28,7 @@ In `backlog.json` sind diese Schritte als `done` markiert (ein Schritt ohne Verm
 
 Ausfuehrungsreihenfolge = Reihenfolge in `backlog.json`; Plan, Straenge, Rechte und Risiken: `docs/RELEASE_PLAN.md`, Vertrag: `docs/UI_CONTRACT.md`.
 
-1. **LLM-Kette** (PR #69, laeuft): `llm-compat-vetting`, `llm-compat-provider`, `llm-routing-design`, `llm-routing-policy`.
+1. **LLM-Kette** (PR #69, laeuft): `llm-compat-vetting`, `llm-compat-provider`, `llm-routing-design` (Entwurf: `docs/LLM_ROUTING.md`, Besitzer-Entscheidungen offen), `llm-routing-policy`.
 2. **Strang A (Autonomie und Agenten):** `llm-goal-planning`, `event-bus`, `task-journal`, `agent-router`, `uia-actions`, `uia-agent-integration`, `agent-error-recovery`, `task-resume`, `file-tools`, `assistant-e2e`, `uia-windows-e2e`, danach Sprache (`stt-*`), Recherche (`research-*`) und `coding-llm-edits`.
 3. **Strang B (Control Center):** `ui-tech-evaluation`, `cc-shell`, `cc-confirmation`, `cc-dashboard`, `cc-ai-core`, `cc-voice-viz`, `cc-backend-binding`, `cc-results-audit`, `cc-windows-start`, `cc-windows-smoke`.
 4. **Entwuerfe (nur Dokumente):** `os-sandbox-design`, `mail-design`, `office-design`, `media-design`.
