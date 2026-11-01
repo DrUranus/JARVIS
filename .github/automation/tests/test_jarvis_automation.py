@@ -552,7 +552,7 @@ PINNED_PLAN = [   # Reihenfolge in backlog.json = Ausfuehrungsreihenfolge der Au
                "mail-design",
                "office-design",
                "media-design"]
-DONE_AT_RELEASE_PLAN = {"ui-contract-v1"}      # per direktem Auftrag umgesetzt (PR #73), steht als done
+DONE_AT_RELEASE_PLAN = {"ui-contract-v1", "llm-compat-vetting"}      # per direktem Auftrag umgesetzt (PR #73), steht als done
 PINNED_DONE = [i for i in PINNED_PLAN if i in set(PINNED_PLAN[:12]) | DONE_AT_RELEASE_PLAN]     # gemergt: done verhindert jede Wiederholung
 
 
@@ -633,7 +633,7 @@ def test_the_open_approved_steps_run_in_dependency_order_llm_first_and_the_contr
     while (nxt := ja.select_next_item(items, done, set())) is not None:
         order.append(nxt["id"])
         done.add(nxt["id"])
-    assert order == RELEASE_ORDER and order[:4] == LLM_CHAIN and order[4] == "llm-goal-planning"
+    assert order == RELEASE_ORDER and order[:3] == LLM_CHAIN[1:] and order[3] == "llm-goal-planning"
     assert order.index("llm-goal-planning") < order.index("agent-router") < order.index("assistant-e2e") < order.index("cc-backend-binding")
     assert order.index("coding-llm-edits") < order.index("ui-tech-evaluation")                        # Control Center nach Coding (Prioritaet des Besitzers)
     by_id = {i["id"]: i for i in items}
@@ -650,7 +650,7 @@ def test_dependencies_of_the_open_steps_point_only_to_earlier_steps_and_the_stra
     for step in PINNED_PLAN[12:] + ["mail-provider", "office-docs", "media-agent"]:
         assert all(ids.index(d) < ids.index(step) for d in by_id[step]["depends_on"]), step
     base = {"autonomy-invariants", "session-budget"} | set(PINNED_DONE)
-    assert ja.select_next_item(items, base, set())["id"] == "llm-compat-vetting"
+    assert ja.select_next_item(items, base, set())["id"] == "llm-compat-provider"
     for step in RELEASE_ORDER[1:]:                                                                           # kein Schritt ist ohne seine Vorgaenger waehlbar
         if set(by_id[step]["depends_on"]) - base:
             assert ja.select_next_item([by_id[step]], base, set()) is None, step
