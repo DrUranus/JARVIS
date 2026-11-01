@@ -579,7 +579,7 @@ ROADMAP_NEW = ["event-bus", "task-journal", "task-resume", "agent-router", "agen
 WIRING_IN_BOOTSTRAP = {"file-tools", "assistant-e2e", "cc-backend-binding"}        # die einzigen neuen Schritte mit bootstrap.py im Aufgabenbereich: der Besitzer mergt sie
 STILL_BLOCKED = ["audit-hash-chain", "cli-confirm-timeout", "smartphone-api-design", "mcp-security-review", "mail-provider", "office-docs", "media-agent"]
 SCOPE_DIGESTS = {      # SHA-256 ueber Aufgabe, Abnahmekriterien, Abhaengigkeiten, Zeit, Versuche, sensitive_edits und scope zum Zeitpunkt der Freigabe: eine Umfangserweiterung schlaegt an
-    "llm-compat-vetting": "7889f1b8a1ba2c10095169ebc82be5b21a737d16418d477aa3cf2993fd75d62a",
+
     "llm-compat-provider": "9fa08b09912cdc285055389c94dda43be9568a3c5189aede0771193a4f9c645c",
     "llm-routing-design": "5edfac70e7b4e9d4a8374ba0ce1e1f3a4ef9e4080d6d3ea5265d48e2c69c5931",
     "llm-routing-policy": "018bdbd7fd938895156f4fcc61372021fe0e5b7303f2e62d785f239030b45919",
