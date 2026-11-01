@@ -1,0 +1,826 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "backend": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "capabilities": {
+              "items": {
+                "maxLength": 32,
+                "type": "string"
+              },
+              "maxItems": 32,
+              "type": "array"
+            },
+            "contract": {
+              "maxLength": 16,
+              "type": "string"
+            },
+            "emergency": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "contract",
+            "backend",
+            "capabilities",
+            "emergency"
+          ],
+          "type": "object"
+        },
+        "seq": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ts": {
+          "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z",
+          "type": "string"
+        },
+        "type": {
+          "const": "hello"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "seq",
+        "ts",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "detail": {
+              "maxLength": 200,
+              "type": "string"
+            },
+            "state": {
+              "enum": [
+                "ready",
+                "listening",
+                "processing",
+                "speaking",
+                "awaiting_confirmation",
+                "error",
+                "emergency"
+              ]
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        "seq": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ts": {
+          "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z",
+          "type": "string"
+        },
+        "type": {
+          "const": "state"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "seq",
+        "ts",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "sender": {
+              "enum": [
+                "user",
+                "jarvis",
+                "system"
+              ]
+            },
+            "text": {
+              "maxLength": 4000,
+              "type": "string"
+            }
+          },
+          "required": [
+            "sender",
+            "text"
+          ],
+          "type": "object"
+        },
+        "seq": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ts": {
+          "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z",
+          "type": "string"
+        },
+        "type": {
+          "const": "chat"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "seq",
+        "ts",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "inactive": {
+              "items": {
+                "maxLength": 64,
+                "type": "string"
+              },
+              "maxItems": 20,
+              "type": "array"
+            },
+            "items": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "cancellable": {
+                    "type": "boolean"
+                  },
+                  "id": {
+                    "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "goal",
+                      "agent_task",
+                      "repair",
+                      "plan",
+                      "resume"
+                    ]
+                  },
+                  "note": {
+                    "maxLength": 200,
+                    "type": "string"
+                  },
+                  "status": {
+                    "maxLength": 32,
+                    "type": "string"
+                  },
+                  "title": {
+                    "maxLength": 200,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id",
+                  "title",
+                  "status",
+                  "note",
+                  "cancellable"
+                ],
+                "type": "object"
+              },
+              "maxItems": 200,
+              "type": "array"
+            },
+            "problems": {
+              "items": {
+                "maxLength": 200,
+                "type": "string"
+              },
+              "maxItems": 20,
+              "type": "array"
+            }
+          },
+          "required": [
+            "items",
+            "problems",
+            "inactive"
+          ],
+          "type": "object"
+        },
+        "seq": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ts": {
+          "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z",
+          "type": "string"
+        },
+        "type": {
+          "const": "activity"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "seq",
+        "ts",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "detail": {
+              "maxLength": 200,
+              "type": "string"
+            },
+            "id": {
+              "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "goal",
+                "agent_task",
+                "repair",
+                "plan",
+                "resume"
+              ]
+            },
+            "status": {
+              "maxLength": 32,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "status"
+          ],
+          "type": "object"
+        },
+        "seq": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ts": {
+          "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z",
+          "type": "string"
+        },
+        "type": {
+          "const": "task_update"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "seq",
+        "ts",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "agent": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "reason": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "source": {
+              "enum": [
+                "llm",
+                "rules"
+              ]
+            },
+            "task_id": {
+              "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id",
+            "agent",
+            "source",
+            "reason"
+          ],
+          "type": "object"
+        },
+        "seq": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ts": {
+          "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z",
+          "type": "string"
+        },
+        "type": {
+          "const": "routing"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "seq",
+        "ts",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "artifacts": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "file",
+                      "text",
+                      "link",
+                      "table"
+                    ]
+                  },
+                  "name": {
+                    "maxLength": 120,
+                    "type": "string"
+                  },
+                  "ref": {
+                    "maxLength": 300,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "kind",
+                  "ref"
+                ],
+                "type": "object"
+              },
+              "maxItems": 50,
+              "type": "array"
+            },
+            "summary": {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            "task_id": {
+              "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id",
+            "summary",
+            "artifacts"
+          ],
+          "type": "object"
+        },
+        "seq": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ts": {
+          "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z",
+          "type": "string"
+        },
+        "type": {
+          "const": "result"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "seq",
+        "ts",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "choices": {
+              "items": {
+                "enum": [
+                  "allow_once",
+                  "allow_session",
+                  "deny"
+                ]
+              },
+              "maxItems": 3,
+              "minItems": 1,
+              "type": "array"
+            },
+            "context": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "maxLength": 64,
+                    "type": "string"
+                  },
+                  "value": {
+                    "maxLength": 300,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key",
+                  "value"
+                ],
+                "type": "object"
+              },
+              "maxItems": 10,
+              "type": "array"
+            },
+            "level": {
+              "enum": [
+                "green",
+                "yellow",
+                "red"
+              ]
+            },
+            "reason": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "request_id": {
+              "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+              "type": "string"
+            },
+            "resource": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "timeout_s": {
+              "maximum": 600,
+              "minimum": 1,
+              "type": "number"
+            },
+            "tool": {
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          "required": [
+            "request_id",
+            "tool",
+            "action",
+            "resource",
+            "level",
+            "reason",
+            "context",
+            "choices",
+            "timeout_s"
+          ],
+          "type": "object"
+        },
+        "seq": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ts": {
+          "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z",
+          "type": "string"
+        },
+        "type": {
+          "const": "confirmation_request"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "seq",
+        "ts",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "outcome": {
+              "enum": [
+                "allow_once",
+                "allow_session",
+                "denied",
+                "timeout",
+                "cancelled"
+              ]
+            },
+            "request_id": {
+              "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+              "type": "string"
+            }
+          },
+          "required": [
+            "request_id",
+            "outcome"
+          ],
+          "type": "object"
+        },
+        "seq": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ts": {
+          "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z",
+          "type": "string"
+        },
+        "type": {
+          "const": "confirmation_closed"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "seq",
+        "ts",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "engaged": {
+              "type": "boolean"
+            },
+            "reason": {
+              "maxLength": 200,
+              "type": "string"
+            },
+            "report": {
+              "items": {
+                "maxLength": 200,
+                "type": "string"
+              },
+              "maxItems": 20,
+              "type": "array"
+            }
+          },
+          "required": [
+            "engaged",
+            "reason",
+            "report"
+          ],
+          "type": "object"
+        },
+        "seq": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ts": {
+          "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z",
+          "type": "string"
+        },
+        "type": {
+          "const": "emergency"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "seq",
+        "ts",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "type": "boolean"
+            },
+            "level": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "level",
+            "active"
+          ],
+          "type": "object"
+        },
+        "seq": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ts": {
+          "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z",
+          "type": "string"
+        },
+        "type": {
+          "const": "voice_level"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "seq",
+        "ts",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "message": {
+              "maxLength": 300,
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "type": "object"
+        },
+        "seq": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ts": {
+          "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z",
+          "type": "string"
+        },
+        "type": {
+          "const": "error"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "seq",
+        "ts",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "id": {
+              "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+              "type": "string"
+            },
+            "message": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "ok": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "ok",
+            "code",
+            "message"
+          ],
+          "type": "object"
+        },
+        "seq": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ts": {
+          "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z",
+          "type": "string"
+        },
+        "type": {
+          "const": "ack"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "seq",
+        "ts",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "JARVIS UI events v1.0"
+}
