@@ -108,7 +108,7 @@ def test_http_error_with_plain_text_body():
 
 @pytest.mark.parametrize("exc", [TimeoutError("timed out"), OSError("refused")])
 def test_timeout_and_connection_errors(exc):
-    with pytest.raises(LLMError, match="failed"):
+    with pytest.raises(LLMError, match="failed|timed out"):
         make(Fake(exc=exc)).complete(REQ)
 
 

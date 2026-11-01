@@ -8,7 +8,7 @@ Modulares, persönliches KI-Assistenzsystem. Langfristiges Ziel: ein autonomer A
 ## Was bisher funktioniert (Phase 1–10, 13)
 
 - Konfiguration (Defaults < TOML < Umgebungsvariablen), Dev-/Produktionsmodus, Logging, Fehlerhierarchie
-- LLM-Abstraktion: `mock` (offline), `openai`, `anthropic` – austauschbar per Konfiguration
+- LLM-Abstraktion: `mock` (offline), `openai`, `anthropic`, `openai_compatible` (Ollama, LM Studio, llama.cpp-Server) – austauschbar per Konfiguration
 - Core: Input → Kontext → Routing → LLM oder Planner → strukturierte `Response`
 - Task-System mit Status-Automat, Subtasks, Ergebnis/Fehler, benötigten Tools/Agenten
 - Tool-System: Registry, dynamische Registrierung, fehlerisolierte Ausführung, Permission-Level
@@ -64,9 +64,13 @@ Vorrang (niedrig → hoch): eingebaute Defaults → `config/jarvis.toml` (oder `
 |---|---|
 | `JARVIS_MODE` | `development` (Log DEBUG) / `production` (Log INFO) |
 | `JARVIS_LOG_LEVEL`, `JARVIS_LOG_DIR` | Logging |
-| `JARVIS_LLM_PROVIDER` | `mock` (Default), `openai`, `anthropic` |
+| `JARVIS_LLM_PROVIDER` | `mock` (Default), `openai`, `anthropic`, `openai_compatible` |
+| `JARVIS_LLM_ALLOW_REMOTE` | `false` (Default); nur `openai_compatible`: erlaubt eine Nicht-Loopback-`base_url` |
 | `JARVIS_LLM_MODEL`, `_TEMPERATURE`, `_MAX_TOKENS`, `_TIMEOUT`, `_BASE_URL` | Modell-Parameter |
-| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `JARVIS_LLM_API_KEY` | API-Keys (nur per Umgebung, nie in Dateien) |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_COMPATIBLE_API_KEY` / `JARVIS_LLM_API_KEY` | API-Keys (nur per Umgebung, nie in Dateien) |
+
+Lokales Modell (`openai_compatible`, ohne neue Bibliothek): `JARVIS_LLM_PROVIDER=openai_compatible JARVIS_LLM_BASE_URL=http://127.0.0.1:11434/v1 JARVIS_LLM_MODEL=<modell> jarvis`.
+Standard sind nur Loopback-Ziele (`localhost`, `127.0.0.0/8`, `::1`); ein entferntes Ziel braucht `llm.allow_remote = true`, `https` und einen Schlüssel aus der Umgebung. Der Schlüssel ist auf Loopback optional, steht nie in einer Datei (ein `llm.api_key` in der TOML-Datei wird für diesen Anbieter abgelehnt), nie in Logs oder Fehlermeldungen; Weiterleitungen werden nicht verfolgt. Der Coding Agent behandelt jeden Anbieter außer `mock` als „EXTERN“ (auch Loopback; bewusst vorsichtig). Kein Streaming. Details: `docs/integrations/llm-openai-compatible.md`.
 
 Beispiel mit echtem Modell: `JARVIS_LLM_PROVIDER=anthropic JARVIS_LLM_MODEL=<modell> ANTHROPIC_API_KEY=... jarvis`
 

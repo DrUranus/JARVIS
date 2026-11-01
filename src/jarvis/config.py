@@ -21,6 +21,7 @@ class LLMSettings:
     timeout: float = 60.0
     api_key: str | None = field(default=None, repr=False)  # never printed/logged
     base_url: str | None = None
+    allow_remote: bool = False         # openai_compatible only: a non-loopback base_url is refused unless true
 
 
 @dataclass(frozen=True)
@@ -505,10 +506,14 @@ def load_settings(path: str | Path | None = None, env: Mapping[str, str] | None 
             raise ConfigError(f"cannot read config {p}: {exc}") from exc
         settings = _apply(settings, data)
 
+    file_llm_key = settings.llm.api_key
     settings = _apply_env(settings, env)
+    if settings.llm.provider == "openai_compatible" and file_llm_key and file_llm_key == settings.llm.api_key and \
+            file_llm_key != env.get("JARVIS_LLM_API_KEY"):
+        raise ConfigError("llm.api_key must not be set in a file for openai_compatible; use the environment (JARVIS_LLM_API_KEY)")
 
     # API keys: provider-specific env var unless an explicit JARVIS_*_API_KEY was given.
-    llm_key_var = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}.get(settings.llm.provider)
+    llm_key_var = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "openai_compatible": "OPENAI_COMPATIBLE_API_KEY"}.get(settings.llm.provider)
     if settings.llm.api_key is None and llm_key_var and env.get(llm_key_var):
         settings = replace(settings, llm=replace(settings.llm, api_key=env[llm_key_var]))
     if settings.voice.api_key is None and env.get("OPENAI_API_KEY") and "openai" in (
