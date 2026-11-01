@@ -458,7 +458,11 @@ def test_no_dynamic_execution_or_shell_primitives_anywhere_in_the_computer_packa
                 if isinstance(n.func, ast.Name):
                     assert n.func.id not in banned_names, f"{f.name}: {n.func.id}()"
                 if isinstance(n.func, ast.Attribute) and n.func.attr in banned_attrs:
-                    # `.run` is only legal on the plan (`plan._run()`), `.loads/.load` never; subprocess helpers never
+                    # `.run` is only legal on the plan (`plan._run()`), `.loads/.load` never; subprocess helpers never.
+                    # Single exception (uia-provider-readonly): `json.loads` on the answer lines of the UIA worker, in exactly these two modules.
+                    if (n.func.attr == "loads" and isinstance(n.func.value, ast.Name) and n.func.value.id == "json"
+                            and f.name in ("pywinauto_uia.py", "uia_worker.py")):
+                        continue
                     assert False, f"{f.name}: .{n.func.attr}()"
             if isinstance(n, ast.keyword) and n.arg == "shell":
                 assert isinstance(n.value, ast.Constant) and n.value.value is False, f"{f.name}: shell must be the literal False"
@@ -476,16 +480,22 @@ def test_no_shell_true_anywhere_in_the_source_tree():
 def test_subprocess_and_ctypes_live_only_in_their_providers():
     for f, tree in modules(COMP):
         names = imported(tree)
-        if f.name != "subprocess_apps.py":
+        if f.name not in ("subprocess_apps.py", "pywinauto_uia.py"):      # pywinauto_uia.py: the worker process of the read-only UIA provider
             assert "subprocess" not in names, f.name
         if f.name != "win32_windows.py":
             assert "ctypes" not in names, f.name
     sub = ast.parse((COMP / "providers" / "subprocess_apps.py").read_text(encoding="utf-8"))
     popens = [n for n in ast.walk(sub) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "Popen"]
-    assert len(popens) == 1  # the only process creation in the whole package
+    assert len(popens) == 1  # the only process creation for launching applications
     first = popens[0].args[0]
     assert isinstance(first, ast.Name) and first.id == "argv"  # an argument LIST built in the same function
     assert any(isinstance(k, ast.Constant) or True for k in popens[0].keywords)
+    # the only other process creation: the UIA worker (own module, fixed command; never a shell, no application is launched)
+    uia = ast.parse((COMP / "providers" / "pywinauto_uia.py").read_text(encoding="utf-8"))
+    uia_popens = [n for n in ast.walk(uia) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "Popen"]
+    assert len(uia_popens) == 1 and ast.unparse(uia_popens[0].args[0]) == "self._command"
+    assert not [k for k in uia_popens[0].keywords if k.arg == "shell"]
+    assert sum(1 for f, t in modules(COMP) for n in ast.walk(t) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "Popen") == 2
 
 
 CTYPES_FOR_JOB_OBJECTS = {"ctypes"}
