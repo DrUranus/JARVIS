@@ -238,6 +238,17 @@ Ziele, Agenten-Tasks, Reparaturläufe und gespeicherte Pläne liegen im laufende
 - **Fehler.** Eine kaputte oder fremde Datei wird nie überschrieben, verschoben oder repariert (`JournalError`).
 - Keine neue Abhängigkeit (nur `sqlite3`). **Noch nicht in `bootstrap.py` verdrahtet** (kommt in `assistant-e2e`). Tests: `tests/test_journal_store.py`.
 
+## Wiederaufnahme unterbrochener Aufgaben (Strang A3)
+
+`src/jarvis/journal/resume.py`: `ResumeManager.interrupted()` listet aus dem Journal Ziele/Agenten-Tasks, die zuletzt als unfertig (`PENDING`/`PLANNING`/`RUNNING`/`WAITING`) aufgenommen wurden und in diesem Prozess nicht leben (Absturz/Neustart) – **nur Lesen**. `resume(id)` handelt **nur auf ausdrücklichen Befehl** (nie beim Start, kein Thread/Timer in dem Modul: Strukturtest) und läuft im Thread des Aufrufers.
+
+- **Notaus** blockiert (`BLOCKED`/`emergency_stop`), vor der Frage, nach der Frage und vor dem Start; eine fehlschlagende Notaus-Abfrage zählt als aktiv.
+- **Erledigte Schritte** (Journal-Status `SUCCEEDED`) laufen nicht erneut: der `ResumeAwarePlanner` (Hülle um den Planer der Engine) entfernt sie aus dem neuen Plan; Auswertungsschritte bleiben.
+- **`side_effect`-Schritte** brauchen für jeden offenen Schritt eine neue Bestätigung (`confirm`-Callback, ohne Callback = abgelehnt; ein „Nein“ startet nichts, der Eintrag bleibt wiederaufnehmbar). Die Ausführung läuft weiter über `GoalEngine` → Orchestrator → `ToolRegistry.execute` → `PermissionEngine`; Grenzen (`max_steps`, Zeitlimits, Sitzungsbudget) gelten unverändert.
+- Es wird ein **neues** Ziel angelegt (Engine-Schnittstelle `create`/`run`); der alte Eintrag wird als `RESUMED` markiert. Agenten-Tasks sind nur aufgelistet (das Journal speichert keine Eingabe) und werden abgelehnt (`not_resumable`).
+- **Vertragsdaten:** `ResumeResult.to_activity()` ist ein Aktivitätseintrag `kind="resume"` (`ACTIVITY_ITEM`, nicht abbrechbar).
+- **Noch nicht in `bootstrap.py` verdrahtet** (`assistant-e2e`); die Engine muss mit `ResumeAwarePlanner(planner)` gebaut werden. Windows-Nachweis: ausstehend (CI). Tests: `tests/test_journal_resume.py`.
+
 ## Agenten-Router (`[agents.router]`, optional, Strang A4)
 
 `src/jarvis/agents/router.py`: `AgentRouter(registry, planner, llm=…)` liefert eine `RoutingDecision(task_id, agent_id, capabilities, source, reason)`. `source` ist `rules` (der bisherige `AgentPlanner`, Rückfall und Grundlinie) oder `llm` (optionaler Planer, z. B. `LLMAgentPlanner(provider)`). Der Router **führt nichts aus und gewährt nichts**; der gewählte Agent handelt weiter nur über `ToolRegistry.execute` → `PermissionEngine`.
