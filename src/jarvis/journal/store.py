@@ -121,6 +121,10 @@ class JournalStore:
     def max_entries(self) -> int:
         return self._max_entries
 
+    @property
+    def max_text_length(self) -> int:
+        return self._max_text
+
     def close(self) -> None:
         """Connections are short-lived (one per operation); nothing stays open."""
 

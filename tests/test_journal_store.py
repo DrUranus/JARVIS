@@ -214,6 +214,8 @@ def test_journal_code_never_starts_creates_resumes_or_executes_anything():
         tree = ast.parse(f.read_text(encoding="utf-8"))
         used = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)} | {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
         banned = forbidden - ({"execute"} if f.name == "store.py" else set())       # store.py: sqlite3-eigenes execute (SQL)
+        if f.name == "resume.py":       # A3: nur die ausdrueckliche Wiederaufnahme legt ueber die Engine-Schnittstelle ein Ziel an (create/run) und reicht den Plan durch
+            banned -= {"create", "run", "plan"}
         assert not used & banned, f"{f.name}: {used & banned}"
         for n in ast.walk(tree):
             if isinstance(n, (ast.Import, ast.ImportFrom)):
