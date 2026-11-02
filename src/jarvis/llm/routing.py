@@ -92,7 +92,7 @@ def route(task, data, config: RoutingSettings, *, default_provider: str, approve
 
 class LLMRouter:
     """Audit wrapper around `route`: every decision (also rejections and the disabled case) is handed to `audit` (metadata only; bootstrap turns it
-    into an `llm_route` audit event -- this package must not import `jarvis.permissions`). `audit` returns False/raises if nothing could be written:
+    into an `llm_route` audit event -- this package knows nothing of the permission system). `audit` returns False/raises if nothing could be written:
     then cloud targets are refused (fail closed); local/single ones still run."""
 
     def __init__(self, config: RoutingSettings, *, default_provider: str, audit: Callable[[Mapping[str, str]], bool]) -> None:
