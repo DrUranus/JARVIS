@@ -228,6 +228,16 @@ Ziele, Agenten-Tasks, Reparaturläufe und gespeicherte Pläne liegen im laufende
 - **Fehler.** Eine kaputte oder fremde Datei wird nie überschrieben; Lese-/Schreibfehler brechen weder Core noch GUI ab (Warnung im Log).
 - Verdrahtung nur in `bootstrap.py`; der Core kennt den Speicher nur als `core.history` (duck-typed). Tests: `tests/test_history_store.py`. Ein `[history]`-Abschnitt in `config/jarvis.toml` fehlt noch (die Routine durfte `config/` nicht ändern); die Code-Standardwerte (aus) gelten.
 
+## Aufgaben-Journal (`[journal]`, optional, Strang A2)
+
+`src/jarvis/journal/` (`store.py`, `recorder.py`, `factory.py`) ist ein lokales SQLite-Journal für Ziele, Agenten-Tasks und deren **Schritte**: Status, Zeiten, Schrittnummer, Markierung `side_effect` je Schritt (konservativ: nur Fähigkeiten auf `.read`/`.screen`/`.plan` gelten als ohne Seiteneffekt, alles Unbekannte als mit), geschwärzter Kurztext sowie Ergebnis-Zusammenfassung mit Belegen. Muster wie `history/`. Standard: **aus** (`journal.enabled = false` in `src/jarvis/config.py`, bewusst nicht in `config/jarvis.toml`; `JARVIS_JOURNAL_ENABLED=true` bzw. ein `[journal]`-Abschnitt schaltet es ein). Ohne Aktivierung entsteht keine Datei.
+
+- **Nur Speichern und Lesen.** Nichts wird fortgesetzt, gestartet, erstellt oder abgebrochen; der Recorder ruft an den Quellen nur `list`/`result` auf (Strukturtest).
+- **Datenschutz.** Jeder Text (auch Beleg, Fehler, Schritttexte) läuft vor dem Schreiben durch `jarvis.redaction`; IDs mit Secrets werden abgelehnt.
+- **Obergrenzen.** `max_entries` (500, hart 100000, älteste fallen zuerst weg), `max_steps_per_entry` (50, hart 200), `max_text_length` (300, hart 2000), `max_evidence` (5, hart 20).
+- **Fehler.** Eine kaputte oder fremde Datei wird nie überschrieben, verschoben oder repariert (`JournalError`).
+- Keine neue Abhängigkeit (nur `sqlite3`). **Noch nicht in `bootstrap.py` verdrahtet** (kommt in `assistant-e2e`). Tests: `tests/test_journal_store.py`.
+
 ## Permissions & Security (Phase 13)
 
 Die Berechtigungsschicht sitzt zwischen JARVIS und jedem mächtigen Werkzeug und ist unabhängig von Voice, Memory, LLM-Anbietern und konkreten Tools
