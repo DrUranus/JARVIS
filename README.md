@@ -259,6 +259,25 @@ Ziele, Agenten-Tasks, Reparaturläufe und gespeicherte Pläne liegen im laufende
 - **Jede Entscheidung** geht an Listener: `event_listener(EventLog.emit)` erzeugt das `routing`-Ereignis (`task_id`, `agent`, `source`, `reason`; `agent` leer = kein Agent), `audit_listener(record)` liefert die Felder eines Audit-Eintrags (`tool="agent_router"`, `action="route"`; nur IDs, Fähigkeitsnamen, Quelle, Kurzbegründung); die spätere Verdrahtung macht daraus ein `AuditEvent` (Typ `llm_route`) für den `AuditLogger`, der alles schwärzt – die Agenten-Schicht importiert das Permission-Paket nicht. Ein ausfallender Listener ändert die Entscheidung nie.
 - Standard: **aus** (`agents.router.enabled = false` in `src/jarvis/config.py`, bewusst nicht in `config/jarvis.toml`). Das Flag wird erst bei der Verdrahtung ausgewertet; **noch nicht in `bootstrap.py` verdrahtet**. Tests: `tests/test_agent_router.py` (Fake-LLM, kein Netzwerk).
 
+## Datei-Werkzeuge (`[files]`, optional, Strang A8)
+
+`src/jarvis/files/` (`controller.py`, `tools.py`, `factory.py`): ein `ProtectedTool` **`files`** in der gewöhnlichen `ToolRegistry`. Jeder Aufruf läuft über `ToolRegistry.execute` → `PermissionEngine`; Notaus und Sitzungsbudget wirken. Standard: **aus** (`files.enabled = false` in `src/jarvis/config.py`, bewusst nicht in `config/jarvis.toml`); in `bootstrap.py` additiv verdrahtet (`core.subsystems["files"]`, Notaus-Stopper `files`).
+
+| Aktion | Stufe | Wirkung |
+|---|---|---|
+| `list [path]`, `read path` | GREEN | begrenzt (`max_list_entries`, `max_read_chars`, `max_file_size`); `read` liefert den `sha256`; Geheimnisse im Text werden geschwärzt; Binärdateien werden nicht gelesen |
+| `create path content` | YELLOW + Vorschau | legt nur **neue** Dateien an (nie überschreiben) |
+| `write path content expected_sha256` | YELLOW + Vorschau (+/- Zeilen, erste Zeilen) | **hash-geschützt**: ohne den `sha256` aus `read` abgelehnt; hat sich die Datei seit der Vorschau oder kurz vor dem Schreiben geändert → `file_changed`, nichts geschieht; atomar über Temp-Datei + `os.replace` |
+| `move`, `copy path destination`, `mkdir path` | YELLOW + Vorschau (von/nach) | ersetzen nie ein vorhandenes Ziel; `copy` nur Dateien; kein Wurzelverzeichnis verschieben, nicht in sich selbst |
+| `organize path [rules]` | GREEN | zeigt **nur einen Plan** (`plan_id`, Schritte `von → nach`, übersprungene Dateien); es wird nichts verschoben. Regeln: `.jpg,.png=Bilder;.pdf=Dokumente` (ein Ordnername, keine Platzhalter); ohne `rules` gängige Typen |
+| `organize_step plan_id step` | YELLOW, **jedes Mal gefragt** | führt genau **einen** Schritt aus (Basisregel `files-baseline-organize-step-confirm`: eine Sitzungsfreigabe deckt das nie ab); einmalig, prüft Quelle (Größe/Zeit) und freies Ziel erneut |
+
+Grenzen ohne Schalter: nur in **bestätigten Wurzeln** (`files.roots`, sonst `security.allowed_roots`; Wurzeln außerhalb der Engine-Wurzeln fallen weg, bleibt keine → `unavailable`) **und** im `PathGuard` der Engine (Quelle *und* Ziel; geschützte/verbotene Pfade); **kein Löschen** (Aktion existiert nicht; `delete`, `rm` … werden benannt abgelehnt); **keine Symlink-Umgehung** (ein Pfad, dessen echter Ort von der Schreibweise abweicht, wird abgelehnt; `..`, Laufwerke, Datenströme, Gerätenamen, Steuerzeichen ebenso; vor jeder Ausführung erneut geprüft); `.env`/Schlüssel/`.git`-Interna/ausführbare Typen nie gelesen, geschrieben, verschoben oder kopiert; neue Texte mit Geheimnissen werden nicht geschrieben. Kein `confirmed`/`force`-Parameter.
+
+Einstellungen `[files]` (Umgebung `JARVIS_FILES_<FELD>`): `enabled`, `roots`, `max_read_chars` (20000), `max_file_size` (1000000), `max_list_entries` (500), `max_organize_moves` (100), `max_actions_per_session` (300), `max_actions_per_minute` (120).
+
+Grenzen: Zwischen Prüfung und `os.rename` bleibt ein winziges Zeitfenster (POSIX-`rename` ersetzt still; die Zielprüfung davor ist keine Sperre). Verschieben über Laufwerke wird abgelehnt (stattdessen kopieren). **Windows-Nachweis ausstehend** (Junctions, Reparse-Points, 8.3-Namen, `os.replace` auf NTFS): nur der CI-Windows-Lauf belegt das. Tests: `tests/test_files_tools.py` (Linux, ohne Netzwerk).
+
 ## Permissions & Security (Phase 13)
 
 Die Berechtigungsschicht sitzt zwischen JARVIS und jedem mächtigen Werkzeug und ist unabhängig von Voice, Memory, LLM-Anbietern und konkreten Tools
