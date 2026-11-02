@@ -4,7 +4,7 @@ Rules (AgentPlanner) are the fallback and the baseline. An optional LLM planner 
 it names an agent that is registered, available and allowed for the task, with capabilities that this agent offers, the task allows and that include
 the required ones. Any failure (exception, timeout, oversized or invalid reply) -> the rules decide. The router executes nothing and grants nothing:
 the chosen agent still acts only through ToolRegistry -> PermissionEngine. Every decision goes to the listeners (routing event data, audit).
-Not wired into bootstrap; off by default (agents.router.enabled)."""
+Wired in bootstrap.py only when assistant.enabled and agents.router.enabled are both true (off by default)."""
 from __future__ import annotations
 
 import json
@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
 from jarvis.agents import policy as P
-from jarvis.agents.planner import AgentPlanner
+from jarvis.agents.planner import AgentPlanner, Selection
 from jarvis.agents.registry import AgentRegistry
 from jarvis.agents.state import AgentStatus
 
@@ -196,6 +196,23 @@ class AgentRouter:
                 fn(decision)
             except Exception as exc:  # noqa: BLE001 - a listener must never change or break the routing
                 log.warning("routing listener failed (%s)", type(exc).__name__)
+
+
+class RoutingPlanner:
+    """Drop-in for the `AgentPlanner` the goal layer consults (`select`, `available_capabilities`): every selection goes through the router, so each step gets a
+    `routing` decision (event, audit). It selects only; it executes nothing and grants nothing."""
+
+    def __init__(self, router: AgentRouter, base: AgentPlanner) -> None:
+        self._router, self._base = router, base
+
+    def available_capabilities(self) -> frozenset[str]:
+        return self._base.available_capabilities()
+
+    def select(self, objective: str, required: frozenset[str] = frozenset()) -> Selection:
+        d = self._router.route(objective, required=frozenset(required))
+        if d.agent_id is None:
+            return Selection(None, reason=d.reason or "no suitable agent")
+        return Selection(d.agent_id, d.capabilities, 0, f"routed ({d.source}): {d.reason}"[:300])
 
 
 # ---- listeners -------------------------------------------------------------------------------------------------------------------

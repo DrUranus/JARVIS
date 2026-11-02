@@ -71,6 +71,7 @@ class ControllerUiBackend(UiBackend):
         self._next_id = 0
         self._attached = True
         self._voice_seen = False
+        self._pump_hooks: list[Any] = []
         self._emergency_reason = ""
         self.confirmation_provider = UiConfirmationProvider(self, confirmation_timeout_s)
         controller.set_confirmation_denier(self.deny_pending)         # Notaus: offene Fragen gelten als abgelehnt
@@ -91,7 +92,36 @@ class ControllerUiBackend(UiBackend):
                 except ContractError:
                     log.warning("event %s does not fit the contract; dropped", type(ev).__name__)
             self._voice_level()
+        for hook in list(self._pump_hooks):
+            try:
+                hook()
+            except Exception:                                            # a hook (journal, result publisher) never breaks the event pump
+                log.warning("pump hook failed", exc_info=True)
         self.expire()
+
+    @property
+    def last_seq(self) -> int:
+        return self._log.last_seq
+
+    def add_pump_hook(self, hook: Any) -> None:
+        """`hook()` runs after every pump (pull model: no thread, no timer). Used by the assistant to journal finished work and publish its result."""
+        self._pump_hooks.append(hook)
+
+    def clean(self, text: Any, limit: int) -> str:
+        return self._log.clean(text, limit)
+
+    def publish_finished(self, kind: str, ident: str, status: str, summary: str) -> None:
+        """A `task_update` and the `result` of finished work (texts redacted, then cut to the contract limits)."""
+        self.publish("task_update", {"kind": kind, "id": ident, "status": self.clean(status, 32), "detail": self.clean(summary, 200)})
+        self.publish("result", {"task_id": ident, "summary": self.clean(summary, MAX_TEXT), "artifacts": []})
+
+    def publish(self, type_: str, data: dict[str, Any]) -> dict[str, Any] | None:
+        """Add one contract event (redacted and validated by the EventLog). Returns None if it does not fit the contract (nothing is emitted then)."""
+        try:
+            return self._log.emit(type_, data)
+        except ContractError:
+            log.warning("event %s does not fit the contract; dropped", type_)
+            return None
 
     def _translate(self, ev: Any) -> None:
         if isinstance(ev, ChatEvent):

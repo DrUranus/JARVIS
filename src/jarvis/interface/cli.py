@@ -21,6 +21,7 @@ HELP = """Befehle:
   /tasks         Offene Tasks anzeigen
   /tools         Registrierte Tools anzeigen
   /history [n]   Verlauf abgeschlossener Ziele/Tasks/Reparaturen (history.enabled; nur Anzeige, nichts wird fortgesetzt)
+  /assistant status  Ende-zu-Ende-Assistent: Zustand anzeigen (assistant.enabled; nur lesend)
   /reset         Gesprächskontext löschen
   /remember <t>  Etwas dauerhaft merken
   /memory [q]    Erinnerungen suchen / neueste anzeigen
@@ -89,6 +90,8 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
         return _agents(core, cmd, arg)
     if cmd in ("/goals", "/goal"):
         return _goals(core, cmd, arg)
+    if cmd == "/assistant":
+        return _assistant(core, arg)
     if cmd == "/repair":
         return _repair(core, arg)
     if cmd == "/improve":
@@ -330,6 +333,14 @@ def _history(core: JarvisCore, arg: str) -> str:
 
 
 _GOAL_OPT = re.compile(r"(?:^|\s)(url|workspace|runner|read_paths)=(\"[^\"]*\"|\S+)")
+
+
+def _assistant(core: JarvisCore, arg: str) -> str:
+    """`/assistant status`: read only. Starts, plans, resumes and executes nothing."""
+    if arg not in ("", "status"):
+        return "Verwendung: /assistant status"
+    sub = core.subsystems.get("assistant")
+    return sub.status_text() if sub is not None else "Assistent: nicht konfiguriert."
 
 
 def _fmt_goal(g: Any) -> str:

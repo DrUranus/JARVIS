@@ -50,9 +50,14 @@ def build_core(settings: Settings) -> JarvisCore:
     # Multi-agent orchestration sits ABOVE those subsystems: agents only use their tools through the registry (and so the permission engine).
     from jarvis.agents.factory import build_agents
     core.subsystems["agents"] = build_agents(settings, tools, memory, core.tasks, core.subsystems)
+    # Assistant (assistant-e2e, off by default): the agent router decides per goal step. It only SELECTS (rules; no LLM call); decisions become `routing`
+    # events and audit entries. Without assistant.enabled and agents.router.enabled the goal layer uses the AgentPlanner exactly as before.
+    from jarvis.interface.assistant import RoutingSink
+    routing_sink = RoutingSink()
+    goal_agents = _routed_agents(settings, core.subsystems["agents"], routing_sink, permissions.audit)
     # The goal engine sits above the agent layer and talks to it only through the orchestrator.
     from jarvis.goals.factory import build_goals
-    core.subsystems["goals"] = build_goals(settings, core.subsystems["agents"], provider)
+    core.subsystems["goals"] = build_goals(settings, goal_agents, provider)
     # Research / Business / Finance are agents of that layer; these objects only describe them (status) and add small GREEN calculation tools for /run.
     from jarvis.agents.groups import build_analysis_subsystems
     from jarvis.tools.analysis import register_analysis_tools
@@ -74,8 +79,40 @@ def build_core(settings: Settings) -> JarvisCore:
     # every decision is an `llm_route` audit event.
     from jarvis.llm.routing import LLMRouter
     core.subsystems["llm_routing"] = LLMRouter(settings.llm_routing, default_provider=settings.llm.provider, audit=routing_audit(permissions.audit))
+    # Assistant (assistant-e2e): journal + UI-contract adapter around the existing layers; nothing starts by itself. Questions of the permission engine then
+    # run through the contract (`confirmation_request`); unanswered, timed out, detached, emergency or failing means DENIED.
+    from jarvis.interface.assistant import build_assistant
+    from jarvis.interface.ui_events import ControllerUiBackend
+    from jarvis.journal.factory import build_journal
+    from jarvis.permissions.confirmation import ConfirmationChoice
+    assistant_on = settings.assistant.enabled
+    ui_factory = lambda ctl: ControllerUiBackend(ctl, choice_enum=ConfirmationChoice, name="jarvis",  # noqa: E731
+                                                 confirmation_timeout_s=settings.assistant.confirmation_timeout_seconds)
+    core.subsystems["assistant"] = build_assistant(settings, core, ui_factory=ui_factory, sink=routing_sink,
+                                                   journal=build_journal(settings, core, guard) if assistant_on else None,
+                                                   router=getattr(goal_agents, "router", None))
+    assistant_ui = getattr(core.subsystems["assistant"], "ui", None)
+    if assistant_ui is not None and settings.security.confirmation != "deny":
+        permissions.set_confirmation_provider(assistant_ui.confirmation_provider, source="assistant")
     register_emergency_components(core)
     return core
+
+
+def _routed_agents(settings: Settings, agents: Any, sink: Callable[[str, dict], Any], audit: Any) -> Any:
+    """The agents subsystem as the goal layer sees it. Only with assistant.enabled AND agents.router.enabled the planner is replaced by a router-backed one
+    (same interface: select / available_capabilities); otherwise the original object is returned untouched."""
+    if not (settings.assistant.enabled and settings.agents.router.enabled) or getattr(agents, "orchestrator", None) is None:
+        return agents
+    from types import SimpleNamespace
+
+    from jarvis.agents.router import AgentRouter, RoutingPlanner, audit_listener, event_listener
+    from jarvis.permissions.audit import AuditEvent, AuditEventType
+    r = settings.agents.router
+    router = AgentRouter(agents.registry, agents.planner, llm=None, timeout=r.timeout_seconds, max_objective_chars=r.max_objective_chars,
+                         max_reason_chars=r.max_reason_chars)
+    router.add_listener(event_listener(sink))
+    router.add_listener(audit_listener(lambda m: audit.record(AuditEvent(AuditEventType.LLM_ROUTE, **m))))
+    return SimpleNamespace(orchestrator=agents.orchestrator, planner=RoutingPlanner(router, agents.planner), router=router)
 
 
 def routing_audit(logger) -> Callable[[dict], bool]:
@@ -161,6 +198,13 @@ def register_emergency_components(core: JarvisCore) -> None:
                 return StopResult(StopOutcome.REQUESTED, detail)
             return StopResult(StopOutcome.STOPPED if stopped else StopOutcome.NOTHING, detail if stopped else "nothing running")
         em.register(name, stop)
+
+    sub_assistant = subs.get("assistant")
+    if getattr(sub_assistant, "ui", None) is not None:
+        def stop_assistant(reason: str) -> StopResult:
+            n = sub_assistant.ui.deny_pending()
+            return StopResult(StopOutcome.STOPPED if n else StopOutcome.NOTHING, f"{n} open question(s) of the assistant answered with DENY")
+        em.register("assistant", stop_assistant)
 
     from jarvis.agents.state import TERMINAL as TASK_TERMINAL
     from jarvis.goals.state import GOAL_TERMINAL
