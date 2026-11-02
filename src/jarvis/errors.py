@@ -94,5 +94,9 @@ class HistoryError(JarvisError):
     """The persistent history of finished work could not be read or written (or was given invalid input)."""
 
 
+class JournalError(JarvisError):
+    """The persistent task journal could not be read or written (or was given invalid input)."""
+
+
 class ComputerControlError(JarvisError):
     """Base class for computer-control problems (see jarvis.computer.errors for the structured subclass)."""

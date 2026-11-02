@@ -72,6 +72,18 @@ class HistorySettings:
     max_text_length: int = 300         # characters per text field
 
 
+@dataclass(frozen=True)
+class JournalSettings:
+    """Persistent task journal: goals, agent tasks and their steps (status, times, step number, side_effect flag, redacted short text, result summary
+    with evidence). Opt-in, local only. Storing and reading only: after a restart nothing is resumed or started."""
+    enabled: bool = False
+    path: str = "data/journal.db"      # sqlite file; created on first write; a corrupt file is never overwritten
+    max_entries: int = 500             # oldest entries are dropped first (hard limit 100000)
+    max_steps_per_entry: int = 50      # steps kept per goal/task (hard limit 200)
+    max_text_length: int = 300         # characters per text field
+    max_evidence: int = 5              # evidence items per result (hard limit 20)
+
+
 COMPUTER_BACKENDS = ("auto", "windows", "x11", "fake")
 SECURITY_MODES = ("standard", "lockdown")
 CONFIRMATION_PROVIDERS = ("cli", "deny")
@@ -293,6 +305,7 @@ class Settings:
     voice: VoiceSettings = field(default_factory=VoiceSettings)
     memory: MemorySettings = field(default_factory=MemorySettings)
     history: HistorySettings = field(default_factory=HistorySettings)
+    journal: JournalSettings = field(default_factory=JournalSettings)
     security: SecuritySettings = field(default_factory=SecuritySettings)
     computer: ComputerSettings = field(default_factory=ComputerSettings)
     browser: BrowserSettings = field(default_factory=BrowserSettings)
@@ -455,6 +468,10 @@ class Settings:
         hi = self.history
         if not hi.path.strip() or not 1 <= hi.max_entries <= 100_000 or not 1 <= hi.max_text_length <= 2000:
             raise ConfigError("history.path must not be empty, max_entries 1..100000, max_text_length 1..2000")
+        jo = self.journal
+        if not jo.path.strip() or not 1 <= jo.max_entries <= 100_000 or not 1 <= jo.max_steps_per_entry <= 200 \
+                or not 1 <= jo.max_text_length <= 2000 or not 1 <= jo.max_evidence <= 20:
+            raise ConfigError("journal.path must not be empty, max_entries 1..100000, max_steps_per_entry 1..200, max_text_length 1..2000, max_evidence 1..20")
         return self
 
 
