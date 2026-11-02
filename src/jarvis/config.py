@@ -280,6 +280,19 @@ class CodingSettings:
     confirm_llm_each_time: bool = True      # sending material to the LLM provider is always asked
 
 
+@dataclass(frozen=True)
+class FilesSettings:
+    """File tools (A8): list/read/create/write/move/copy/mkdir/organize. Opt-in; no delete action exists; never outside confirmed roots."""
+    enabled: bool = False
+    roots: tuple[str, ...] = ()        # confirmed directories; () = security.allowed_roots (else the workspace). Must also lie inside the engine's roots
+    max_read_chars: int = 20_000       # most characters one `read` returns
+    max_file_size: int = 1_000_000     # larger files are neither read, written nor copied
+    max_list_entries: int = 500
+    max_organize_moves: int = 100      # most steps in one organize plan
+    max_actions_per_session: int = 300  # hard stop against runaway loops (reads count too)
+    max_actions_per_minute: int = 120
+
+
 BROWSER_PROVIDERS = ("playwright", "fake")
 BROWSER_KINDS = ("chromium", "chrome", "msedge")
 
@@ -322,6 +335,7 @@ class Settings:
     computer: ComputerSettings = field(default_factory=ComputerSettings)
     browser: BrowserSettings = field(default_factory=BrowserSettings)
     coding: CodingSettings = field(default_factory=CodingSettings)
+    files: FilesSettings = field(default_factory=FilesSettings)
     agents: AgentsSettings = field(default_factory=AgentsSettings)
     goals: GoalsSettings = field(default_factory=GoalsSettings)
     budget: BudgetSettings = field(default_factory=BudgetSettings)
@@ -420,6 +434,15 @@ class Settings:
             raise ConfigError("coding.max_search_results 1..5000, max_list_entries 1..20000, test_timeout 0..3600 s")
         if not 500 <= cd.llm_context_chars <= 200_000:
             raise ConfigError("coding.llm_context_chars must be 500..200000")
+        fs = self.files
+        if any(not r.strip() for r in fs.roots):
+            raise ConfigError("files.roots must not contain empty entries")
+        if not 100 <= fs.max_read_chars <= 500_000 or not 100 <= fs.max_file_size <= 50_000_000:
+            raise ConfigError("files.max_read_chars 100..500000, max_file_size 100..50000000")
+        if not 1 <= fs.max_list_entries <= 20000 or not 1 <= fs.max_organize_moves <= 1000:
+            raise ConfigError("files.max_list_entries 1..20000, max_organize_moves 1..1000")
+        if fs.max_actions_per_session < 0 or fs.max_actions_per_minute < 0:
+            raise ConfigError("files.max_actions_per_session/max_actions_per_minute must be >= 0")
         ag = self.agents
         if not 1 <= ag.max_concurrent <= 16 or not 0 < ag.task_timeout_seconds <= 3600 or not 1 <= ag.max_queue <= 1000:
             raise ConfigError("agents.max_concurrent 1..16, task_timeout_seconds 0..3600 (positive), max_queue 1..1000")
