@@ -168,7 +168,7 @@ def test_create_never_overwrites(tmp_path):
 def test_write_needs_expected_hash_and_matches_it(tmp_path):
     r = make_rig(tmp_path, [ONCE, ONCE, ONCE])
     f = r.ws / "a.txt"
-    f.write_text("alt\n", encoding="utf-8")
+    f.write_bytes(b"alt\n")
     assert "expected_sha256" in r.bad(action="write", path="a.txt", content="neu\n")
     assert "changed" in r.bad(action="write", path="a.txt", content="neu\n", expected_sha256=sha("anderer inhalt")).lower()
     assert f.read_text(encoding="utf-8") == "alt\n"
@@ -184,7 +184,7 @@ def test_write_refused_when_file_changed_after_preview(tmp_path):
     f.write_text("alt\n", encoding="utf-8")
     kw = dict(path="a.txt", content="neu\n", expected_sha256=sha("alt\n"))
     r.controller.plan("write", phase="describe", **kw)
-    f.write_text("jemand anderes\n", encoding="utf-8")
+    f.write_bytes(b"jemand anderes\n")
     with pytest.raises(FilesError) as e:
         r.controller.plan("write", phase="perform", **kw)
     assert e.value.code == "file_changed" and f.read_text(encoding="utf-8") == "jemand anderes\n"
@@ -210,7 +210,7 @@ def test_secrets_are_never_written_and_files_with_secrets_not_rewritten(tmp_path
     r = make_rig(tmp_path, [ONCE, ONCE])
     key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"
     assert "secret" in r.bad(action="create", path="a.txt", content=f"k={key}").lower()
-    (r.ws / "b.txt").write_text(f"k={key}\n", encoding="utf-8")
+    (r.ws / "b.txt").write_bytes(f"k={key}\n".encode("utf-8"))
     assert "secret" in r.bad(action="write", path="b.txt", content="ok\n", expected_sha256=sha(f"k={key}\n")).lower()
     assert not (r.ws / "a.txt").exists() and key in (r.ws / "b.txt").read_text(encoding="utf-8")
 
