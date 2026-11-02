@@ -238,6 +238,16 @@ Ziele, Agenten-Tasks, Reparaturläufe und gespeicherte Pläne liegen im laufende
 - **Fehler.** Eine kaputte oder fremde Datei wird nie überschrieben, verschoben oder repariert (`JournalError`).
 - Keine neue Abhängigkeit (nur `sqlite3`). **Noch nicht in `bootstrap.py` verdrahtet** (kommt in `assistant-e2e`). Tests: `tests/test_journal_store.py`.
 
+## Agenten-Router (`[agents.router]`, optional, Strang A4)
+
+`src/jarvis/agents/router.py`: `AgentRouter(registry, planner, llm=…)` liefert eine `RoutingDecision(task_id, agent_id, capabilities, source, reason)`. `source` ist `rules` (der bisherige `AgentPlanner`, Rückfall und Grundlinie) oder `llm` (optionaler Planer, z. B. `LLMAgentPlanner(provider)`). Der Router **führt nichts aus und gewährt nichts**; der gewählte Agent handelt weiter nur über `ToolRegistry.execute` → `PermissionEngine`.
+
+- **Nur verfügbar und erlaubt.** Kandidaten sind registrierte Agenten im Status AVAILABLE/BUSY, eingeschränkt durch `allowed_agents`/`allowed_capabilities` des Tasks; geforderte Fähigkeiten (`required`) müssen angeboten **und** erlaubt sein. Ein LLM-Vorschlag ist unvertraute Eingabe: unbekannter/nicht erlaubter Agent, fremde oder erfundene Fähigkeit, fehlende Pflicht-Fähigkeit, zusätzliche Schlüssel (z. B. `confirmed`) oder falsche Typen machen ihn ungültig.
+- **Rückfall auf die Regeln** bei Ausnahme, Zeitüberschreitung (`timeout_seconds`, harte Grenze, Daemon-Thread), zu langer oder ungültiger Antwort. Ohne passenden Agenten: `agent_id = None` (nie geraten).
+- **Begrenzt.** Zielsatz an das LLM geschwärzt und auf `max_objective_chars` gekürzt, Begründung auf `max_reason_chars`, Antwort höchstens 4000 Zeichen.
+- **Jede Entscheidung** geht an Listener: `event_listener(EventLog.emit)` erzeugt das `routing`-Ereignis (`task_id`, `agent`, `source`, `reason`; `agent` leer = kein Agent), `audit_listener(record)` liefert die Felder eines Audit-Eintrags (`tool="agent_router"`, `action="route"`; nur IDs, Fähigkeitsnamen, Quelle, Kurzbegründung); die spätere Verdrahtung macht daraus ein `AuditEvent` (Typ `llm_route`) für den `AuditLogger`, der alles schwärzt – die Agenten-Schicht importiert das Permission-Paket nicht. Ein ausfallender Listener ändert die Entscheidung nie.
+- Standard: **aus** (`agents.router.enabled = false` in `src/jarvis/config.py`, bewusst nicht in `config/jarvis.toml`). Das Flag wird erst bei der Verdrahtung ausgewertet; **noch nicht in `bootstrap.py` verdrahtet**. Tests: `tests/test_agent_router.py` (Fake-LLM, kein Netzwerk).
+
 ## Permissions & Security (Phase 13)
 
 Die Berechtigungsschicht sitzt zwischen JARVIS und jedem mächtigen Werkzeug und ist unabhängig von Voice, Memory, LLM-Anbietern und konkreten Tools
