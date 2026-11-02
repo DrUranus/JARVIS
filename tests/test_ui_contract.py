@@ -244,14 +244,13 @@ def test_the_package_uses_only_the_standard_library_and_touches_no_other_part_of
                 root = m.split(".")[0]
                 assert root in allowed_roots, f"{f.name}: {m}"
                 if root == "jarvis":
-                    allowed = m.startswith("jarvis.ui_contract") or m == "jarvis" or (f.name == "bus.py" and m == "jarvis.redaction")     # bus.py schwaerzt mit jarvis.redaction (event-bus)
-                    assert allowed, f"{f.name}: importiert {m} (der Vertrag haengt von keinem anderen Teil ab)"
+                    assert m.startswith("jarvis.ui_contract") or m == "jarvis", f"{f.name}: importiert {m} (der Vertrag haengt von keinem anderen Teil ab)"
 
 
 def test_nothing_imports_the_contract_yet_and_no_setting_dependency_or_wiring_was_added():
     src = ROOT / "src" / "jarvis"
     for f in src.rglob("*.py"):
-        if "ui_contract" in f.parts or f.relative_to(src).as_posix() == "interface/ui_events.py":     # der Adapter (event-bus) ist der einzige Nutzer; Verdrahtung folgt spaeter
+        if "ui_contract" in f.parts or f.relative_to(src).as_posix() == "interface/ui_events.py":     # event-bus: der Adapter ist der einzige Nutzer (genau dieser Pfad); Verdrahtung folgt spaeter
             continue
         assert "jarvis.ui_contract" not in f.read_text(encoding="utf-8"), f"{f.relative_to(ROOT)} nutzt den Vertrag schon (Verdrahtung gehoert in spaetere Schritte)"
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")

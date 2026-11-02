@@ -38,7 +38,7 @@ def cmd(type_, data=None, cid="c1"):
 
 # ---- EventLog ------------------------------------------------------------------------------------------------------------------------------------
 def test_eventlog_numbers_events_and_replays():
-    log = EventLog(FakeClock())
+    log = EventLog(FakeClock(), SecretDetector([]))
     seqs = [log.emit("chat", {"sender": "user", "text": f"t{i}"})["seq"] for i in range(5)]
     assert seqs == [1, 2, 3, 4, 5] and log.last_seq == 5
     assert [e["seq"] for e in log.events_since(2)] == [3, 4, 5]
@@ -48,7 +48,7 @@ def test_eventlog_numbers_events_and_replays():
 
 
 def test_eventlog_is_a_ring_buffer_but_keeps_the_latest_snapshot_events():
-    log = EventLog(FakeClock(), capacity=3)
+    log = EventLog(FakeClock(), SecretDetector([]), capacity=3)
     log.emit("state", {"state": "ready", "detail": ""})
     for i in range(5):
         log.emit("chat", {"sender": "user", "text": str(i)})
@@ -58,7 +58,7 @@ def test_eventlog_is_a_ring_buffer_but_keeps_the_latest_snapshot_events():
 
 
 def test_eventlog_returns_copies_so_callers_cannot_change_the_log():
-    log = EventLog(FakeClock())
+    log = EventLog(FakeClock(), SecretDetector([]))
     e = log.emit("chat", {"sender": "user", "text": "a"})
     e["type"] = "error"
     log.events_since(0)[0]["data"]["text"] = "x"
@@ -84,7 +84,7 @@ def test_eventlog_redaction_failure_creates_no_event_and_burns_no_number():
 
 
 def test_eventlog_rejects_events_that_break_the_contract_without_a_trace():
-    log = EventLog(FakeClock())
+    log = EventLog(FakeClock(), SecretDetector([]))
     with pytest.raises(ContractError):
         log.emit("chat", {"sender": "nobody", "text": "a"})
     with pytest.raises(ContractError):
@@ -93,13 +93,13 @@ def test_eventlog_rejects_events_that_break_the_contract_without_a_trace():
 
 
 def test_eventlog_clean_redacts_before_cutting():
-    log = EventLog(FakeClock())
+    log = EventLog(FakeClock(), SecretDetector([]))
     out = log.clean("x " * 3 + SECRET, 12)
     assert SECRET[:6] not in out and len(out) <= 12
 
 
 def test_eventlog_is_thread_safe_with_gapless_numbers():
-    log = EventLog(FakeClock(), capacity=5000)
+    log = EventLog(FakeClock(), SecretDetector([]), capacity=5000)
     def work():
         for _ in range(200):
             log.emit("chat", {"sender": "user", "text": "x"})
@@ -112,7 +112,7 @@ def test_eventlog_is_thread_safe_with_gapless_numbers():
 
 
 def test_eventlog_ack_is_valid_and_redacted():
-    log = EventLog(FakeClock())
+    log = EventLog(FakeClock(), SecretDetector([]))
     ack = log.ack("c1", False, "x", f"fehler {SECRET}")
     assert ack["type"] == "ack" and ack["seq"] == 1 and SECRET not in repr(ack)
     assert log.last_seq == 0                                           # an ack is not part of the log

@@ -10,7 +10,7 @@ python -m pytest -rfEs -W error::pytest.PytestUnhandledThreadExceptionWarning \
   tests/test_self_improvement_security.py tests/test_security_paths_windows.py                              # Phase 15, gezielt
 ```
 
-UI-Vertrag und Adapter: `tests/test_ui_contract.py` und `tests/test_ui_events.py` (EventLog, `ControllerUiBackend`, Konformitaetspruefung gegen einen Fake-Core, Strukturtest der Controller-Zugriffe; ohne Tk, ueberall lauffaehig).
+UI-Vertrag und Adapter: `tests/test_ui_contract.py` und `tests/test_ui_event_bus.py` (EventLog, `ControllerUiBackend`, Konformitaetspruefung gegen einen Fake-Core, Strukturtest der Controller-Zugriffe; ohne Tk, ueberall lauffaehig).
 GUI-Tests: `tests/test_gui_model.py` (ohne Tk, ueberall), `tests/test_gui_view.py` und `tests/test_gui_confirmation.py` (echtes Tk-Fenster; ohne `tkinter`/Anzeige uebersprungen). Lokal unter Linux ohne Tk-Python: `apt install python3-tk xvfb`, dann `xvfb-run -a python3 -m pytest tests/test_gui_*.py`.
 
 ## Gestufter Ablauf

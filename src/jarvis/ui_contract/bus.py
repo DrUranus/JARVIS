@@ -1,6 +1,6 @@
 """Ereignisprotokoll des UI-Vertrags (Backlog-Schritt event-bus): Ringpuffer mit Folgenummern, Wiederholung per `events_since`, thread-sicher.
 
-Jeder Text wird mit `jarvis.redaction` geschwaerzt, BEVOR ein Ereignis entsteht (kein Ereignis, keine Folgenummer, kein Pufferplatz fuer ungeschwaerzte Daten). Schlaegt die
+Jeder Text wird mit einem eingereichten Schwaerzer (der Adapter reicht `jarvis.redaction.SecretDetector` herein) geschwaerzt, BEVOR ein Ereignis entsteht (kein Ereignis, keine Folgenummer, kein Pufferplatz fuer ungeschwaerzte Daten). Schlaegt die
 Schwaerzung oder die Vertragspruefung fehl, entsteht kein Ereignis (fail closed). Das Protokoll fuehrt nichts aus und kennt keine Berechtigung."""
 from __future__ import annotations
 
@@ -10,11 +10,14 @@ import threading
 from collections import deque
 from typing import Any, Protocol
 
-from jarvis.redaction import SecretDetector
 from jarvis.ui_contract.schema import VERSION, validate_event
 
 LATEST_TYPES = ("hello", "state", "activity", "emergency")      # was ein Schnappschuss braucht, auch wenn der Ringpuffer sie schon verdraengt hat
 DEFAULT_CAPACITY = 1000
+
+
+class Redactor(Protocol):
+    def redact(self, text: Any) -> str: ...
 
 
 class Clock(Protocol):
@@ -27,11 +30,11 @@ class _SystemClock:
 
 
 class EventLog:
-    def __init__(self, clock: Clock | None = None, capacity: int = DEFAULT_CAPACITY, detector: SecretDetector | None = None) -> None:
+    def __init__(self, clock: Clock | None, detector: Redactor, capacity: int = DEFAULT_CAPACITY) -> None:
         if not 1 <= capacity <= 100_000:
             raise ValueError("capacity must be 1..100000")
         self._clock: Clock = clock or _SystemClock()
-        self._detector = detector or SecretDetector.from_environment()
+        self._detector = detector     # Pflicht: kein Standard-Schwaerzer, damit kein Ereignis ungeschwaerzt entstehen kann (der Vertrag bleibt frei von anderen jarvis-Paketen)
         self._lock = threading.RLock()
         self._events: deque[dict[str, Any]] = deque(maxlen=capacity)
         self._latest: dict[str, dict[str, Any]] = {}

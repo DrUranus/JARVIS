@@ -3,7 +3,7 @@
 Der Adapter UEBERSETZT nur. Die Ereignisse des Controllers (Zustand, Chat, Aktivitaet, Notaus, Sprachmodus) werden zu Vertragsereignissen; die acht Befehle werden AUSSCHLIESSLICH
 auf vorhandene Methoden des Controllers abgebildet (`submit`, `start_voice`, `stop_voice`, `request_cancel`, `emergency_stop`, `reset_emergency`, `request_activity`). Eine Methode
 des Core, ein Werkzeug, die PermissionEngine oder die Konfiguration beruehrt er nie; jede Tool-Aktion bleibt hinter `ToolRegistry.execute -> PermissionEngine`. Ein Strukturtest
-(`tests/test_ui_events.py`) erzwingt das. `reset_emergency` stellt nur die Anfrage: die Engine fragt den Menschen ueber den hier angebotenen `confirmation_provider`.
+(`tests/test_ui_event_bus.py`) erzwingt das. `reset_emergency` stellt nur die Anfrage: die Engine fragt den Menschen ueber den hier angebotenen `confirmation_provider`.
 
 Bestaetigungen schlagen fehl, nicht auf: ohne Antwort nach `timeout_s`, bei `detach()`, beim Notaus und bei jedem Fehler gilt DENY. Jeder Text wird vor dem Erzeugen eines Ereignisses
 geschwaerzt (`EventLog`). Verdrahtung (bootstrap.py) gehoert nicht zu diesem Schritt: nichts ruft diesen Adapter auf."""
@@ -15,6 +15,7 @@ import logging
 import threading
 from typing import Any
 
+from jarvis.redaction import SecretDetector
 from jarvis.interface.gui_model import (ActivityEvent, ActivitySnapshot, ChatEvent, EmergencyEvent, GuiController, StateEvent, SubmitResult)
 from jarvis.ui_contract.backend import UiBackend
 from jarvis.ui_contract.bus import Clock, EventLog
@@ -63,7 +64,7 @@ class ControllerUiBackend(UiBackend):
         self._ctl = controller
         self._deny = choice_enum.DENY                                  # die Aufzaehlung der Engine (ConfirmationChoice): nur ihre Mitglieder zaehlen als Antwort
         self._allow = {"allow_once": choice_enum.ALLOW_ONCE, "allow_session": choice_enum.ALLOW_SESSION}
-        self._log = event_log or EventLog(clock, log_capacity)
+        self._log = event_log or EventLog(clock, SecretDetector.from_environment(), log_capacity)
         self._lock = threading.RLock()
         self._pending: dict[str, dict[str, Any]] = {}
         self._activity: dict[str, tuple[str, str, bool]] = {}        # Vertrags-ID -> (Art, echte ID, abbrechbar)
