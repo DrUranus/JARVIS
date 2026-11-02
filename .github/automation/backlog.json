@@ -483,7 +483,8 @@
         "tests/test_gui_model.py",
         "docs/UI_CONTRACT.md",
         "README.md",
-        "docs/TESTING.md"
+        "docs/TESTING.md",
+        "tests/test_ui_contract.py"
       ],
       "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
     },

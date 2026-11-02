@@ -173,13 +173,13 @@ def test_a_declaration_cannot_be_broader_than_the_sensitive_areas_and_must_be_we
 
 
 # ---- Aufgabenbereich (scope) ---------------------------------------------------------------------------------------------------------------
-def test_a_step_with_a_scope_cannot_merge_changes_outside_it_and_declared_sensitive_files_count_as_inside():
+def test_a_step_with_a_scope_logs_ordinary_changes_outside_it_and_declared_sensitive_files_count_as_inside():
     inside = pr_api(files=[BOOT, "src/jarvis/history/store.py", "tests/test_history_store.py", "README.md"])
     run(inside, backlog(scope=["src/jarvis/history/", "tests/test_history", "README.md"]))
     assert inside.merged
     outside = pr_api(files=[BOOT, "src/jarvis/history/store.py", "src/jarvis/goals/engine.py"])
     run(outside, backlog(scope=["src/jarvis/history/", "tests/test_history", "README.md"]))
-    assert outside.merged == [] and "ausserhalb des Auftrags" in status(outside) and "src/jarvis/goals/engine.py" in status(outside)
+    assert outside.merged and "Unkritische Scope-Erweiterung" in status(outside) and "src/jarvis/goals/engine.py" in status(outside)
 
 
 def test_a_scope_is_inert_without_the_owner_switch_and_validated_always():

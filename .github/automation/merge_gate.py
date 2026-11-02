@@ -362,8 +362,11 @@ def evaluate_pr(api: Any, gcfg: GateConfig, pr: dict[str, Any], items: list[dict
         declared = list((item.get("sensitive_edits") or {}))
         outside = [n for n in names if not any(n == k or n.startswith(k) for k in [*item["scope"], *declared])]
         if outside:
-            v.reasons.append("Dateien ausserhalb des Auftrags (scope): " + ", ".join(sorted(outside)[:5]))
-            protected = [*protected, *outside]
+            # Low-friction: normale Dateien sind durch den genehmigten Auftrag und
+            # die verpflichtende CI gedeckt; Scope-Abweichungen werden protokolliert.
+            # Kritische Pfade bleiben oben durch is_protected/verify_sensitive_edits
+            # gesperrt. Diese Regel erteilt keine neue Auftragsfreigabe.
+            v.reasons.append("Unkritische Scope-Erweiterung (protokolliert): " + ", ".join(sorted(outside)[:5]))
     if job and not protected:                               # alles Inhaltliche ist geprueft (Freigabe ueber den Auftrag, Update-Kette, sensible Aenderungen, Scope); CI und Mergebarkeit sind eine andere Frage
         v.anchor = head_sha
 

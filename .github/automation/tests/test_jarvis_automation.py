@@ -589,7 +589,7 @@ SCOPE_DIGESTS = {      # SHA-256 ueber Aufgabe, Abnahmekriterien, Abhaengigkeite
     "llm-routing-design": "5edfac70e7b4e9d4a8374ba0ce1e1f3a4ef9e4080d6d3ea5265d48e2c69c5931",
     "llm-routing-policy": "018bdbd7fd938895156f4fcc61372021fe0e5b7303f2e62d785f239030b45919",
     "llm-goal-planning": "f1674218effceb58d01df6e8b85922fcf04c751038d0f08a9f3f3255dc332e61",
-    "event-bus": "34eb544211ccde719d839d5edcffcdacecda7da1ac827abfe1c58b46981262a3",
+    "event-bus": "029162a8f20a9cd4efe876fd8a09ee98642754033ffb3dac551bd0ec8da193c9",
     "task-journal": "fc68c47d6c309e606b3574944dd19d4f348e986ad3b83bd889eec5d34baaf578",
     "agent-router": "983d0b0adf1ebf8f504dfd2222611653ab2d3335945eb029780076585c13b4aa",
     "uia-actions": "c098afa47b64a5055e8539c2ef1c0b51e96a009771581c113d4d757edab47c49",
