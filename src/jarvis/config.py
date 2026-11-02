@@ -130,6 +130,7 @@ class ComputerSettings:
     uia_enabled: bool = False          # read-only Windows UI-Automation provider (extra "uia"); off by default, needs computer.enabled
     uia_max_calls_per_session: int = 200   # session budget of UI reads (1..10000); never reset by halt/resume
     uia_call_timeout: float = 20.0     # seconds before a hanging UIA worker is stopped (0..600)
+    uia_actions_enabled: bool = False  # UIA actions by pattern (tool ui_act: invoke/set_value/select/toggle/focus); off by default, needs uia_enabled; each action is confirmed
 
 
 @dataclass(frozen=True)
