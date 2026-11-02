@@ -34,8 +34,9 @@ from jarvis.computer.errors import ComputerError, ErrorCode
 from jarvis.computer.models import CursorPosition, FrameDiff, Monitor, Screenshot, WindowInfo
 from jarvis.computer.safety import ComputerSafety, Verdict, stem_of
 from jarvis.computer.screenshots import ScreenshotStore, encode_png, frame_diff
-from jarvis.computer.uia import UiLimits, UiQuery
-from jarvis.computer.uia_output import protect_element, protect_tree
+from jarvis.computer.uia import ControlType, UiLimits, UiQuery
+from jarvis.computer.uia_actions import PATTERN_OF, VALUE_CONTROLS, UiAction, UiState, UiTarget, judge
+from jarvis.computer.uia_output import is_sensitive, protect_element, protect_tree
 from jarvis.config import ComputerSettings
 from jarvis.permissions import ActionSpec, PermissionLevel, ResourceType, current_grant
 from jarvis.redaction import SecretDetector
@@ -53,7 +54,7 @@ WINDOW_ACTIONS = ("focus", "minimize", "maximize", "restore", "close")
 SCREEN_ACTIONS = ("monitors", "screenshot", "compare", "windows", "active_window", "cursor", "forget")
 UI_ACTIONS = ("windows", "tree", "find")
 MAX_UI_WINDOWS = 200
-_INPUT_TOOLS = (res.TOOL_MOUSE, res.TOOL_KEYBOARD, res.TOOL_WINDOW, res.TOOL_APP)
+_INPUT_TOOLS = (res.TOOL_MOUSE, res.TOOL_KEYBOARD, res.TOOL_WINDOW, res.TOOL_APP, res.TOOL_UI_ACT)      # actions count against max_actions_per_minute
 RED = PermissionLevel.RED
 YELLOW = PermissionLevel.YELLOW
 GREEN = PermissionLevel.GREEN
@@ -134,6 +135,11 @@ class ComputerController:
         """Does the backend have a read-only UI Automation provider? (Only then the `ui` tool is registered.)"""
         return self._backend.ui is not None
 
+    @property
+    def has_ui_actions(self) -> bool:
+        """Does the backend have a UI Automation ACTION provider AND the read provider it needs to find controls? (Only then the `ui_act` tool is registered.)"""
+        return self._backend.ui_actions is not None and self._backend.ui is not None
+
     def halt(self, reason: str = "stopped by user") -> None:
         """Emergency stop: every further action fails with `failsafe` until resume()."""
         self._halted = reason
@@ -144,10 +150,11 @@ class ComputerController:
         self._ui_call("resume")
 
     def _ui_call(self, method: str, *args: Any) -> None:
-        """Pass the emergency stop on to the read-only UI provider, if it has one that can be stopped."""
-        fn = getattr(self._backend.ui, method, None)
-        if callable(fn):
-            fn(*args)
+        """Pass the emergency stop on to the UI providers (read and action), if they can be stopped."""
+        for provider in (self._backend.ui, self._backend.ui_actions):
+            fn = getattr(provider, method, None)
+            if callable(fn):
+                fn(*args)
 
     def describe(self) -> dict[str, Any]:
         return {"backend": self._backend.name, "capabilities": self._backend.capabilities(),
@@ -306,6 +313,97 @@ class ComputerController:
         reason = blocked or (f"UI-Baum des Fensters lesen (nur lesen)" if action == "tree" else "Bedienelemente im Fenster suchen (nur lesen)")
         run = (lambda: self._run_ui_tree(w, limits)) if action == "tree" else (lambda: self._run_ui_find(w, query, limits))
         return self._seal(Plan(res.TOOL_UI, action, res.ui_resource(action, w.handle, w.process), RED if blocked else YELLOW, reason, ctx, run))
+
+    # -- UI Automation actions by pattern (tool ui_act): observe -> act -> verify ---------------------------------------------------------
+    def plan_ui_act(self, action: Any, *, window: Any = None, name_equals: Any = None, name_contains: Any = None, control_type: Any = None, automation_id: Any = None,
+                    value: Any = None, max_depth: Any = None, max_nodes: Any = None) -> Plan:
+        """One pattern action (invoke | set_value | select | toggle | focus) on exactly ONE control of a known window. Always YELLOW at least; RED for protected windows,
+        password fields and secret-looking fields. Planning only reads (the control is found by a read-only query that must match exactly one control)."""
+        act = UiAction.parse(action)
+        self._provider("ui")
+        self._provider("ui_actions")
+        w = self._known_window(window)
+        text = None
+        if act is UiAction.SET_VALUE:
+            text = val.validate_text(value, self.settings.max_text_length)
+        elif value is not None:
+            raise ComputerError(ErrorCode.INVALID_INPUT, "value is only allowed for set_value")
+        if all(v is None for v in (name_equals, name_contains, automation_id)):
+            raise ComputerError(ErrorCode.INVALID_INPUT, "name the control: name_equals, name_contains or automation_id")
+        limits = self._ui_limits(max_depth, max_nodes)
+        query = UiQuery(name_equals=name_equals, name_contains=name_contains, control_type=control_type, automation_id=automation_id, max_results=2)
+        blocked = self._safety.ui_read_blocked_reason(w)
+        ctx = {"fenster": _target_label(w), "handle": str(w.handle), "aktion": f"{act.value} ({PATTERN_OF[act]})"}
+        if blocked:       # nothing of this window is read, not even to find the control
+            return self._seal(Plan(res.TOOL_UI_ACT, act.value, res.ui_act_resource(act.value, w.handle, w.process, "0"), RED, blocked, ctx, self._run_blocked))
+        found = self._call(self._provider("ui").find, w.handle, query, limits)
+        if not found.matches:
+            raise ComputerError(ErrorCode.INVALID_INPUT, "no control matches; read the window with the ui tool first")
+        if len(found.matches) > 1 or found.truncated:
+            raise ComputerError(ErrorCode.INVALID_INPUT, "the control is ambiguous or the search was cut by the limits; narrow it (name_equals, automation_id, control_type)")
+        element = protect_element(found.matches[0], self._detector.redact)
+        target = UiTarget(found.matches[0].runtime_id, found.matches[0].name, found.matches[0].control_type, found.matches[0].automation_id)
+        ctx["steuerelement"] = f"„{safe_label(element.name)}“ ({element.control_type.value}" + (f", id={safe_label(element.automation_id, 40)})" if element.automation_id else ")")
+        ctx["hinweis"] = "bedient das Steuerelement ueber ein UIA-Muster (keine Koordinaten) und liest danach den Zustand erneut"
+        if text is not None:
+            ctx["zeichen"] = str(len(text))
+            if self.settings.show_text_preview:
+                ctx["vorschau"] = text_preview(self._detector.redact(text))
+        reason = f"Steuerelement „{safe_label(element.name)}“ im Fenster „{safe_label(w.title)}“: {act.value}"
+        level = YELLOW
+        found_element = found.matches[0]
+        if found_element.is_password or is_sensitive(found_element):
+            level, reason = RED, "password fields and fields that look like they hold a secret are never operated"
+        elif not found_element.enabled or not found_element.visible:
+            raise ComputerError(ErrorCode.INVALID_INPUT, "the control is disabled or not visible")
+        elif act is UiAction.SET_VALUE and found_element.control_type not in VALUE_CONTROLS:
+            raise ComputerError(ErrorCode.INVALID_INPUT, "set_value only works on Edit, Document and ComboBox controls")
+        run = lambda: self._run_ui_act(w, target, act, text)      # noqa: E731
+        return self._seal(Plan(res.TOOL_UI_ACT, act.value, res.ui_act_resource(act.value, w.handle, w.process, target.runtime_id), level, reason, ctx, run))
+
+    @staticmethod
+    def _run_blocked() -> Any:
+        raise ComputerError(ErrorCode.BLOCKED_TARGET, "blocked target")
+
+    def _still_running(self) -> None:
+        if self._halted is not None:
+            raise ComputerError(ErrorCode.FAILSAFE, f"computer control is halted ({self._halted}); resume it explicitly")
+
+    def _run_ui_act(self, planned: WindowInfo, target: UiTarget, action: UiAction, text: str | None) -> dict[str, Any]:
+        """Observe (state before) -> act (one pattern call) -> verify (state after). Reports what was READ, not what was hoped for."""
+        provider = self._provider("ui_actions")
+        current = self._ui_recheck(planned)                                       # same program, still not a protected window
+        before: UiState = self._call(provider.read_state, planned.handle, target)
+        if before.is_password or not before.enabled or not before.visible:
+            raise ComputerError(ErrorCode.BLOCKED_TARGET, "the control is a password field, disabled or hidden; nothing was done")
+        if action not in before.patterns:
+            raise ComputerError(ErrorCode.UNSUPPORTED, f"the control does not support {action.value} ({PATTERN_OF[action]})")
+        if action is UiAction.SET_VALUE and before.read_only:
+            raise ComputerError(ErrorCode.UNSUPPORTED, "the control is read-only")
+        self._still_running()                                                     # the emergency stop may have been pressed meanwhile
+        self._call(provider.perform, planned.handle, target, action, text)
+        self._sleep(0.05)                                                         # let the program apply the change before reading back
+        after: UiState | None
+        try:
+            self._still_running()
+            after = self._call(provider.read_state, planned.handle, target)
+            note = ""
+        except ComputerError as exc:
+            if exc.code is ErrorCode.FAILSAFE:
+                after, note = None, "emergency stop after the action: the result could not be read back"
+            elif exc.code in (ErrorCode.WINDOW_NOT_FOUND, ErrorCode.TARGET_CHANGED):
+                after, note = None, ""
+            else:
+                raise
+        verdict = judge(action, before, after, text)
+        if note:
+            verdict = {**verdict, "verified": None, "observed": note}
+        out = {"window": self._ui_window(current), "control": {"name": self._detector.redact(safe_label(target.name)), "type": target.control_type.value},
+               "action": action.value, "performed": True, **verdict,
+               "state_before": before.info(), "state_after": None if after is None else after.info()}
+        if verdict["verified"] is False:
+            out["message"] = "Die Aktion wurde ausgefuehrt, aber die erwartete Aenderung wurde NICHT bestaetigt."
+        return out
 
     @staticmethod
     def _opt_bool(value: Any, name: str) -> bool | None:

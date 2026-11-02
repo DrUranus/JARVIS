@@ -5,7 +5,7 @@ A tool only DESCRIBES its call (`describe_action` -> the controller's plan: prec
 and, once approved, performs it (`_perform`) by asking the controller to execute a freshly built plan. There is no
 `confirmed`/`force` parameter anywhere; the controller itself refuses to act without a matching approval.
 
-Levels:  screen (observe) GREEN | screen_save, mouse, keyboard, window, app, ui (read-only UI Automation) YELLOW (RED for protected targets).
+Levels:  screen (observe) GREEN | screen_save, mouse, keyboard, window, app, ui (read-only UI Automation), ui_act (UIA pattern actions) YELLOW (RED for protected targets).
 """
 from __future__ import annotations
 
@@ -175,6 +175,44 @@ class UiTool(_ComputerTool):
         return result
 
 
+class UiActTool(_ComputerTool):
+    """UI Automation actions BY PATTERN, never by coordinates (action invoke | set_value | select | toggle | focus). Not part of TOOL_CLASSES: registered only when
+    computer.uia_actions_enabled (and uia_enabled) produced the providers. Always confirmed (YELLOW); RED for protected windows, password fields and secret-looking fields."""
+    name = res.TOOL_UI_ACT
+    description = ("Operate ONE control of a window through a UI Automation pattern (no coordinates): action=invoke (press) | set_value (text, value=...) | select | toggle | focus. "
+                   "Name the control with name_equals / name_contains / automation_id (+ control_type); it must match exactly one control (see the ui tool). Always confirmed. "
+                   "Password fields, secret-looking fields and terminals, security tools, password managers and banking windows are refused. After the action the state is "
+                   "read again and the result says whether the expected change really happened (verified true | false | null); a mismatch is reported as a failure.")
+    permission = PermissionLevel.YELLOW
+    parameters = (ToolParameter("action", "invoke | set_value | select | toggle | focus"),
+                  ToolParameter("window", "window handle (see ui action=windows)", type="integer"),
+                  ToolParameter("name_equals", "exact name of the control", required=False), ToolParameter("name_contains", "part of the name (ignores case)", required=False),
+                  ToolParameter("automation_id", "exact AutomationId", required=False), ToolParameter("control_type", "Button | Edit | CheckBox | ListItem ...", required=False),
+                  ToolParameter("value", "set_value only: the new text", required=False),
+                  ToolParameter("max_depth", "search depth limit (1..12, default 6)", type="integer", required=False),
+                  ToolParameter("max_nodes", "search node limit (1..500, default 200)", type="integer", required=False))
+
+    def __init__(self, controller: ComputerController, redact: Callable[[str], str] | None = None) -> None:
+        super().__init__(controller)
+        self._redact = redact
+
+    def _plan(self, **kw: Any) -> Plan:
+        return self._c.plan_ui_act(kw.get("action"), window=kw.get("window"), name_equals=kw.get("name_equals"), name_contains=kw.get("name_contains"),
+                                   control_type=kw.get("control_type"), automation_id=kw.get("automation_id"), value=kw.get("value"),
+                                   max_depth=kw.get("max_depth"), max_nodes=kw.get("max_nodes"))
+
+    def _perform(self, **kw: Any) -> ToolResult:
+        try:
+            output = self._c.execute(self._plan(**kw))
+        except ComputerError as exc:
+            return ToolResult(False, exc.to_dict(), str(exc))
+        if self._redact is not None:
+            output = _redact_deep(output, self._redact)
+        if output.get("verified") is False:      # performed, but the read-back state differs from the expectation: not a success
+            return ToolResult(False, output, "the action was performed but the expected change was not confirmed by the state read afterwards")
+        return ToolResult.ok(output)
+
+
 TOOL_CLASSES = (ScreenTool, ScreenSaveTool, MouseTool, KeyboardTool, WindowTool, AppTool)
 
 
@@ -193,6 +231,9 @@ def register_computer_tools(registry: ToolRegistry, controller: ComputerControll
         if controller.has_ui:        # read-only UI Automation exists only when computer.uia_enabled produced a provider
             registry.register(UiTool(controller, engine.redact))
             names.append(UiTool.name)
+            if controller.has_ui_actions:        # pattern actions exist only when computer.uia_actions_enabled produced an action provider
+                registry.register(UiActTool(controller, engine.redact))
+                names.append(UiActTool.name)
     except Exception:
         for name in names:
             registry.unregister(name)

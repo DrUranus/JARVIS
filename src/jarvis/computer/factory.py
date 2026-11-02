@@ -91,6 +91,17 @@ def _create_uia(settings: ComputerSettings, backend: ComputerBackend):
     return create_uia_provider(max_calls=settings.uia_max_calls_per_session, call_timeout=settings.uia_call_timeout)
 
 
+def _create_uia_actions(settings: ComputerSettings, backend: ComputerBackend):
+    """The UIA action provider for `backend`: the deterministic fake for the fake backend, pywinauto (own worker process) on Windows. Imports lazily."""
+    if backend.name == "fake":
+        from jarvis.computer.providers.fake_uia_actions import FakeUiaActionProvider
+        return FakeUiaActionProvider(getattr(backend.ui, "_trees", None))
+    if backend.name != "win32":
+        raise ComputerUnavailableError("UI Automation actions are only available on Windows")
+    from jarvis.computer.providers.pywinauto_uia_actions import create_uia_action_provider
+    return create_uia_action_provider(max_calls=settings.uia_max_calls_per_session, call_timeout=settings.uia_call_timeout)
+
+
 @dataclass
 class ComputerSubsystem:
     """What the rest of the application sees (the Core stores it as an opaque subsystem)."""
@@ -144,6 +155,16 @@ def build_computer(settings: Settings, registry: ToolRegistry, engine: Permissio
             message = exc.message if isinstance(exc, ComputerError) else f"{type(exc).__name__}"
             uia_note = f"; UI Automation unavailable: {message}"
             log.warning("UI Automation unavailable: %s", message)
+    if cs.uia_actions_enabled:
+        if backend.ui is None:
+            uia_note += "; UI actions unavailable: they need computer.uia_enabled and a working UI Automation provider"
+        else:
+            try:
+                backend.ui_actions = _create_uia_actions(cs, backend)
+            except Exception as exc:  # a missing library or platform never stops the rest of computer control
+                message = exc.message if isinstance(exc, ComputerError) else f"{type(exc).__name__}"
+                uia_note += f"; UI actions unavailable: {message}"
+                log.warning("UI actions unavailable: %s", message)
     previous_policy = engine.policy
     try:
         # baseline rules first: if they cannot be installed, no computer tool is registered at all (fail closed)

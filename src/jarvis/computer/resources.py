@@ -7,6 +7,7 @@
     keyboard://text@notepad.exe            typing (the text itself is NEVER part of a resource)
     window://66012/notepad.exe             window handle + process
     app://C:/Windows/System32/notepad.exe  resolved executable (+ ?args=<digest> when arguments are given)
+    uiact://invoke/66012/notepad.exe/0.2.1   one UIA pattern action on one control (action, window, program, control path); never covered by a `ui://*` rule
     ui://windows                           list windows for UI Automation          ui://tree/66012/notepad.exe   ui://find/66012/notepad.exe   (read-only)
 
 Engine globs (policy rules, resource_type "other") work on these strings, e.g. "keyboard://*@notepad.exe".
@@ -20,6 +21,7 @@ from typing import Sequence
 TOOL_SCREEN, TOOL_SCREEN_SAVE, TOOL_MOUSE = "screen", "screen_save", "mouse"
 TOOL_KEYBOARD, TOOL_WINDOW, TOOL_APP = "keyboard", "window", "app"
 ALL_TOOLS = (TOOL_SCREEN, TOOL_SCREEN_SAVE, TOOL_MOUSE, TOOL_KEYBOARD, TOOL_WINDOW, TOOL_APP)
+TOOL_UI_ACT = "ui_act"    # UI Automation actions by pattern; registered only when computer.uia_actions_enabled produced an action provider
 TOOL_UI = "ui"        # read-only UI Automation; registered only when the backend has a ui provider (computer.uia_enabled), so not part of ALL_TOOLS
 
 _UNSAFE = re.compile(r"[^\w.\- ()+]")
@@ -71,3 +73,7 @@ def ui_windows_resource() -> str:
 
 def ui_resource(kind: str, handle: int, process: str) -> str:
     return f"ui://{kind}/{handle}/{_clean(process)}"       # tree | find; the process binds an approval to the program that owned the window when it was granted
+
+
+def ui_act_resource(action: str, handle: int, process: str, runtime_id: str) -> str:
+    return f"uiact://{action}/{handle}/{_clean(process)}/{runtime_id}"      # an approval is bound to the action, the window, its program AND the control

@@ -26,6 +26,8 @@ from jarvis.computer.uia import (HARD_MAX_DEPTH, HARD_MAX_NODES, ControlType, Ui
 WORKER_MODULE = "jarvis.computer.providers.uia_worker"
 MAX_LINE_BYTES = 4_000_000
 HARD_MAX_CALLS, HARD_MAX_TIMEOUT = 10_000, 600.0
+_PASSTHROUGH = {"target_changed": "the control is not the one that was approved; nothing was done", "blocked_target": "the control is protected (password field); nothing was done",
+                "unsupported": "the control does not support this pattern"}      # codes only the action worker (pywinauto_uia_actions) sends
 MAX_RAW_NODES = 5000          # what a (misbehaving) worker may send at most; the tree is then cut to the limits
 
 
@@ -181,6 +183,8 @@ class PywinautoUiaProvider(UiTreeProvider):
                 if code == ErrorCode.BACKEND_UNAVAILABLE.value:
                     self._stop_worker()
                     raise ComputerUnavailableError("the UI worker cannot load pywinauto; install it with: pip install -e .[uia]")
+                if code in _PASSTHROUGH:
+                    raise _fail(ErrorCode(code), _PASSTHROUGH[code])
                 if code == ErrorCode.INVALID_INPUT.value:
                     raise _fail(ErrorCode.INVALID_INPUT, "the UI worker rejected the request")
                 raise _fail(ErrorCode.BACKEND_ERROR, "the UI worker failed")

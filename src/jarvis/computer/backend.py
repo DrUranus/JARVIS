@@ -14,6 +14,7 @@ from typing import Sequence
 from jarvis.computer.errors import ComputerError, ErrorCode
 from jarvis.computer.models import LaunchResult, Monitor, RawFrame, WindowInfo
 from jarvis.computer.uia import UiTreeProvider
+from jarvis.computer.uia_actions import UiActionProvider
 
 
 class ScreenProvider(ABC):
@@ -99,7 +100,8 @@ class ComputerBackend:
     keyboard: KeyboardProvider | None = None
     windows: WindowProvider | None = None
     apps: AppLauncher | None = None
-    ui: UiTreeProvider | None = None      # read-only UI-Automation tree (model only so far: no tool, no controller operation uses it yet)
+    ui: UiTreeProvider | None = None      # read-only UI-Automation tree (the `ui` tool)
+    ui_actions: UiActionProvider | None = None      # UI-Automation actions by pattern (the `ui_act` tool; off by default: computer.uia_actions_enabled)
 
     def capabilities(self) -> list[str]:
-        return [n for n in ("screen", "mouse", "keyboard", "windows", "apps", "ui") if getattr(self, n) is not None]
+        return [n for n in ("screen", "mouse", "keyboard", "windows", "apps", "ui", "ui_actions") if getattr(self, n) is not None]
