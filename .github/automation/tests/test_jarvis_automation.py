@@ -557,7 +557,7 @@ PINNED_PLAN = [   # Reihenfolge in backlog.json = Ausfuehrungsreihenfolge der Au
                "mail-design",
                "office-design",
                "media-design"]
-DONE_AT_RELEASE_PLAN = {"ui-contract-v1", "llm-compat-vetting"}      # per direktem Auftrag umgesetzt (PR #73), steht als done
+DONE_AT_RELEASE_PLAN = {"ui-contract-v1", "llm-compat-vetting", "file-tools"}      # per direktem Auftrag umgesetzt (PR #73), steht als done
 PINNED_DONE = [i for i in PINNED_PLAN if i in set(PINNED_PLAN[:12]) | DONE_AT_RELEASE_PLAN]     # gemergt: done verhindert jede Wiederholung
 
 
@@ -670,7 +670,7 @@ def test_dependencies_of_the_open_steps_point_only_to_earlier_steps_and_the_stra
 
 def test_the_scope_of_the_approved_open_steps_is_pinned_and_protected_files_stay_out_of_it():
     items = {i["id"]: i for i in ja.load_backlog(ROOT / ".github/automation/backlog.json")}
-    assert {k: _scope_digest(items[k]) for k in RELEASE_ORDER} == SCOPE_DIGESTS
+    assert {k: _scope_digest(items[k]) for k in RELEASE_ORDER} == {k: SCOPE_DIGESTS[k] for k in RELEASE_ORDER}
     assert all("sensitive_edits" not in items[k] for k in RELEASE_ORDER + ["mail-provider", "office-docs", "media-agent"])          # keine Vorab-Freigabe geschuetzter Dateien
     never = (".github/", "CLAUDE.md", ".claude/", "config/jarvis.toml", "src/jarvis/permissions/", "tests/test_emergency_stop.py", "tests/test_security_", "tests/test_autonomy_invariants.py")
     for k in ROADMAP_NEW:
