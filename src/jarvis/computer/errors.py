@@ -15,6 +15,7 @@ class ErrorCode(str, Enum):
     INVALID_COORDINATES = "invalid_coordinates"
     INVALID_INPUT = "invalid_input"
     WINDOW_NOT_FOUND = "window_not_found"
+    CONTROL_NOT_FOUND = "control_not_found"      # UI Automation: no control of the window matches (an agent may then name a screenshot/coordinates fallback)
     LAUNCH_FAILED = "launch_failed"
     BLOCKED_TARGET = "blocked_target"            # a protected window/application/key combination
     TARGET_CHANGED = "target_changed"            # the screen/window state changed after approval
