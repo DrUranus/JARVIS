@@ -250,7 +250,7 @@ def test_the_package_uses_only_the_standard_library_and_touches_no_other_part_of
 def test_nothing_imports_the_contract_yet_and_no_setting_dependency_or_wiring_was_added():
     src = ROOT / "src" / "jarvis"
     for f in src.rglob("*.py"):
-        if "ui_contract" in f.parts:
+        if "ui_contract" in f.parts or f.relative_to(src).as_posix() == "interface/ui_events.py":     # event-bus: der Adapter ist der einzige Nutzer (genau dieser Pfad); Verdrahtung folgt spaeter
             continue
         assert "jarvis.ui_contract" not in f.read_text(encoding="utf-8"), f"{f.relative_to(ROOT)} nutzt den Vertrag schon (Verdrahtung gehoert in spaetere Schritte)"
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
