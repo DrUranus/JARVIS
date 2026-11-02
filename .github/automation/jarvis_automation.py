@@ -840,7 +840,14 @@ def decide_followup(state: dict[str, Any], cfg: Config, issue: dict[str, Any], *
         return None, "fehlgeschlagen, keine Wiederholung mehr erlaubt"
     if state["status"] != "completed" or report.get("next_action") != "continue":
         return None, f"Status {state['status']} / next_action {report.get('next_action')} erlaubt keine Fortsetzung"
-    if not tests_allow_continue(report.get("tests", [])):
+    # Nach dem Merge ist eine erfolgreich gepruefte CI fuer den gemergten PR massgeblich.
+    # Ein alter lokaler Testfehler im Claude-Bericht darf die nachweislich gruene
+    # Linux-/Windows-CI nicht ueberstimmen. Ohne CI-Nachweis bleibt die bisherige
+    # strenge Berichtspruefung erhalten (insbesondere bei reinen Lese-Auftraegen).
+    ci = state.get("ci") or {}
+    verified_merged_ci = (state.get("ci_gated") is True and bool(state.get("merged"))
+                          and ci.get("result") == "success")
+    if not verified_merged_ci and not tests_allow_continue(report.get("tests", [])):
         return None, "Berichtete Tests nicht eindeutig bestanden"
     problem = acceptance_problem(state)
     if problem:
