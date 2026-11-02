@@ -557,7 +557,7 @@ PINNED_PLAN = [   # Reihenfolge in backlog.json = Ausfuehrungsreihenfolge der Au
                "mail-design",
                "office-design",
                "media-design"]
-DONE_AT_RELEASE_PLAN = {"ui-contract-v1", "llm-compat-vetting"}      # per direktem Auftrag umgesetzt (PR #73), steht als done
+DONE_AT_RELEASE_PLAN = {"ui-contract-v1", "llm-compat-vetting", "file-tools"}      # per direktem Auftrag umgesetzt (PR #73), steht als done
 PINNED_DONE = [i for i in PINNED_PLAN if i in set(PINNED_PLAN[:12]) | DONE_AT_RELEASE_PLAN]     # gemergt: done verhindert jede Wiederholung
 
 
