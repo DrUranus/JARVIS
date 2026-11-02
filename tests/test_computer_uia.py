@@ -350,11 +350,12 @@ def test_only_the_read_only_ui_tool_exists_and_the_only_new_setting_and_extra_ar
     """Seit uia-tools-readonly genau ein Tool `ui` (nur lesend, nur mit Provider registriert, siehe tests/test_computer_uia_tools.py); Einstellungen nur die drei uia_*-Felder
     (Standard aus), die Bibliothek nur als Extra, keine Pflichtabhaengigkeit."""
     tools = (COMP / "tools.py").read_text(encoding="utf-8")
-    assert tools.count("class UiTool(") == 1 and "uia_actions" not in tools and "ui_click" not in tools and "ui_type" not in tools
+    # seit uia-actions zusaetzlich genau ein Aktionstool `ui_act` (UIA-Muster, nur mit Aktions-Provider; tests/test_computer_uia_actions.py); Koordinaten-Tools gibt es weiterhin nicht
+    assert tools.count("class UiTool(") == 1 and tools.count("class UiActTool(") == 1 and "ui_click" not in tools and "ui_type" not in tools
     assert "ui_tree" not in (COMP / "resources.py").read_text(encoding="utf-8")
     from jarvis.config import ComputerSettings
     assert sorted(f.name for f in dataclasses.fields(ComputerSettings) if "uia" in f.name or f.name.startswith("ui")) == [
-        "uia_call_timeout", "uia_enabled", "uia_max_calls_per_session"]
+        "uia_actions_enabled", "uia_call_timeout", "uia_enabled", "uia_max_calls_per_session"]
     assert ComputerSettings().uia_enabled is False
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert "dependencies = []" in pyproject and pyproject.count("pywinauto") == 2        # Extra "uia" und Windows-Zeile in "dev"

@@ -459,9 +459,9 @@ def test_no_dynamic_execution_or_shell_primitives_anywhere_in_the_computer_packa
                     assert n.func.id not in banned_names, f"{f.name}: {n.func.id}()"
                 if isinstance(n.func, ast.Attribute) and n.func.attr in banned_attrs:
                     # `.run` is only legal on the plan (`plan._run()`), `.loads/.load` never; subprocess helpers never.
-                    # Single exception (uia-provider-readonly): `json.loads` on the answer lines of the UIA worker, in exactly these two modules.
+                    # Single exception (uia-provider-readonly, uia-actions): `json.loads` on the protocol lines of the UIA workers, in exactly these modules.
                     if (n.func.attr == "loads" and isinstance(n.func.value, ast.Name) and n.func.value.id == "json"
-                            and f.name in ("pywinauto_uia.py", "uia_worker.py")):
+                            and f.name in ("pywinauto_uia.py", "uia_worker.py", "uia_act_worker.py")):
                         continue
                     assert False, f"{f.name}: .{n.func.attr}()"
             if isinstance(n, ast.keyword) and n.arg == "shell":
