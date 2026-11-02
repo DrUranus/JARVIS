@@ -8,6 +8,7 @@ from typing import Any
 
 from jarvis.config import Settings
 from jarvis.goals.engine import GoalEngine
+from jarvis.goals.llm_planner import LLMDecomposer
 from jarvis.goals.planner import GoalPlanner
 from jarvis.goals.replanner import LLMReplanner
 
@@ -29,6 +30,7 @@ class GoalsSubsystem:
         info: dict[str, Any] = {"status": self.status, "reason": self.reason}
         if self.engine is not None:
             info.update(self.engine.describe())
+        info["llm_planning"] = bool(self.planner is not None and self.planner.supports_llm_planning)
         return info
 
 
@@ -42,7 +44,10 @@ def build_goals(settings: Settings, agents: Any, llm: Any = None) -> GoalsSubsys
         return GoalsSubsystem("disabled", "the goal engine needs the multi-agent layer (agents.enabled = true)")
     try:
         replanner = LLMReplanner(llm) if cfg.replanning and llm is not None and callable(getattr(llm, "complete_text", None)) else None
-        planner = GoalPlanner(agents.planner, max_attempts=cfg.max_attempts_per_step, step_timeout=cfg.step_timeout_seconds, replanner=replanner)
+        usable = llm is not None and callable(getattr(llm, "complete_text", None))
+        decomposer = LLMDecomposer(llm) if cfg.llm_planning and usable else None            # opt-in; the fixed templates stay the fallback
+        planner = GoalPlanner(agents.planner, max_attempts=cfg.max_attempts_per_step, step_timeout=cfg.step_timeout_seconds, replanner=replanner,
+                              decomposer=decomposer)
         engine = GoalEngine(agents.orchestrator, planner, max_steps=cfg.max_steps, max_attempts=cfg.max_attempts_per_step,
                             goal_timeout=cfg.goal_timeout_seconds, step_timeout=cfg.step_timeout_seconds, max_active=cfg.max_active_goals,
                             max_history=cfg.max_history)

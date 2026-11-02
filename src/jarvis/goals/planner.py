@@ -9,6 +9,7 @@ Templates (driven by what the user explicitly gave in the context or wrote in th
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
@@ -19,6 +20,7 @@ from jarvis.goals.errors import PlanningError
 from jarvis.goals.models import Goal, GoalStep
 from jarvis.goals.state import StepStatus
 
+log = logging.getLogger("jarvis.goals")
 _URL = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _DOMAIN = re.compile(r"\b((?:[a-z0-9-]+\.)+(?:com|de|org|net|io|eu|ch|at|info|dev|app|co\.uk))\b(/[^\s<>\"']*)?", re.IGNORECASE)
 _WRITE = re.compile(r"\b(fix\w*|behebe|repar\w*|ändere|ändern|change|edit|schreibe|write|erstelle|create|lösche|delete|implementier\w*|refactor\w*|füge)\b", re.IGNORECASE)
@@ -38,6 +40,9 @@ class Planner(Protocol):
 # A replanner proposes candidate step specs after a failure: (goal, context, max_steps, feedback) -> list of spec dicts. It is untrusted: GoalPlanner.replan
 # re-checks everything and chooses the agents itself.
 Replanner = Callable[[Goal, GoalContext, int, Mapping[str, Any]], Sequence[Mapping[str, Any]]]
+# A decomposer proposes a candidate plan for a NEW goal: (goal, context, max_steps, baseline template plan, allowed capabilities) -> list of spec dicts.
+# Untrusted like the replanner: GoalPlanner.plan re-checks it and falls back to the template plan on any failure.
+Decomposer = Callable[[Goal, GoalContext, int, Sequence[GoalStep], frozenset], Sequence[Mapping[str, Any]]]
 
 
 def find_url(objective: str, ctx: dict[str, Any]) -> str | None:
@@ -53,13 +58,40 @@ def find_url(objective: str, ctx: dict[str, Any]) -> str | None:
 
 class GoalPlanner:
     def __init__(self, agent_planner: AgentPlanner | None, *, max_attempts: int = 2, step_timeout: float | None = None,
-                 replanner: Replanner | None = None) -> None:
+                 replanner: Replanner | None = None, decomposer: Decomposer | None = None) -> None:
         self._agents = agent_planner
         self._replanner = replanner
-        self._max_attempts, self._step_timeout = max(1, max_attempts), step_timeout
+        self._decomposer = decomposer
+        self._max_attempts, self._step_timeout = max(1, min(int(max_attempts), P.MAX_ATTEMPTS_HARD)), step_timeout
 
     # ---- public ------------------------------------------------------------------------------------------------------------------------
+    @property
+    def supports_llm_planning(self) -> bool:
+        return self._decomposer is not None and self._agents is not None
+
     def plan(self, goal: Goal, ctx: GoalContext, max_steps: int) -> tuple[GoalStep, ...]:
+        """The template plan is always computed first (baseline and fallback). With a decomposer, a model candidate replaces it ONLY if it passes the candidate
+        check and validate_plan; otherwise the template plan is returned unchanged. Explicit analysis templates (context `template`) never go to the model."""
+        steps = self._template_plan(goal, ctx, max_steps)
+        if self._decomposer is None or self._agents is None or ctx.explicit_user_context.get("template") is not None:
+            return steps
+        return self._llm_plan(goal, ctx, max_steps, steps) or steps
+
+    def _llm_plan(self, goal: Goal, ctx: GoalContext, max_steps: int, baseline: tuple[GoalStep, ...]) -> tuple[GoalStep, ...] | None:
+        from jarvis.goals.validation import validate_plan
+        limit = max(1, min(int(max_steps), P.MAX_STEPS_HARD))
+        try:
+            allowed = frozenset().union(*(s.required_capabilities for s in baseline)) & self._agents.available_capabilities()
+            raw = self._decomposer(goal, ctx, limit, baseline, allowed)
+            specs = self._check_candidate(raw, baseline, allowed, limit)
+            steps = self._build(goal, specs)
+            validate_plan(goal, steps, max_steps=limit)
+        except Exception as exc:  # noqa: BLE001 - whatever is wrong with the candidate (or the provider), the template plan is used
+            log.info("goal %s: LLM plan refused, using the template (%s)", goal.goal_id, type(exc).__name__)
+            return None
+        return steps
+
+    def _template_plan(self, goal: Goal, ctx: GoalContext, max_steps: int) -> tuple[GoalStep, ...]:
         if self._agents is None:
             raise PlanningError("no agent planner is available (the multi-agent layer is off)")
         user = dict(ctx.explicit_user_context)
