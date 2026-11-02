@@ -146,6 +146,18 @@ class GoalsSettings:
     replanning: bool = False               # after a retryable failure ask the LLM provider for an alternative plan (at most 2 attempts per goal). OFF: it sends the goal text and redacted step results to the provider
 
 
+ROUTING_TASKS = ("chat", "plan", "code", "research", "vision", "speech")
+
+
+@dataclass(frozen=True)
+class RoutingSettings:
+    """LLM routing policy (docs/LLM_ROUTING.md). OFF by default: then `llm.provider` alone serves every request, exactly as before. Only read at startup."""
+    enabled: bool = False
+    local_provider: str = ""               # registered provider name used for local work (empty = none: nothing is routed locally)
+    cloud_provider: str = ""               # registered provider name counted as cloud (empty = no cloud target at all)
+    cloud_tasks: tuple[str, ...] = ()      # task classes that MAY use the cloud (empty = none; "speech" is never allowed)
+
+
 @dataclass(frozen=True)
 class BudgetSettings:
     """Session budget (Phase 14): one cap on tool calls and run time for the whole process, across all goals and agents. Enforced by the permission engine."""
@@ -287,6 +299,7 @@ class Settings:
     agents: AgentsSettings = field(default_factory=AgentsSettings)
     goals: GoalsSettings = field(default_factory=GoalsSettings)
     budget: BudgetSettings = field(default_factory=BudgetSettings)
+    llm_routing: RoutingSettings = field(default_factory=RoutingSettings)
     self_repair: SelfRepairSettings = field(default_factory=SelfRepairSettings)
     self_improvement: SelfImprovementSettings = field(default_factory=SelfImprovementSettings)
     research: ResearchSettings = field(default_factory=ResearchSettings)
@@ -396,6 +409,14 @@ class Settings:
         bu = self.budget
         if not 1 <= bu.max_tool_calls <= 100_000 or not 0 < bu.max_runtime_seconds <= 86_400:
             raise ConfigError("budget.max_tool_calls 1..100000, max_runtime_seconds 0..86400 (positive)")
+        lr = self.llm_routing
+        bad = [t for t in lr.cloud_tasks if t not in ROUTING_TASKS or t == "speech"]
+        if bad:
+            raise ConfigError(f"llm_routing.cloud_tasks: unknown or forbidden task class {bad!r}; allowed: {[t for t in ROUTING_TASKS if t != 'speech']}")
+        if lr.enabled and not lr.local_provider and not lr.cloud_provider:
+            raise ConfigError("llm_routing.enabled needs local_provider and/or cloud_provider")
+        if lr.enabled and lr.local_provider and lr.local_provider.lower() == lr.cloud_provider.lower():
+            raise ConfigError("llm_routing.local_provider and cloud_provider must differ")
         si = self.self_improvement
         if not 1 <= si.max_proposals <= 2000 or not 1 <= si.min_occurrences <= 50 or not 1 <= si.max_edits <= 10 or not 1000 <= si.max_diff_bytes <= 500_000 \
                 or not 0 < si.prepare_timeout_seconds <= 600 or not 0 < si.test_timeout_seconds <= 3600:

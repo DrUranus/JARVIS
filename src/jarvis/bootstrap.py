@@ -67,8 +67,22 @@ def build_core(settings: Settings) -> JarvisCore:
     # Opt-in history of FINISHED work (default off, no file). Display only: after a restart nothing is resumed or started.
     from jarvis.history.factory import build_history
     core.history = build_history(settings, core, guard)
+    # LLM routing policy (docs/LLM_ROUTING.md): a decision helper only, OFF by default. It calls no provider and changes no existing call path;
+    # every decision is an `llm_route` audit event.
+    from jarvis.llm.routing import LLMRouter
+    core.subsystems["llm_routing"] = LLMRouter(settings.llm_routing, default_provider=settings.llm.provider, audit=routing_audit(permissions.audit))
     register_emergency_components(core)
     return core
+
+
+def routing_audit(logger) -> Callable[[dict], bool]:
+    """Adapter: routing decisions (metadata dicts) -> `llm_route` audit events in the existing audit log. Returns False if a sink failed."""
+    from jarvis.permissions.audit import AuditEvent, AuditEventType
+
+    def record(meta) -> bool:
+        m = dict(meta)
+        return logger.record(AuditEvent(AuditEventType.LLM_ROUTE, tool="llm", action="route", status=m.pop("status", None), rule=m.pop("rule", None), extra=m))
+    return record
 
 
 def build_voice_session(settings: Settings, core: JarvisCore, display=print, input_fn=input, on_state=None):
