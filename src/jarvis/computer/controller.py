@@ -338,7 +338,7 @@ class ComputerController:
             return self._seal(Plan(res.TOOL_UI_ACT, act.value, res.ui_act_resource(act.value, w.handle, w.process, "0"), RED, blocked, ctx, self._run_blocked))
         found = self._call(self._provider("ui").find, w.handle, query, limits)
         if not found.matches:
-            raise ComputerError(ErrorCode.INVALID_INPUT, "no control matches; read the window with the ui tool first")
+            raise ComputerError(ErrorCode.CONTROL_NOT_FOUND, "no control matches; read the window with the ui tool first")
         if len(found.matches) > 1 or found.truncated:
             raise ComputerError(ErrorCode.INVALID_INPUT, "the control is ambiguous or the search was cut by the limits; narrow it (name_equals, automation_id, control_type)")
         element = protect_element(found.matches[0], self._detector.redact)

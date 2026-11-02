@@ -110,7 +110,7 @@ def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | 
                                        limits=RiskLimits(f.max_risk_per_trade_pct, f.max_position_pct, f.max_total_exposure_pct, f.daily_loss_limit_pct, f.max_leverage)))
         for agent in agents:
             registry.register(agent)
-            missing = sorted(t for t in agent.tool_names if t not in tools)
+            missing = sorted(t for t in agent.tool_names - getattr(agent, "optional_tools", frozenset()) if t not in tools)   # optional tools (UI Automation) may be absent
             if missing:
                 agent.state.transition(AgentStatus.DISABLED, f"tool {', '.join(missing)} is not available (subsystem off)")
         atexit.register(orch.shutdown)
