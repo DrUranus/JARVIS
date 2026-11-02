@@ -133,6 +133,16 @@ class ComputerSettings:
 
 
 @dataclass(frozen=True)
+class AgentRouterSettings:
+    """Agent router (agent-router): picks the suitable registered agent/capabilities for a task - rules first-class, an optional LLM proposal as a
+    checked candidate. It executes nothing and grants nothing. OFF by default; not started by itself."""
+    enabled: bool = False
+    timeout_seconds: float = 5.0       # hard bound for the optional LLM proposal (0..60, positive); on expiry the rules decide
+    max_objective_chars: int = 500     # objective text (redacted, cut) offered to the LLM (1..2000)
+    max_reason_chars: int = 200        # length of the stored reason (1..300)
+
+
+@dataclass(frozen=True)
 class AgentsSettings:
     """Multi-agent orchestration (v1). It only coordinates agents; every action of an agent still goes through ToolRegistry + PermissionEngine."""
     enabled: bool = False
@@ -143,6 +153,7 @@ class AgentsSettings:
     cancel_grace_seconds: float = 5.0  # an agent that ignores cancel/timeout this long is marked FAILED
     tool_call_limit: int = 200         # tool calls per task
     max_output_chars: int = 20_000     # size of a stored task output
+    router: AgentRouterSettings = field(default_factory=AgentRouterSettings)
 
 
 @dataclass(frozen=True)
@@ -414,6 +425,9 @@ class Settings:
         if not 1 <= ag.max_history <= 10_000 or not 0 <= ag.cancel_grace_seconds <= 300 or not 1 <= ag.tool_call_limit <= 5000 \
                 or not 1_000 <= ag.max_output_chars <= 1_000_000:
             raise ConfigError("agents.max_history 1..10000, cancel_grace_seconds 0..300, tool_call_limit 1..5000, max_output_chars 1000..1000000")
+        rt = ag.router
+        if not 0 < rt.timeout_seconds <= 60 or not 1 <= rt.max_objective_chars <= 2000 or not 1 <= rt.max_reason_chars <= 300:
+            raise ConfigError("agents.router.timeout_seconds 0..60 (positive), max_objective_chars 1..2000, max_reason_chars 1..300")
         gl = self.goals
         if not 1 <= gl.max_steps <= 50 or not 1 <= gl.max_attempts_per_step <= 5:
             raise ConfigError("goals.max_steps 1..50, max_attempts_per_step 1..5")

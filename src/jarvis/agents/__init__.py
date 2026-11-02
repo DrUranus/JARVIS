@@ -9,9 +9,10 @@ from jarvis.agents.models import AgentTask
 from jarvis.agents.orchestrator import AgentOrchestrator, CancelReport
 from jarvis.agents.planner import AgentPlanner, Selection
 from jarvis.agents.registry import AgentRegistry
+from jarvis.agents.router import AgentRouter, LLMAgentPlanner, RoutingDecision
 from jarvis.agents.result import AgentOutcome, AgentResult
 from jarvis.agents.state import AgentState, AgentStatus, TaskStatus
 
 __all__ = ["Agent", "validate_agent", "AgentContext", "ParentResult", "ToolGateway", "AgentError", "DuplicateError", "InvalidAgentError",
            "InvalidTaskError", "StateError", "TaskCancelled", "ToolAccessError", "UnknownAgentError", "AgentTask", "AgentOrchestrator",
-           "CancelReport", "AgentPlanner", "Selection", "AgentRegistry", "AgentOutcome", "AgentResult", "AgentState", "AgentStatus", "TaskStatus"]
+           "CancelReport", "AgentPlanner", "Selection", "AgentRouter", "LLMAgentPlanner", "RoutingDecision", "AgentRegistry", "AgentOutcome", "AgentResult", "AgentState", "AgentStatus", "TaskStatus"]
