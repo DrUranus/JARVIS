@@ -181,7 +181,7 @@ def test_write_needs_expected_hash_and_matches_it(tmp_path):
 def test_write_refused_when_file_changed_after_preview(tmp_path):
     r = make_rig(tmp_path)
     f = r.ws / "a.txt"
-    f.write_text("alt\n", encoding="utf-8")
+    f.write_bytes(b"alt\n")
     kw = dict(path="a.txt", content="neu\n", expected_sha256=sha("alt\n"))
     r.controller.plan("write", phase="describe", **kw)
     f.write_bytes(b"jemand anderes\n")
