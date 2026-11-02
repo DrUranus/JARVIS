@@ -286,6 +286,8 @@ def test_setting_default_off_and_validated(tmp_path):
             load_settings(f, env={})
 
 
-def test_router_is_not_wired_in_bootstrap():
+def test_router_is_wired_in_bootstrap_only_behind_the_assistant_and_router_flags():
+    # assistant-e2e wired the router; it stays off unless assistant.enabled AND agents.router.enabled (see tests/test_assistant_e2e.py)
     import pathlib
-    assert "AgentRouter" not in pathlib.Path("src/jarvis/bootstrap.py").read_text(encoding="utf-8")
+    text = pathlib.Path("src/jarvis/bootstrap.py").read_text(encoding="utf-8")
+    assert "settings.assistant.enabled and settings.agents.router.enabled" in text and "llm=None" in text

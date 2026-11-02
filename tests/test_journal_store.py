@@ -199,7 +199,8 @@ def test_opt_in_through_env_and_toml(tmp_path):
 
 
 def test_not_wired_and_no_new_dependency():
-    assert "journal" not in (ROOT / "src" / "jarvis" / "bootstrap.py").read_text(encoding="utf-8")
+    # assistant-e2e wired the journal: built only when assistant.enabled (and journal.enabled inside build_journal)
+    assert "if assistant_on else None" in (ROOT / "src" / "jarvis" / "bootstrap.py").read_text(encoding="utf-8")
     import tomllib
     assert tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["dependencies"] == []
 

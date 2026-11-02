@@ -409,12 +409,13 @@ def test_commands_call_nothing_but_the_expected_controller_methods_at_runtime():
     assert core_calls == ["hi"]
 
 
-def test_the_adapter_is_not_wired_anywhere():
+def test_the_adapter_is_wired_only_by_the_assistant_and_bootstrap():
+    # assistant-e2e: bootstrap.py builds it (behind assistant.enabled); nothing else references the module
     for f in (ROOT / "src" / "jarvis").rglob("*.py"):
-        if f.name in ("ui_events.py", "bus.py") or "ui_contract" in f.parts:
+        if f.name in ("ui_events.py", "bus.py", "bootstrap.py") or "ui_contract" in f.parts:
             continue
-        assert "ui_events" not in f.read_text(encoding="utf-8"), f"{f.relative_to(ROOT)} verdrahtet den Adapter (nicht Teil dieses Schritts)"
-    assert "ui_events" not in (ROOT / "src" / "jarvis" / "bootstrap.py").read_text(encoding="utf-8")
+        assert "ui_events" not in f.read_text(encoding="utf-8"), f"{f.relative_to(ROOT)} verdrahtet den Adapter (nur bootstrap.py darf das)"
+    assert "build_assistant(" in (ROOT / "src" / "jarvis" / "bootstrap.py").read_text(encoding="utf-8")
 
 
 def test_the_adapter_does_not_import_the_permission_package():
