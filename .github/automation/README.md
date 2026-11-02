@@ -72,6 +72,7 @@ Das Merge-Gate (alle 20 min und nach jedem `pr-tests`-Lauf) löst `awaiting_ci` 
 | CI läuft / fehlt noch | weiter warten (bis zur Frist) |
 | `tests-linux` und `tests-windows` erfolgreich | Auftrag `completed` (`ci.result = success`); das Gate mergt nur mit `JARVIS_AUTO_MERGE_ENABLED` und ohne geschützte Pfade, mit der geprüften SHA; danach startet der Controller den nächsten Schritt |
 | CI fehlgeschlagen | Auftrag `completed` (`ci.result = failed`), kein Merge; die begrenzte Korrekturschleife (höchstens 3) übernimmt; danach hält die Kette sicher an (nie gemergt = nie fortgesetzt) |
+| Datei außerhalb des Scopes | unkritische Dateien: dieselbe begrenzte Korrekturschleife (höchstens 3 je PR); der Auftrag führt die Änderung in den Scope zurück und erweitert ihn nie. **Kritische** Dateien (Sicherheitspfade, Berechtigungen, Notaus, Sicherheitstests, Konfiguration, Automatisierung, X0-Vertrag, Geheimnis-Schwärzung) werden nie automatisch repariert, sondern gehen an den Besitzer |
 | PR vom Besitzer gemergt | Auftrag `completed` (`owner_merged`), die Kette setzt fort |
 | PR geschlossen, Branch seit dem Bericht verändert, PR nicht gefunden | Auftrag `blocked`, Kette endet |
 
