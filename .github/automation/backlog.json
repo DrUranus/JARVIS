@@ -624,6 +624,7 @@
     },
     {
       "id": "file-tools",
+      "done": true,
       "title": "Datei-Werkzeuge: lesen, anlegen, aendern, verschieben, aufraeumen in bestaetigten Ordnern",
       "approved": false,
       "depends_on": [],
