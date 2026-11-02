@@ -110,7 +110,12 @@ class TestNotepadEndToEnd:
             # Ergebnis unabhaengig lesen
             back = registry.execute("ui", action="find", window=h, **selector)
             assert back.success and back.output["count"] == 1, (back.error, back.output)
-            assert back.output["matches"][0].get("value") == TEXT
+            # `ui find` liest absichtlich keine Werte (siehe uia_worker); der Wert wird ueber den Lese-Zustand des Aktions-Providers (UiState) geprueft
+            from jarvis.computer.uia import ControlType
+            from jarvis.computer.uia_actions import UiTarget
+            hit = back.output["matches"][0]
+            state = actor.read_state(h, UiTarget(runtime_id=hit["runtime_id"], name=hit["name"], control_type=ControlType(hit["control_type"]), automation_id=hit["automation_id"]))
+            assert state.value == TEXT
 
             # jede Aktion lief ueber die Rueckfrage (YELLOW); Text steht nicht in Pruefprotokoll oder Rueckfragen
             assert prompts.requests and all(r.level.value == "yellow" for r in prompts.requests)
