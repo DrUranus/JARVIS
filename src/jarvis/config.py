@@ -84,6 +84,14 @@ class JournalSettings:
     max_evidence: int = 5              # evidence items per result (hard limit 20)
 
 
+@dataclass(frozen=True)
+class AssistantSettings:
+    """End-to-end assistant wiring (assistant-e2e): connects the journal, the agent router and the UI-contract adapter to the existing layers. It adds no
+    autonomy: nothing starts by itself, every action still runs ToolRegistry.execute -> PermissionEngine. OFF by default; needs agents.enabled."""
+    enabled: bool = False
+    confirmation_timeout_seconds: float = 120.0     # an unanswered question counts as DENIED after this time (1..600)
+
+
 COMPUTER_BACKENDS = ("auto", "windows", "x11", "fake")
 SECURITY_MODES = ("standard", "lockdown")
 CONFIRMATION_PROVIDERS = ("cli", "deny")
@@ -331,6 +339,7 @@ class Settings:
     memory: MemorySettings = field(default_factory=MemorySettings)
     history: HistorySettings = field(default_factory=HistorySettings)
     journal: JournalSettings = field(default_factory=JournalSettings)
+    assistant: AssistantSettings = field(default_factory=AssistantSettings)
     security: SecuritySettings = field(default_factory=SecuritySettings)
     computer: ComputerSettings = field(default_factory=ComputerSettings)
     browser: BrowserSettings = field(default_factory=BrowserSettings)
@@ -510,6 +519,8 @@ class Settings:
         if not jo.path.strip() or not 1 <= jo.max_entries <= 100_000 or not 1 <= jo.max_steps_per_entry <= 200 \
                 or not 1 <= jo.max_text_length <= 2000 or not 1 <= jo.max_evidence <= 20:
             raise ConfigError("journal.path must not be empty, max_entries 1..100000, max_steps_per_entry 1..200, max_text_length 1..2000, max_evidence 1..20")
+        if not 1.0 <= self.assistant.confirmation_timeout_seconds <= 600.0:
+            raise ConfigError("assistant.confirmation_timeout_seconds must be 1..600")
         return self
 
 

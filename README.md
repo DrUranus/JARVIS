@@ -236,7 +236,7 @@ Ziele, Agenten-Tasks, Reparaturläufe und gespeicherte Pläne liegen im laufende
 - **Datenschutz.** Jeder Text (auch Beleg, Fehler, Schritttexte) läuft vor dem Schreiben durch `jarvis.redaction`; IDs mit Secrets werden abgelehnt.
 - **Obergrenzen.** `max_entries` (500, hart 100000, älteste fallen zuerst weg), `max_steps_per_entry` (50, hart 200), `max_text_length` (300, hart 2000), `max_evidence` (5, hart 20).
 - **Fehler.** Eine kaputte oder fremde Datei wird nie überschrieben, verschoben oder repariert (`JournalError`).
-- Keine neue Abhängigkeit (nur `sqlite3`). **Noch nicht in `bootstrap.py` verdrahtet** (kommt in `assistant-e2e`). Tests: `tests/test_journal_store.py`.
+- Keine neue Abhängigkeit (nur `sqlite3`). **In `bootstrap.py` nur über den Assistenten verdrahtet** (`assistant.enabled`, siehe unten). Tests: `tests/test_journal_store.py`.
 
 ## Wiederaufnahme unterbrochener Aufgaben (Strang A3)
 
@@ -257,7 +257,19 @@ Ziele, Agenten-Tasks, Reparaturläufe und gespeicherte Pläne liegen im laufende
 - **Rückfall auf die Regeln** bei Ausnahme, Zeitüberschreitung (`timeout_seconds`, harte Grenze, Daemon-Thread), zu langer oder ungültiger Antwort. Ohne passenden Agenten: `agent_id = None` (nie geraten).
 - **Begrenzt.** Zielsatz an das LLM geschwärzt und auf `max_objective_chars` gekürzt, Begründung auf `max_reason_chars`, Antwort höchstens 4000 Zeichen.
 - **Jede Entscheidung** geht an Listener: `event_listener(EventLog.emit)` erzeugt das `routing`-Ereignis (`task_id`, `agent`, `source`, `reason`; `agent` leer = kein Agent), `audit_listener(record)` liefert die Felder eines Audit-Eintrags (`tool="agent_router"`, `action="route"`; nur IDs, Fähigkeitsnamen, Quelle, Kurzbegründung); die spätere Verdrahtung macht daraus ein `AuditEvent` (Typ `llm_route`) für den `AuditLogger`, der alles schwärzt – die Agenten-Schicht importiert das Permission-Paket nicht. Ein ausfallender Listener ändert die Entscheidung nie.
-- Standard: **aus** (`agents.router.enabled = false` in `src/jarvis/config.py`, bewusst nicht in `config/jarvis.toml`). Das Flag wird erst bei der Verdrahtung ausgewertet; **noch nicht in `bootstrap.py` verdrahtet**. Tests: `tests/test_agent_router.py` (Fake-LLM, kein Netzwerk).
+- Standard: **aus** (`agents.router.enabled = false` in `src/jarvis/config.py`, bewusst nicht in `config/jarvis.toml`). Das Flag wird in `bootstrap.py` nur zusammen mit `assistant.enabled` ausgewertet (siehe „Ende-zu-Ende-Assistent“). Tests: `tests/test_agent_router.py` (Fake-LLM, kein Netzwerk).
+
+## Ende-zu-Ende-Assistent (`[assistant]`, optional, Strang A9)
+
+`src/jarvis/interface/assistant.py` verbindet Vorhandenes, ohne Macht hinzuzufügen: **Text → Planung (Ziel-Engine) → Router (je Schritt) → Agenten → `ToolRegistry.execute` → `PermissionEngine` → Bestätigung → Ergebnis → Journal → Vertragsereignisse**. Standard: **aus** (`assistant.enabled = false` in `src/jarvis/config.py`, bewusst nicht in `config/jarvis.toml`; `JARVIS_ASSISTANT_ENABLED=true`). Braucht `agents.enabled`; Ziel-Engine, Journal (`journal.enabled`) und Router (`agents.router.enabled`, nur per TOML) sind eigene Schalter.
+
+- **Verdrahtung (additiv, nur `bootstrap.py`):** Router (nur Regeln, **kein** LLM-Aufruf) als `RoutingPlanner` für die Ziel-Engine, jede Wahl wird ein `routing`-Ereignis und ein Audit-Eintrag (`llm_route`); `build_journal`; `ControllerUiBackend` als `core.subsystems["assistant"].ui`. Ohne `assistant.enabled` bleibt alles wie bisher.
+- **Bestätigung:** Mit aktivem Assistenten ist `ControllerUiBackend.confirmation_provider` der Provider der Engine (außer bei `security.confirmation = "deny"`): Fragen laufen als `confirmation_request` über den Vertrag und brauchen einen Client, der antwortet. **Ohne Antwort (`assistant.confirmation_timeout_seconds`, Standard 120), bei `detach()`, Notaus und Fehlern gilt: abgelehnt.** Der Assistent ist für den Betrieb ohne Tk-Fenster gedacht; das Fenster hat seinen eigenen Provider.
+- **Ergebnis und Journal:** Wer den Adapter abfragt (`snapshot`/`events_since`/`send`), löst einen Pump aus; dabei schreibt der Assistent beendete Ziele ins Journal und veröffentlicht je Ziel einmal `task_update` + `result`. Kein Thread, kein Timer, kein Selbststart; gestartet wird nur auf ausdrücklichen Befehl (`submit_text` mit `/goal …`).
+- **Notaus:** eigener Stopper `assistant` (offene Fragen → `cancelled` = abgelehnt); danach sind neue Eingaben gesperrt, bis der Notaus ausdrücklich aufgehoben wird.
+- **CLI:** `/assistant status` zeigt nur den Zustand (nichts wird gestartet, geplant oder ausgeführt).
+- **Nicht Teil dieses Schritts:** Transport (Strang B), `ResumeAwarePlanner`/Fortsetzen nach Neustart, LLM-Router.
+- Tests: `tests/test_assistant_e2e.py` (Fake-Backends, echte Engine/Registry, kein Netzwerk; Linux und Windows gleich). Windows-Nachweis: ausstehend (CI).
 
 ## Datei-Werkzeuge (`[files]`, optional, Strang A8)
 
