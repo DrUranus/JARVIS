@@ -677,7 +677,8 @@
         "docs/TESTING.md",
         "docs/UI_CONTRACT.md"
       ],
-      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt.",
+      "done": true
     },
     {
       "id": "uia-windows-e2e",
