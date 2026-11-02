@@ -9,7 +9,7 @@
      any other goal, so every tool action still passes `ToolRegistry.execute` -> `PermissionEngine`,
   4. keeps steps the journal reports as SUCCEEDED out of the new plan (`ResumeAwarePlanner`).
 * Only goals are resumable: a journaled agent task carries no input, so it is listed but refused.
-* The result is contract data: `ResumeResult.to_activity()` is an activity item with kind "resume" (`jarvis.ui_contract.schema.ACTIVITY_ITEM`).
+* The result is contract data: `ResumeResult.to_activity()` is an activity item with kind "resume" (Schema ACTIVITY_ITEM des UI-Vertrags (Modul ui_contract, Teil schema)).
 Not wired into bootstrap yet; the caller (an explicit user command) decides when `resume` is called.
 """
 from __future__ import annotations
