@@ -557,7 +557,7 @@ PINNED_PLAN = [   # Reihenfolge in backlog.json = Ausfuehrungsreihenfolge der Au
                "mail-design",
                "office-design",
                "media-design"]
-DONE_AT_RELEASE_PLAN = {"ui-contract-v1", "llm-compat-vetting", "file-tools", "assistant-e2e"}      # per direktem Auftrag umgesetzt (PR #73), steht als done
+DONE_AT_RELEASE_PLAN = {"ui-contract-v1", "llm-compat-vetting", "file-tools", "assistant-e2e", "uia-windows-e2e"}      # per direktem Auftrag umgesetzt (PR #73), steht als done
 PINNED_DONE = [i for i in PINNED_PLAN if i in set(PINNED_PLAN[:12]) | DONE_AT_RELEASE_PLAN]     # gemergt: done verhindert jede Wiederholung
 
 
@@ -640,7 +640,7 @@ def test_the_open_approved_steps_run_in_dependency_order_llm_first_and_the_contr
         done.add(nxt["id"])
     assert order == RELEASE_ORDER and order[:3] == LLM_CHAIN[1:] and order[3] == "llm-goal-planning"
     assert order.index("llm-goal-planning") < order.index("agent-router") < order.index("cc-backend-binding")
-    assert "assistant-e2e" in PINNED_DONE
+    assert {"assistant-e2e", "uia-windows-e2e"} <= set(PINNED_DONE)
     assert order.index("coding-llm-edits") < order.index("ui-tech-evaluation")                        # Control Center nach Coding (Prioritaet des Besitzers)
     by_id = {i["id"]: i for i in items}
     assert all(by_id[i]["approved"] is False for i in STILL_BLOCKED)
