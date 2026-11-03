@@ -149,7 +149,7 @@ Die whisper.cpp-README (`models/README.md`) fuehrt dazu eine "SHA"-Spalte mit 40
 
 ## Entscheidung
 nehmen
-
+Besitzer-Freigabe: 2026-11-03
 **Entscheidung des Besitzers vom 2026-11-03 (im Projektchat ausdruecklich bestaetigt):** faster-whisper mit integriertem Silero-VAD wird als optionale lokale STT-Technologie fuer JARVIS genehmigt. Der Besitzer akzeptiert die in diesem Bericht dokumentierten offenen Lizenz- und Kompatibilitaetsfragen und autorisiert Dokumentation und Implementierung. Dies ist eine bewusste Risikoakzeptanz und **kein** Nachweis, dass die offenen Punkte inzwischen technisch oder rechtlich geklaert sind. Vor Nutzung auf Windows sind Abhaengigkeiten, Lizenzhinweise und Laufzeitverhalten zu pruefen.
 
 **Verbindliche Implementierungsbedingungen:** Kein automatischer Modell-Download oder Netzwerkzugriff zur Laufzeit; Modell nur aus lokal konfiguriertem Pfad; standardmaessig deaktiviert; optionale Abhaengigkeit mit Lazy-Import; bestehende PermissionEngine, Not-Aus und Sitzungsbudgets bleiben wirksam. Windows-Echtmodelltest bleibt gesondert erforderlich. Die im Backlog verlangte formale Zeile `Besitzer-Freigabe: <Datum>` wird hier bewusst **nicht** durch den Assistenten gesetzt: laut Auftragsvertrag muss der Besitzer sie selbst per PR ergaenzen.
