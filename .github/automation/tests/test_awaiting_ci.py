@@ -3,6 +3,7 @@ mergt nur mit vollstaendigem Nachweis und haelt sicher an. Fake-GitHub, kein Net
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 import sys
 import tempfile
 from pathlib import Path
@@ -53,7 +54,9 @@ def awaiting(api, c=None, **over):
 
 
 def gate(api, c=None, **env):
-    return mg.run_gate(api, c or cfg(**{**ALL, **env}), backlog_path=BACKLOG, dispatch=api.dispatch_workflow)
+    # Fake-Auftraege verwenden NOW; der Merge-Watchdog muss dieselbe Testzeit sehen.
+    with patch.object(ja, "utcnow", return_value=NOW):
+        return mg.run_gate(api, c or cfg(**{**ALL, **env}), backlog_path=BACKLOG, dispatch=api.dispatch_workflow)
 
 
 class ClosingApi(GateApi):

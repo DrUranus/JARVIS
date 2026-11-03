@@ -3,6 +3,7 @@ Fortsetzung nach einem vom Besitzer gemergten PR. Fake-GitHub, kein Netzwerk, ke
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 import sys
 import tempfile
 from pathlib import Path
@@ -230,7 +231,8 @@ def test_halt_and_disabled_switches_advance_nothing():
 
 def test_the_gate_run_also_looks_for_merged_prs(tmp_path):
     api = merged_api()
-    out = mg.run_gate(api, cfg(JARVIS_AUTO_CONTINUE_ENABLED="true", JARVIS_AUTO_MERGE_ENABLED="true"), backlog_path=backlog(PLAN))
+    with patch.object(ja, "utcnow", return_value=NOW):
+        out = mg.run_gate(api, cfg(JARVIS_AUTO_CONTINUE_ENABLED="true", JARVIS_AUTO_MERGE_ENABLED="true"), backlog_path=backlog(PLAN))
     assert any("gemergt" in line for line in out) and state_of(api, 1)["merged"]["pr"] == 7 and len(api.dispatched) == 1
 
 
