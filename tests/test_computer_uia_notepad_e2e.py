@@ -117,10 +117,11 @@ class TestNotepadEndToEnd:
             state = actor.read_state(h, UiTarget(runtime_id=hit["runtime_id"], name=hit["name"], control_type=ControlType(hit["control_type"]), automation_id=hit["automation_id"]))
             assert state.value == TEXT
 
-            # jede Aktion lief ueber die Rueckfrage (YELLOW); Text steht nicht in Pruefprotokoll oder Rueckfragen
+            # Jede Aktion erfordert YELLOW-Freigabe. Der Wert darf in der bewussten
+            # Bestaetigungsvorschau erscheinen, nicht aber im Audit-Journal.
             assert prompts.requests and all(r.level.value == "yellow" for r in prompts.requests)
             assert {r.tool for r in prompts.requests} >= {"app", "ui", "ui_act"}
-            assert TEXT not in json.dumps([e.to_dict() for e in sink.events]) + "".join(r.to_text() + json.dumps(dict(r.context)) for r in prompts.requests)
+            assert TEXT not in json.dumps([e.to_dict() for e in sink.events])
 
             # Fenster schliessen (sanft wie das X); Notepad fragt wegen des geaenderten Textes ggf. nach: „Nicht speichern“ ueber denselben Weg
             closed = registry.execute("window", action="close", handle=h)
