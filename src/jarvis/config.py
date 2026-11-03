@@ -27,7 +27,7 @@ class LLMSettings:
 @dataclass(frozen=True)
 class VoiceSettings:
     """Voice interface. Defaults ('console') need no hardware and no API key."""
-    stt_provider: str = "console"      # console | mock | openai
+    stt_provider: str = "console"      # console | mock | openai | local
     tts_provider: str = "console"      # console | mock | system | openai
     audio_input: str = "sounddevice"   # microphone backend (used by non-console STT)
     audio_output: str = "system"       # playback backend (used by openai TTS)
@@ -41,6 +41,9 @@ class VoiceSettings:
     silence_seconds: float = 1.0
     silence_threshold: int = 500       # RMS of 16-bit samples below which audio counts as silence
     stt_model: str = "whisper-1"
+    stt_model_dir: str | None = None   # stt_provider "local": lokales Modellverzeichnis (kein Download; Extra 'stt-local')
+    stt_device: str = "cpu"            # stt_provider "local": cpu | cuda
+    stt_compute_type: str = "int8"     # stt_provider "local": CTranslate2-Rechengenauigkeit
     tts_model: str = "tts-1"
     tts_voice: str = "alloy"
     tts_command: str | None = None     # override for the 'system' TTS (e.g. "espeak-ng -v de")
