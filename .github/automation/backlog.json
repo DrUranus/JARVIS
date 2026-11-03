@@ -695,7 +695,8 @@
         "Nur ein harmloses Testfenster, keine echten Daten, Aufraeumen des Prozesses (Test)",
         "Unmoeglicher Desktop wird als blocked gemeldet, nichts wird abgeschwaecht"
       ],
-      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json).",
+      "done": true
     },
     {
       "id": "stt-vetting",
