@@ -70,8 +70,7 @@ def test_emergency_button_sends_only_the_contract_command():
     js = text("app.js")
     assert '"emergency_stop"' in js
     assert "reset_emergency" not in js  # das Aufheben bleibt eine Rueckfrage der Engine, nicht der UI
-    for bad in ("grant", "allow_", "choice"):
-        assert bad not in js  # cc-confirmation ist ein spaeterer Schritt: keine Bestaetigungsknoepfe
+    assert "grant" not in js  # kein Rechte-Befehl; Antworten auf Rueckfragen sind nur `confirm` (siehe test_control_center_confirmation.py)
 
 
 def test_importing_package_starts_nothing_and_is_not_wired():
