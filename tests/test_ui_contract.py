@@ -252,6 +252,8 @@ def test_nothing_imports_the_contract_yet_and_no_setting_dependency_or_wiring_wa
     for f in src.rglob("*.py"):
         if "ui_contract" in f.parts or f.relative_to(src).as_posix() == "interface/ui_events.py":     # event-bus: der Adapter ist der einzige Nutzer (genau dieser Pfad); Verdrahtung folgt spaeter
             continue
+        if "control_center" in f.relative_to(src).parts[:1]:     # cc-shell: das Control-Center-Paket ist der Transport gegen den Vertrag (Strang B); in bootstrap.py ist nichts verdrahtet
+            continue
         assert "jarvis.ui_contract" not in f.read_text(encoding="utf-8"), f"{f.relative_to(ROOT)} nutzt den Vertrag schon (Verdrahtung gehoert in spaetere Schritte)"
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert "dependencies = []" in pyproject and "ui_contract" not in pyproject

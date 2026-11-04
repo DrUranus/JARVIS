@@ -26,6 +26,9 @@ jarvis-gui = "jarvis.interface.gui:main"   # needs tkinter (bundled with the pyt
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"jarvis.control_center" = ["web/*"]   # local HTML/JS/CSS of the control center (cc-shell)
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

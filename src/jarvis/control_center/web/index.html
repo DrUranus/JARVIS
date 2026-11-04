@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS Control Center</title>
+<link rel="stylesheet" href="styles.css?t=__TOKEN__">
+</head>
+<body data-mode="orb" data-state="ready" data-conn="connecting">
+<header id="bar">
+  <strong>JARVIS</strong>
+  <span id="conn" role="status">verbinde ...</span>
+  <span id="state-label" role="status">bereit</span>
+  <button id="mode-toggle" type="button">Dashboard</button>
+  <button id="emergency" type="button" title="Notaus: stoppt alle Aktionen">NOTAUS</button>
+</header>
+<div id="emergency-banner" role="alert" hidden>Notaus aktiv. Aufheben nur ueber die Rueckfrage der Berechtigungs-Engine.</div>
+<main>
+  <section id="orb-view" aria-label="Orb">
+    <canvas id="orb" width="480" height="480"></canvas>
+    <p id="orb-caption"></p>
+  </section>
+  <section id="dashboard-view" aria-label="Dashboard">
+    <div class="panel"><h2>Gespraech</h2><ol id="chat"></ol></div>
+    <div class="panel"><h2>Aktivitaet</h2><ul id="activity"></ul><p id="problems"></p></div>
+    <div class="panel"><h2>Rueckfrage</h2><p id="confirmation">keine</p></div>
+    <div class="panel"><h2>Ereignisse</h2><ol id="log"></ol></div>
+  </section>
+</main>
+<form id="input-form" autocomplete="off">
+  <input id="input" type="text" maxlength="4000" placeholder="Nachricht an JARVIS" aria-label="Nachricht">
+  <button type="submit">Senden</button>
+</form>
+<script src="app.js?t=__TOKEN__"></script>
+</body>
+</html>
