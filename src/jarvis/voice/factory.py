@@ -11,6 +11,7 @@ from jarvis.voice.composed import SpeechListener, TTSSpeaker
 from jarvis.voice.console import ConsoleListener, ConsoleSpeaker
 from jarvis.voice.devices import NullPlayer, SoundDeviceSource, SystemPlayer
 from jarvis.voice.mock import MockAudioPlayer, MockAudioSource, MockHotwordDetector, MockSTT, MockTTS
+from jarvis.voice.local_stt import LocalWhisperSTT
 from jarvis.voice.openai_provider import OpenAISTT, OpenAITTS
 from jarvis.voice.system_tts import SystemTTS
 
@@ -50,6 +51,8 @@ register_hotword_detector = HOTWORD_DETECTORS.register
 
 register_stt("mock", lambda s: MockSTT())
 register_stt("openai", lambda s: OpenAISTT(s.api_key, s.stt_model, s.base_url, s.timeout))
+register_stt("local", lambda s: LocalWhisperSTT(s.stt_model_dir, device=s.stt_device,
+                                                compute_type=s.stt_compute_type, timeout=s.timeout))
 register_tts("mock", lambda s: MockTTS())
 register_tts("system", lambda s: SystemTTS(s.tts_command))
 register_tts("openai", lambda s: OpenAITTS(s.api_key, AUDIO_PLAYERS.create(s.audio_output, s), s.tts_model,

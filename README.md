@@ -107,6 +107,7 @@ Austauschbare Schnittstellen (`voice/base.py`): `AudioSource`, `AudioPlayer`, `S
 |---|---|---|
 | Eingabe | `console` | Default. Getippte Zeilen gelten als Sprache, Ausgabe wird mit 🔊 gedruckt. Läuft überall, ohne Hardware/Key |
 | STT | `openai` | Whisper-API, braucht `OPENAI_API_KEY` oder `JARVIS_VOICE_API_KEY`; `base_url` für kompatible Server |
+| STT | `local` | optional, **lokal** (faster-whisper): `pip install -e ".[stt-local]"`; Modell nur aus `voice.stt_model_dir` (von Hand abgelegt, **kein Download**, Audio verlässt den PC nie). Standard bleibt `console`. Details und manueller Prüfablauf: `docs/integrations/stt-local.md` |
 | STT | `mock` | nur Tests |
 | Mikrofon | `sounddevice` | optional: `pip install -e ".[voice]"` (benötigt die PortAudio-Systembibliothek). Einfache Stille-Erkennung beendet die Aufnahme |
 | TTS | `system` | offline über `espeak-ng`, `espeak`, `spd-say` oder `say` (macOS); eigener Befehl via `tts_command` |
@@ -135,7 +136,7 @@ Exit-Phrasen: `exit`, `quit`, `stop`, `stopp`, `beenden`, `beende`, `tschüss`, 
 Konfiguration im Abschnitt `[voice]` von `config/jarvis.toml` oder per `JARVIS_VOICE_<FELD>`
 (`STT_PROVIDER`, `TTS_PROVIDER`, `AUDIO_INPUT`, `AUDIO_OUTPUT`, `LANGUAGE`, `WAKE_WORD`, `REQUIRE_WAKE_WORD`, `SPEAK_RESPONSES`,
 `SAMPLE_RATE`, `MAX_RECORD_SECONDS`, `SILENCE_SECONDS`, `SILENCE_THRESHOLD`, `STT_MODEL`, `TTS_MODEL`, `TTS_VOICE`, `TTS_COMMAND`,
-`BASE_URL`, `TIMEOUT`). API-Keys nur über die Umgebung.
+`STT_MODEL_DIR`, `STT_DEVICE`, `STT_COMPUTE_TYPE`, `BASE_URL`, `TIMEOUT`; bei `local` ist `TIMEOUT` das Zeitlimit je Erkennung). API-Keys nur über die Umgebung.
 
 ### Barge-in und Hotword (Phase 2)
 
