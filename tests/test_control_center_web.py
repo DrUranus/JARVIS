@@ -42,7 +42,8 @@ def test_js_talks_only_to_own_endpoints():
     js = text("app.js")
     assert "http://" not in js and "https://" not in js
     assert re.findall(r"new EventSource\((.*)\);", js) == ["url(\"events\", lastSeq)"]
-    assert re.findall(r"fetch\(([^,]*),", js) == ["url(\"command\")"]
+    # genau zwei eigene Ziele: Befehle (POST) und die Zustandstabelle des Kerns (GET, cc-ai-core)
+    assert re.findall(r"fetch\(([^,]*),", js) == ["url(\"command\")", "url(\"core_states.json\")"]
 
 
 def test_starts_in_orb_mode_and_has_toggle_and_emergency_button_in_both_modes():
