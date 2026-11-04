@@ -14,6 +14,7 @@ from jarvis.voice.mock import MockAudioPlayer, MockAudioSource, MockHotwordDetec
 from jarvis.voice.local_stt import LocalWhisperSTT
 from jarvis.voice.openai_provider import OpenAISTT, OpenAITTS
 from jarvis.voice.system_tts import SystemTTS
+from jarvis.voice.vad import EnergyDetector, SpeechDetector, load_silero_detector
 
 T = TypeVar("T")
 
@@ -42,12 +43,14 @@ TTS_PROVIDERS: Registry[TTSProvider] = Registry("TTS provider")
 AUDIO_SOURCES: Registry[AudioSource] = Registry("audio input")
 AUDIO_PLAYERS: Registry[AudioPlayer] = Registry("audio output")
 HOTWORD_DETECTORS: Registry[HotwordDetector] = Registry("hotword detector")
+VAD_DETECTORS: Registry[SpeechDetector] = Registry("VAD detector")
 
 register_stt = STT_PROVIDERS.register
 register_tts = TTS_PROVIDERS.register
 register_audio_source = AUDIO_SOURCES.register
 register_audio_player = AUDIO_PLAYERS.register
 register_hotword_detector = HOTWORD_DETECTORS.register
+register_vad_detector = VAD_DETECTORS.register
 
 register_stt("mock", lambda s: MockSTT())
 register_stt("openai", lambda s: OpenAISTT(s.api_key, s.stt_model, s.base_url, s.timeout))
@@ -58,19 +61,27 @@ register_tts("system", lambda s: SystemTTS(s.tts_command))
 register_tts("openai", lambda s: OpenAITTS(s.api_key, AUDIO_PLAYERS.create(s.audio_output, s), s.tts_model,
                                            s.tts_voice, s.base_url, s.timeout))
 register_audio_source("mock", lambda s: MockAudioSource())
+register_vad_detector("energy", lambda s: EnergyDetector(s.silence_threshold))
+register_vad_detector("silero", lambda s: load_silero_detector())   # faster-whisper erst hier importiert (lazy)
 register_audio_source("sounddevice", lambda s: SoundDeviceSource(
-    s.sample_rate, s.silence_threshold, s.silence_seconds, s.max_record_seconds))
+    s.sample_rate, s.silence_threshold, s.silence_seconds, s.max_record_seconds,
+    detector=None if s.vad_provider.lower() == "none" else VAD_DETECTORS.create(s.vad_provider, s),
+    min_speech_seconds=s.vad_min_speech_seconds))
 register_audio_player("mock", lambda s: MockAudioPlayer())
 register_audio_player("null", lambda s: NullPlayer())
 register_audio_player("system", lambda s: SystemPlayer())
 register_hotword_detector("mock", lambda s: MockHotwordDetector())
 
 
-def build_listener(settings: VoiceSettings, input_fn: Callable[[str], str] = input) -> Listener:
+def build_listener(settings: VoiceSettings, input_fn: Callable[[str], str] = input,
+                   guard: Callable[[], str | None] | None = None) -> Listener:
+    """`guard` (Notaus/Sitzungsbudget, von bootstrap.py geliefert) bricht eine laufende Aufnahme mit VoiceUnavailableError ab."""
     if settings.stt_provider.lower() == "console":
         return ConsoleListener(input_fn)
     stt = STT_PROVIDERS.create(settings.stt_provider, settings)
     source = AUDIO_SOURCES.create(settings.audio_input, settings)
+    if guard is not None:
+        source.guard = guard
     if settings.hotword_detector.lower() != "none":
         source = HotwordGatedSource(source, HOTWORD_DETECTORS.create(settings.hotword_detector, settings))
     return SpeechListener(source, stt, settings.language)

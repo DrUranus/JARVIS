@@ -11,6 +11,7 @@ import time
 
 from jarvis.errors import VoiceUnavailableError
 from jarvis.voice.base import AudioClip, AudioPlayer, AudioSource, rms
+from jarvis.voice.vad import SpeechDetector, record_utterance
 
 log = logging.getLogger("jarvis.voice")
 
@@ -42,7 +43,9 @@ class SoundDeviceSource(AudioSource):
     """Microphone via the optional `sounddevice` package (pip install 'jarvis-ai[voice]')."""
 
     def __init__(self, sample_rate: int = 16000, threshold: float = 500, silence_seconds: float = 1.0,
-                 max_seconds: float = 15.0, chunk_seconds: float = 0.1) -> None:
+                 max_seconds: float = 15.0, chunk_seconds: float = 0.1, detector: SpeechDetector | None = None,
+                 min_speech_seconds: float = 0.2) -> None:
+        self._detector, self._min_speech = detector, min_speech_seconds   # detector None = bisheriger Pegel-Endpointer
         self._rate, self._threshold = sample_rate, threshold
         self._silence, self._max, self._chunk = silence_seconds, max_seconds, chunk_seconds
         self._sd = self._import()
@@ -60,6 +63,8 @@ class SoundDeviceSource(AudioSource):
 
     def record(self) -> AudioClip | None:
         frames = int(self._rate * self._chunk)
+        if self._detector is not None:
+            return self._record_vad(frames)
         ep = Endpointer(self._threshold, self._silence, self._max)
         chunks: list[bytes] = []
         try:
@@ -75,6 +80,17 @@ class SoundDeviceSource(AudioSource):
         except Exception as exc:  # PortAudioError etc.: no device, busy, permission denied
             raise VoiceUnavailableError(f"cannot record from microphone: {exc}") from exc
         return AudioClip(b"".join(chunks), self._rate) if ep.heard_speech else None
+
+    def _record_vad(self, frames: int) -> AudioClip | None:
+        try:
+            with self._sd.RawInputStream(samplerate=self._rate, channels=1, dtype="int16", device=2) as stream:
+                return record_utterance(lambda: bytes(stream.read(frames)[0]), self._detector, sample_rate=self._rate,
+                                        chunk_seconds=self._chunk, silence_seconds=self._silence, max_seconds=self._max,
+                                        min_speech_seconds=self._min_speech, guard=self.guard)
+        except VoiceUnavailableError:
+            raise                                           # guard (Notaus/Budget) and library messages pass through unchanged
+        except Exception as exc:  # PortAudioError etc.: no device, busy, permission denied
+            raise VoiceUnavailableError(f"cannot record from microphone: {exc}") from exc
 
 
 _PLAYERS = (("afplay", []), ("paplay", []), ("aplay", ["-q"]), ("ffplay", ["-nodisp", "-autoexit", "-loglevel", "quiet"]))

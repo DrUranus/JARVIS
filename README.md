@@ -109,7 +109,7 @@ Austauschbare Schnittstellen (`voice/base.py`): `AudioSource`, `AudioPlayer`, `S
 | STT | `openai` | Whisper-API, braucht `OPENAI_API_KEY` oder `JARVIS_VOICE_API_KEY`; `base_url` für kompatible Server |
 | STT | `local` | optional, **lokal** (faster-whisper): `pip install -e ".[stt-local]"`; Modell nur aus `voice.stt_model_dir` (von Hand abgelegt, **kein Download**, Audio verlässt den PC nie). Standard bleibt `console`. Details und manueller Prüfablauf: `docs/integrations/stt-local.md` |
 | STT | `mock` | nur Tests |
-| Mikrofon | `sounddevice` | optional: `pip install -e ".[voice]"` (benötigt die PortAudio-Systembibliothek). Einfache Stille-Erkennung beendet die Aufnahme |
+| Mikrofon | `sounddevice` | optional: `pip install -e ".[voice]"` (benötigt die PortAudio-Systembibliothek). Einfache Stille-Erkennung beendet die Aufnahme; optional VAD (siehe unten) |
 | TTS | `system` | offline über `espeak-ng`, `espeak`, `spd-say` oder `say` (macOS); eigener Befehl via `tts_command` |
 | TTS | `openai` | Sprachsynthese-API + `audio_output` (`system`: afplay/paplay/aplay/ffplay, oder `null`) |
 | TTS | `console`, `mock` | Ausgabe drucken / Tests |
@@ -135,8 +135,23 @@ Exit-Phrasen: `exit`, `quit`, `stop`, `stopp`, `beenden`, `beende`, `tschüss`, 
 
 Konfiguration im Abschnitt `[voice]` von `config/jarvis.toml` oder per `JARVIS_VOICE_<FELD>`
 (`STT_PROVIDER`, `TTS_PROVIDER`, `AUDIO_INPUT`, `AUDIO_OUTPUT`, `LANGUAGE`, `WAKE_WORD`, `REQUIRE_WAKE_WORD`, `SPEAK_RESPONSES`,
-`SAMPLE_RATE`, `MAX_RECORD_SECONDS`, `SILENCE_SECONDS`, `SILENCE_THRESHOLD`, `STT_MODEL`, `TTS_MODEL`, `TTS_VOICE`, `TTS_COMMAND`,
+`SAMPLE_RATE`, `MAX_RECORD_SECONDS`, `SILENCE_SECONDS`, `SILENCE_THRESHOLD`, `VAD_PROVIDER`, `VAD_MIN_SPEECH_SECONDS`, `STT_MODEL`, `TTS_MODEL`, `TTS_VOICE`, `TTS_COMMAND`,
 `STT_MODEL_DIR`, `STT_DEVICE`, `STT_COMPUTE_TYPE`, `BASE_URL`, `TIMEOUT`; bei `local` ist `TIMEOUT` das Zeitlimit je Erkennung). API-Keys nur über die Umgebung.
+
+### Aufnahme-Ende per VAD (`stt-vad-endpointing`)
+
+Standard ist `voice.vad_provider = "none"`: es bleibt beim bisherigen Pegel-Endpointer (`silence_threshold`, `silence_seconds`). Wer eine robustere
+Sprechpausen-Erkennung will, setzt `vad_provider`:
+
+| Wert | Wirkung |
+|---|---|
+| `none` | Standard, unverändert |
+| `energy` | Pegel-VAD mit Mindest-Sprechdauer (`vad_min_speech_seconds`, Klicks zählen nicht) und Vorlauf; keine Zusatzpakete |
+| `silero` | Silero-VAD aus faster-whisper (Extra `stt-local`, 16 kHz, Modell liegt im Paket, kein Download). Fehlt das Extra, meldet JARVIS das klar und fällt in den Textmodus zurück |
+
+Die Aufnahme endet `silence_seconds` nach der Sprache und ist nie länger als `max_record_seconds` (auch ohne Sprache wird nie länger gewartet).
+Notaus und erschöpftes Sitzungsbudget brechen eine laufende Aufnahme ab (`bootstrap.recording_guard`). Das Modul `voice/vad.py` kennt weder Hotword noch Unterbrechen
+(das ist `voice-barge-in-hotword`, siehe unten) und startet nichts von selbst. Echtes Mikrofon und echtes Silero-Modell sind nur manuell/Windows prüfbar.
 
 ### Barge-in und Hotword (Phase 2)
 

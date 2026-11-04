@@ -40,6 +40,8 @@ class VoiceSettings:
     max_record_seconds: float = 15.0
     silence_seconds: float = 1.0
     silence_threshold: int = 500       # RMS of 16-bit samples below which audio counts as silence
+    vad_provider: str = "none"         # none (bisheriger Pegel-Endpointer) | energy | silero (Extra 'stt-local'); Aufnahme endet nach Sprechpause, hoechstens max_record_seconds
+    vad_min_speech_seconds: float = 0.2  # vad_provider != none: Sprache zaehlt erst nach dieser Dauer am Stueck (Klicks nicht)
     stt_model: str = "whisper-1"
     stt_model_dir: str | None = None   # stt_provider "local": lokales Modellverzeichnis (kein Download; Extra 'stt-local')
     stt_device: str = "cpu"            # stt_provider "local": cpu | cuda
@@ -387,6 +389,8 @@ class Settings:
         v = self.voice
         if min(v.sample_rate, v.max_record_seconds, v.silence_seconds, v.timeout) <= 0:
             raise ConfigError("voice.sample_rate/max_record_seconds/silence_seconds/timeout must be positive")
+        if v.vad_min_speech_seconds < 0:
+            raise ConfigError("voice.vad_min_speech_seconds must be >= 0")
         if v.silence_threshold < 0:
             raise ConfigError("voice.silence_threshold must be >= 0")
         if not v.wake_word.strip():

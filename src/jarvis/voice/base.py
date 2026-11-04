@@ -6,6 +6,7 @@ import struct
 import wave
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Callable
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,8 @@ def rms(pcm: bytes) -> float:
 
 class AudioSource(ABC):
     """Microphone (or any audio producer)."""
+
+    guard: Callable[[], str | None] | None = None   # set by the composition root: returns a reason (emergency stop, session budget) to abort a recording
 
     @abstractmethod
     def record(self) -> AudioClip | None:
