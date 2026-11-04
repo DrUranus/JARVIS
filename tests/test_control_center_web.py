@@ -41,7 +41,7 @@ def test_js_avoids_dangerous_dom_apis():
 def test_js_talks_only_to_own_endpoints():
     js = text("app.js")
     assert "http://" not in js and "https://" not in js
-    assert re.findall(r"new EventSource\(([^)]*)\)", js) == ["url(\"events\", lastSeq)"]
+    assert re.findall(r"new EventSource\((.*)\);", js) == ["url(\"events\", lastSeq)"]
     assert re.findall(r"fetch\(([^,]*),", js) == ["url(\"command\")"]
 
 

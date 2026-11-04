@@ -1174,6 +1174,9 @@ Abhängigkeiten zeigen nach innen: Core kennt nur Interfaces (`LLMProvider`, `To
 34. **Reale Verifikation auf X11/Xvfb** mit denselben Providern und Tools wie unter Windows (außer dem Win32-Fensterprovider), weil nur dort echte Eingaben geprüft werden konnten.
 35. **Ordnerstruktur schlank gehalten:** Platzhalter-Pakete für künftige Module (agents, memory, …) werden erst mit ihrer Phase angelegt, nicht leer vorab.
 
+## Control Center (Strang B, Schritt cc-shell, Demo)
+Lokale Weboberfläche gegen den UI-Vertrag (`docs/UI_CONTRACT.md`), nur Standardbibliothek, **nur auf ausdrücklichen Befehl**: `python -m jarvis.control_center` gibt eine `http://127.0.0.1:<port>/?t=<Token>`-URL aus (Demo gegen das Fake-Backend; Browser nur mit `--open`). Server ausschließlich auf Loopback, Zufalls-Token, Prüfung von Host und Origin, Ereignisse per SSE, Befehle per POST mit Größenlimit, keine externen Ressourcen (CSP). Start im Orb-Modus, jederzeit manuell zum Dashboard und zurück; der Modus ist rein lokal und ändert weder Rechte noch Notaus. Noch nicht mit dem echten Assistenten verdrahtet. Windows-Nachweis steht aus.
+
 ## Vorbereitung für spätere Phasen
 
 | Phase | Anschlusspunkt |

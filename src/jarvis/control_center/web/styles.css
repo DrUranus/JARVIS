@@ -1,0 +1,30 @@
+:root { color-scheme: dark; --bg: #0b0f17; --fg: #e6edf7; --dim: #8b98ab; --panel: #131a26; --accent: #4fb3ff; --danger: #ff4d4d; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.4 system-ui, "Segoe UI", sans-serif; display: flex; flex-direction: column; min-height: 100vh; }
+#bar { display: flex; gap: 12px; align-items: center; padding: 8px 14px; background: var(--panel); position: sticky; top: 0; z-index: 2; }
+#bar strong { letter-spacing: 0.2em; }
+#conn, #state-label { color: var(--dim); }
+body[data-conn="open"] #conn { color: var(--accent); }
+body[data-conn="closed"] #conn { color: var(--danger); font-weight: 700; }
+#mode-toggle { margin-left: auto; }
+button { background: #1d2738; color: var(--fg); border: 1px solid #2c3a52; border-radius: 6px; padding: 6px 12px; cursor: pointer; font: inherit; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#emergency { background: var(--danger); color: #fff; border-color: #ff8080; font-weight: 700; }
+#emergency-banner { background: #5a1111; color: #fff; padding: 8px 14px; font-weight: 700; }
+main { flex: 1; display: flex; flex-direction: column; padding: 14px; }
+body[data-mode="orb"] #dashboard-view { display: none; }
+body[data-mode="dashboard"] #orb-view { display: none; }
+#orb-view { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+#orb { width: min(60vmin, 420px); height: auto; aspect-ratio: 1; }
+#orb-caption { color: var(--dim); min-height: 1.4em; text-align: center; max-width: 60ch; }
+#dashboard-view { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.panel { background: var(--panel); border-radius: 8px; padding: 10px 14px; max-height: 50vh; overflow: auto; }
+.panel h2 { margin: 0 0 6px; font-size: 13px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.1em; }
+ol, ul { margin: 0; padding-left: 18px; }
+#chat li.user { color: var(--accent); }
+#chat li.system { color: var(--dim); }
+#log li { color: var(--dim); font: 12px/1.3 ui-monospace, Consolas, monospace; }
+#input-form { display: flex; gap: 8px; padding: 10px 14px; background: var(--panel); }
+#input { flex: 1; background: #0b0f17; color: var(--fg); border: 1px solid #2c3a52; border-radius: 6px; padding: 8px 10px; font: inherit; }
+body[data-state="emergency"] #orb-view, body[data-conn="closed"] #orb-view { opacity: 0.6; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

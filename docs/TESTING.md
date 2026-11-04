@@ -11,6 +11,7 @@ python -m pytest -rfEs -W error::pytest.PytestUnhandledThreadExceptionWarning \
 ```
 
 UI-Vertrag und Adapter: `tests/test_ui_contract.py` und `tests/test_ui_event_bus.py` (EventLog, `ControllerUiBackend`, Konformitaetspruefung gegen einen Fake-Core, Strukturtest der Controller-Zugriffe; ohne Tk, ueberall lauffaehig).
+Control Center (`cc-shell`): `tests/test_control_center_server.py` (echter Server auf 127.0.0.1 mit Token-/Host-/Origin-/Limit-Missbrauchstests, SSE, Vertrag gegen `FakeUiBackend`) und `tests/test_control_center_web.py` (statische Pruefung: keine externen Ressourcen, CSP, Orb-Start, lokaler Modus); ohne Browser und externes Netzwerk. Echte DOM-/Browser-Tests (Playwright) sind nicht enthalten: **Windows-Nachweis ausstehend**.
 Assistent Ende-zu-Ende: `tests/test_assistant_e2e.py` (Eingabe → Plan → Router → Agent → Bestätigung → Ergebnis → Journal → Ereignisse mit Fake-Backends, echter Engine und Registry; Ablehnung, Zeitüberschreitung, Trennung und Notaus; Strukturtests „Standard aus“ und „nur über Registry/Engine“; ohne Tk und Netzwerk, Linux und Windows gleich – der Windows-Nachweis kommt aus dem CI-Lauf).
 GUI-Tests: `tests/test_gui_model.py` (ohne Tk, ueberall), `tests/test_gui_view.py` und `tests/test_gui_confirmation.py` (echtes Tk-Fenster; ohne `tkinter`/Anzeige uebersprungen). Lokal unter Linux ohne Tk-Python: `apt install python3-tk xvfb`, dann `xvfb-run -a python3 -m pytest tests/test_gui_*.py`.
 
