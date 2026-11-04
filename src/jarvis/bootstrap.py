@@ -125,6 +125,17 @@ def routing_audit(logger) -> Callable[[dict], bool]:
     return record
 
 
+def recording_guard(core: JarvisCore) -> Callable[[], str | None]:
+    """Why a microphone recording must not start or continue: central emergency stop or exhausted session budget (else None). Only reads state."""
+    def guard() -> str | None:
+        em = core.permissions.emergency
+        if em.engaged:
+            return f"Notaus aktiv ({em.reason})"
+        budget = core.permissions.budget
+        return budget.refusal() if budget is not None else None
+    return guard
+
+
 def build_voice_session(settings: Settings, core: JarvisCore, display=print, input_fn=input, on_state=None):
     """Assemble the voice front-end around an existing core.
 
@@ -134,7 +145,7 @@ def build_voice_session(settings: Settings, core: JarvisCore, display=print, inp
     from jarvis.voice import VoiceSession, build_listener, build_speaker
 
     v = settings.voice
-    return VoiceSession(core, build_listener(v, input_fn), build_speaker(v, display), wake_word=v.wake_word,
+    return VoiceSession(core, build_listener(v, input_fn, guard=recording_guard(core)), build_speaker(v, display), wake_word=v.wake_word,
                         require_wake_word=v.require_wake_word, speak_responses=v.speak_responses,
                         display=display, on_state=on_state)
 
