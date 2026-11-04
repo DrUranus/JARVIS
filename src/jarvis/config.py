@@ -297,6 +297,8 @@ class CodingSettings:
     llm_context_chars: int = 12_000    # most characters of project material the `plan` action may send to the LLM
     confirm_delete_each_time: bool = True   # deleting is always asked, never covered by a session grant
     confirm_llm_each_time: bool = True      # sending material to the LLM provider is always asked
+    llm_edits: bool = False                 # `propose`: the model DRAFTS edits (never applied by it; each is written via `write`, confirmed one by one)
+    llm_edits_max: int = 3                  # most edits one `propose` call may return (1..10)
 
 
 @dataclass(frozen=True)
@@ -456,6 +458,8 @@ class Settings:
             raise ConfigError("coding.max_search_results 1..5000, max_list_entries 1..20000, test_timeout 0..3600 s")
         if not 500 <= cd.llm_context_chars <= 200_000:
             raise ConfigError("coding.llm_context_chars must be 500..200000")
+        if not 1 <= cd.llm_edits_max <= 10:
+            raise ConfigError("coding.llm_edits_max must be 1..10")
         fs = self.files
         if any(not r.strip() for r in fs.roots):
             raise ConfigError("files.roots must not contain empty entries")

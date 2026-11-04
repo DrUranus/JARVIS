@@ -268,4 +268,7 @@ def baseline_rules(settings: "CodingSettings") -> list:
     if settings.confirm_llm_each_time:
         rules.append(Rule(id="coding-baseline-plan-confirm", effect=Effect.CONFIRM, tool=res.TOOL, action="plan",
                           description="Sending project excerpts to an LLM provider is always confirmed"))
+    if settings.llm_edits:  # no switch: drafting edits with a model is asked every time, a session grant never covers it
+        rules.append(Rule(id="coding-baseline-propose-confirm", effect=Effect.CONFIRM, tool=res.TOOL, action="propose",
+                          description="Letting the LLM draft edits (sends project excerpts) is always confirmed"))
     return rules
