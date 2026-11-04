@@ -245,6 +245,11 @@ class ResearchSettings:
     timeout_seconds: float = 300.0     # the whole task (hard limit 1800)
     max_result_chars: int = 20_000     # size of the structured result
     extract_backend: str = "builtin"   # HTML-to-text backend: "builtin" (stdlib, default) or "trafilatura" (optional extra `research`)
+    search_enabled: bool = False       # web search through ONE external source (Brave Search API); OFF by default, costs money, sends the query text to the provider
+    search_provider: str = "brave"     # the only real source (docs/integrations/research.md); the key comes from the environment (BRAVE_SEARCH_API_KEY), never a file
+    search_max_searches: int = 20      # searches per session (hard limit 100)
+    search_timeout_seconds: float = 10.0       # per request (hard limit 30)
+    search_min_interval_seconds: float = 1.0   # rate limit: minimum pause between two requests (0..60)
 
 
 @dataclass(frozen=True)
@@ -504,6 +509,9 @@ class Settings:
             raise ConfigError("research.max_sources 1..20, max_actions 1..200, timeout_seconds 0..1800 (positive), max_result_chars 1000..100000")
         if rs.extract_backend not in ("builtin", "trafilatura"):
             raise ConfigError("research.extract_backend must be 'builtin' or 'trafilatura'")
+        if rs.search_provider != "brave" or not 1 <= rs.search_max_searches <= 100 or not 0 < rs.search_timeout_seconds <= 30 \
+                or not 0 <= rs.search_min_interval_seconds <= 60:
+            raise ConfigError("research.search_provider must be 'brave'; search_max_searches 1..100, search_timeout_seconds 0..30 (positive), search_min_interval_seconds 0..60")
         if not 1 <= bs.max_steps <= 100 or not 0 < bs.timeout_seconds <= 600 or not 1000 <= bs.max_result_chars <= 100_000:
             raise ConfigError("business.max_steps 1..100, timeout_seconds 0..600 (positive), max_result_chars 1000..100000")
         if not 1 <= fs.max_steps <= 1000 or not 0 < fs.timeout_seconds <= 600 or not 1000 <= fs.max_result_chars <= 100_000:

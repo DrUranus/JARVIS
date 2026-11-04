@@ -63,6 +63,9 @@ def build_core(settings: Settings) -> JarvisCore:
     from jarvis.tools.analysis import register_analysis_tools
     core.subsystems.update(build_analysis_subsystems(settings, core.subsystems["agents"]))
     register_analysis_tools(tools, core.subsystems, tuple(settings.browser.private_hosts_allowed))
+    # Opt-in web search source (Brave, OFF by default, key only from the environment): refuses on emergency stop and on an exhausted session budget.
+    from jarvis.agents.factory import build_research_search
+    core.subsystems["research_search"] = build_research_search(settings, budget_check=recording_guard(core))
     # Self-repair also sits above the agent layer: its only way to act is a Coding-Agent task through the orchestrator.
     from jarvis.self_repair.factory import build_self_repair
     core.subsystems["self_repair"] = build_self_repair(settings, core.subsystems["agents"], core.subsystems.get("coding"))
@@ -175,6 +178,7 @@ def register_emergency_components(core: JarvisCore) -> None:
     halting("computer", "further steps are refused; actions already executed (clicks, typed text, started programs) stay as they are")
     halting("browser", "further steps are refused; pages already loaded or forms already sent stay as they are")
     halting("files", "further steps are refused and pending organize plans are dropped; files already created, changed or moved stay as they are")
+    halting("research_search", "further searches are refused; requests already sent to the search provider cannot be recalled")
     halting("coding", "further steps are refused and a running test process is aborted; files already written stay as they are")
 
     def cancelling(name: str, handle: Callable[[Any], Any], items: Callable[[Any], list[tuple[str, Any]]], terminal: Any) -> None:
