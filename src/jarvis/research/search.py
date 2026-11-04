@@ -153,7 +153,12 @@ class SearchService:
 
 
 def create_search_provider(name: str, **options: Any) -> SearchProvider:
-    """Factory. Only 'fake' exists; a real source would be an optional extra imported HERE (lazily) with a clear message when it is missing."""
+    """Factory: 'fake' (tests/offline) and 'brave' (Brave Search API; module imported lazily, key from `api_key`, which the caller reads from the environment).
+    Missing key or unknown name give a clear SearchProviderUnavailable, never a crash."""
     if name == "fake":
         return FakeSearchProvider(options.get("hits", ()))
-    raise SearchProviderUnavailable(f"unknown search provider {name!r}; available: fake")
+    if name == "brave":
+        from jarvis.research.providers.brave import BraveSearchProvider
+        known = {k: v for k, v in options.items() if k in ("transport", "timeout_seconds", "min_interval_seconds", "clock")}
+        return BraveSearchProvider(options.get("api_key"), **known)
+    raise SearchProviderUnavailable(f"unknown search provider {name!r}; available: fake, brave")
