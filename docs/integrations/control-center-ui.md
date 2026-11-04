@@ -179,9 +179,10 @@ Fuer PySide6, Flet und die uebrigen Pakete: nicht erhoben (nicht empfohlen).
 - AGPL/GPL-Komponenten waeren nur als getrennter Prozess denkbar; kein Kandidat ist darauf angewiesen.
 
 ## Entscheidung
-nicht nehmen
+nehmen
+Besitzer-Freigabe: 2026-11-04
 
-Begruendung: Dieser Schritt ist eine Pruefung ohne Bibliotheksfreigabe; keine Abhaengigkeit wird aufgenommen und `dependencies = []` bleibt. Die Empfehlung unten braucht fuer Stufe 1 keine neue Abhaengigkeit.
+Freigabe durch den Besitzer im Chat am 2026-11-04: Ausschliesslich Stufe 1 (Python-Standardbibliothek `ThreadingHTTPServer`, lokaler Browser, Canvas 2D) fuer den Control-Center-Shell-Schritt `cc-shell`. Keine neue externe Bibliothek, keine Pflichtabhaengigkeit; `dependencies = []` bleibt. Die Schutzmassnahmen aus `docs/UI_CONTRACT.md` sind zwingend. pywebview, Three.js, PixiJS, PySide6, Flet und andere externe UI-Bibliotheken sind hiermit NICHT freigegeben und beduerfen eigener Pruefung/Freigabe. Windows-Nachweis bleibt erforderlich. Die Empfehlung unten braucht fuer Stufe 1 keine neue Abhaengigkeit.
 
 ### Empfehlung (ausdruecklich)
 **Stufe 1 (empfohlen, null Abhaengigkeiten):** `ThreadingHTTPServer` aus der Standardbibliothek auf `127.0.0.1` (zufaelliger Port, Zufalls-Token, Host-/Origin-Pruefung, Limits) liefert die lokale Oberflaeche (HTML/CSS/JS aus dem Repository) und einen SSE-Strom nach `docs/UI_CONTRACT.md`; Befehle per POST. Gezeichnet wird mit **Canvas 2D**, das ist zugleich der Fallback fuer alle spaeteren Effekte. Oeffnung im Systembrowser (Edge ist auf Windows 10/11 vorhanden). Das erfuellt "moeglichst wenig Abhaengigkeiten", ist ohne Installation testbar und braucht keine Lizenzfreigabe.
