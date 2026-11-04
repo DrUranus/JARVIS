@@ -41,11 +41,158 @@ function setState(state, detail) {
   el("orb-caption").textContent = detail || "";
 }
 
+// ---- Dashboard (cc-dashboard): Aufgaben, Agenten, Ergebnisse. Nur Vertragsdaten; jeder Text wird mit textContent gesetzt, nie als HTML/Link. -----------------
+const FINAL = new Set(["SUCCEEDED", "FAILED", "CANCELLED", "BLOCKED"]);
+const MIN_PLANNED_STEPS = 3;  // automatischer Wechsel nur bei mindestens drei belegbaren geplanten Schritten (activity kind=plan, noch aktiv) ...
+const MIN_AGENTS = 2;         // ... oder mindestens zwei belegbar beteiligten Agenten (routing zu noch aktiven Aufgaben). Der Vertrag liefert keine weiteren Komplexitaetsdaten.
+const tasks = new Map();       // "kind:id" -> Aufgabe
+const routes = new Map();      // task_id -> {agent, source, reason}
+const results = new Map();     // task_id -> {summary, artifacts}
+const cancelNotes = new Map(); // "kind:id" -> Text der echten Backend-Antwort
+let selected = null;
+let manualMode = false;        // wer selbst umgeschaltet hat, wird nie automatisch umgeschaltet
+
+function taskKey(kind, id) { return kind + ":" + id; }
+function isFinal(t) { return FINAL.has(String(t.status).toUpperCase()); }
+
+function upsertTask(kind, id, patch) {
+  const key = taskKey(kind, id);
+  const t = tasks.get(key) || { kind: kind, id: id, title: id, status: "", note: "", detail: "", cancellable: false, listed: false };
+  Object.assign(t, patch);
+  tasks.set(key, t);
+  if (!selected) selected = key;
+  return t;
+}
+
 function renderActivity(d) {
-  const ul = el("activity");
-  ul.replaceChildren();
-  for (const it of d.items) addItem(ul, it.title + " [" + it.status + "]" + (it.note ? " - " + it.note : ""));
+  const listed = new Set();
+  for (const it of d.items) {
+    listed.add(taskKey(it.kind, it.id));
+    upsertTask(it.kind, it.id, { title: it.title, status: it.status, note: it.note, cancellable: it.cancellable, listed: true });
+  }
+  for (const [key, t] of tasks) if (!listed.has(key)) { t.listed = false; t.cancellable = false; }  // nicht mehr in der Arbeitsliste: nicht abbrechbar
   el("problems").textContent = d.problems.length ? "Probleme: " + d.problems.map((p) => (typeof p === "string" ? p : JSON.stringify(p))).join("; ") : "";
+  renderDashboard();
+  maybeAutoSwitch();
+}
+
+function onTaskUpdate(d) {
+  const t = upsertTask(d.kind, d.id, { status: d.status, detail: d.detail || "" });
+  if (isFinal(t)) t.cancellable = false;
+  renderDashboard();
+}
+
+function onRouting(d) { routes.set(d.task_id, { agent: d.agent, source: d.source, reason: d.reason }); renderDashboard(); maybeAutoSwitch(); }
+function onResult(d) { results.set(d.task_id, { summary: d.summary, artifacts: d.artifacts }); renderDashboard(); }
+
+function taskById(id) { for (const t of tasks.values()) if (t.id === id) return t; return null; }
+
+function line(parent, label, value) {
+  const p = document.createElement("div");
+  p.textContent = label + ": " + value;
+  parent.appendChild(p);
+}
+
+function renderTasks() {
+  const ul = el("task-list");
+  ul.replaceChildren();
+  for (const [key, t] of tasks) {
+    const li = document.createElement("li");
+    li.className = (key === selected ? "sel " : "") + (isFinal(t) || !t.listed ? "final" : "");
+    const pick = document.createElement("button");
+    pick.type = "button";
+    pick.textContent = t.title + " [" + t.status + "]";
+    pick.addEventListener("click", () => { selected = key; renderDashboard(); });
+    li.appendChild(pick);
+    if (t.cancellable) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = "Abbrechen";
+      b.addEventListener("click", () => cancelTask(t.kind, t.id));
+      li.appendChild(b);
+    }
+    if (cancelNotes.has(key)) {
+      const n = document.createElement("div");
+      n.className = "cancel-note";
+      n.textContent = cancelNotes.get(key);
+      li.appendChild(n);
+    }
+    ul.appendChild(li);
+  }
+}
+
+function renderDetail() {
+  const box = el("task-detail");
+  box.replaceChildren();
+  const t = tasks.get(selected);
+  if (!t) { box.textContent = "keine Aufgabe gewaehlt"; return; }
+  line(box, "Titel", t.title);
+  line(box, "Art", t.kind);
+  line(box, "Kennung", t.id);
+  line(box, "Status", t.status);
+  if (t.note) line(box, "Hinweis", t.note);
+  if (t.detail) line(box, "Detail", t.detail);
+  const r = routes.get(t.id);
+  if (r) { line(box, "Agent", r.agent); line(box, "Zuordnung", r.source); line(box, "Grund", r.reason); }
+  if (cancelNotes.has(selected)) line(box, "Abbruch", cancelNotes.get(selected));
+}
+
+function renderAgents() {
+  const ul = el("agent-list");
+  ul.replaceChildren();
+  const byAgent = new Map();
+  for (const [taskId, r] of routes) {
+    const t = taskById(taskId);
+    const e = byAgent.get(r.agent) || { total: 0, active: 0 };
+    e.total += 1;
+    if (t && !isFinal(t) && t.listed) e.active += 1;
+    byAgent.set(r.agent, e);
+  }
+  for (const [agent, e] of byAgent) addItem(ul, agent + " - " + e.active + " aktiv, " + e.total + " zugeordnet");
+  if (!byAgent.size) addItem(ul, "keine Agenten beteiligt");
+}
+
+function renderResults() {
+  const ul = el("results-list");
+  ul.replaceChildren();
+  for (const [taskId, r] of results) {
+    const li = document.createElement("li");
+    const t = taskById(taskId);
+    line(li, "Aufgabe", t ? t.title : taskId);
+    line(li, "Zusammenfassung", r.summary);
+    for (const a of r.artifacts) line(li, "Beleg (" + a.kind + ")", a.name + " - " + a.ref);  // Verweise sind reiner Text, nie ein Link
+    ul.appendChild(li);
+  }
+  if (!results.size) addItem(ul, "noch keine Ergebnisse");
+}
+
+function renderDashboard() { renderTasks(); renderDetail(); renderAgents(); renderResults(); }
+
+// Abbrechen: sendet nur `cancel` (kind, id) und zeigt die echte Antwort: abgebrochen, Abbruch angefordert oder abgelehnt (mit Code und Meldung des Backends).
+function cancelText(ack) {
+  if (!ack) return "abgelehnt: keine Antwort (getrennt)";
+  if (!ack.ok) return "abgelehnt (" + ack.code + "): " + ack.message;
+  return ack.code === "cancel_requested" ? "Abbruch angefordert" : "abgebrochen";
+}
+
+async function cancelTask(kind, id) {
+  const ack = await send("cancel", { kind: kind, id: id });
+  cancelNotes.set(taskKey(kind, id), cancelText(ack));
+  renderDashboard();
+}
+
+// Automatischer Wechsel in das Dashboard: nur mit belegbaren Vertragsdaten (siehe MIN_*), nie nach manueller Wahl, nie zurueck zum Orb. Rein lokal.
+function maybeAutoSwitch() {
+  if (manualMode || document.body.dataset.mode === "dashboard") return;
+  let planned = 0;
+  const agents = new Set();
+  for (const t of tasks.values()) {
+    if (!t.listed || isFinal(t)) continue;
+    if (t.kind === "plan") planned += 1;
+    const r = routes.get(t.id);
+    if (r) agents.add(r.agent);
+  }
+  if (planned >= MIN_PLANNED_STEPS || agents.size >= MIN_AGENTS) setMode("dashboard");
 }
 
 // ---- Rueckfragen (cc-confirmation) ------------------------------------------------------------------------------------------------------
@@ -148,6 +295,9 @@ function handle(ev) {
     case "state": setState(d.state, d.detail); break;
     case "chat": addItem(el("chat"), d.sender + ": " + d.text, d.sender); break;
     case "activity": renderActivity(d); break;
+    case "task_update": onTaskUpdate(d); break;
+    case "routing": onRouting(d); break;
+    case "result": onResult(d); break;
     case "confirmation_request": openConfirmation(d); break;
     case "confirmation_closed": closeConfirmation(d); break;
     case "emergency": setEmergency(d.engaged); if (d.engaged) setState("emergency", d.reason); break;
@@ -176,14 +326,15 @@ async function send(type, data) {
   try {
     const r = await fetch(url("command"), { method: "POST", headers: { "Content-Type": "application/json" }, body: body });
     const ack = await r.json();
-    if (ack && ack.data && ack.data.ok === false) handle(ack);
+    if (ack && ack.data && ack.data.ok === false && type !== "cancel") handle(ack);  // Abbruch-Antworten zeigt die Aufgabenliste selbst
+    return ack && ack.data ? ack.data : null;
   } catch (e) {
     addItem(el("chat"), "Befehl nicht gesendet (getrennt)", "system");
+    return null;
   }
 }
 
-function drawOrb(t) {
-  const c = el("orb");
+function drawOrb(t, c) {
   const g = c.getContext("2d");
   const w = c.width, h = c.height, cx = w / 2, cy = h / 2;
   g.clearRect(0, 0, w, h);
@@ -201,11 +352,11 @@ function drawOrb(t) {
 }
 
 function loop(t) {
-  if (document.body.dataset.mode === "orb") drawOrb(t);
+  drawOrb(t, el(document.body.dataset.mode === "orb" ? "orb" : "orb-mini"));
   if (!reduceMotion) requestAnimationFrame(loop);
 }
 
-el("mode-toggle").addEventListener("click", () => setMode(document.body.dataset.mode === "orb" ? "dashboard" : "orb"));
+el("mode-toggle").addEventListener("click", () => { manualMode = true; setMode(document.body.dataset.mode === "orb" ? "dashboard" : "orb"); });
 el("emergency").addEventListener("click", () => send("emergency_stop", {}));
 el("input-form").addEventListener("submit", (e) => {
   e.preventDefault();

@@ -21,10 +21,18 @@
     <p id="orb-caption"></p>
   </section>
   <section id="dashboard-view" aria-label="Dashboard">
-    <div class="panel"><h2>Gespraech</h2><ol id="chat"></ol></div>
-    <div class="panel"><h2>Aktivitaet</h2><ul id="activity"></ul><p id="problems"></p></div>
-    <div class="panel"><h2>Rueckfrage</h2><p id="confirmation">keine</p></div>
-    <div class="panel"><h2>Ereignisse</h2><ol id="log"></ol></div>
+    <div class="panel" id="agents-panel"><h2>Agenten</h2><ul id="agent-list"></ul></div>
+    <div class="col-center">
+      <canvas id="orb-mini" width="240" height="240" aria-hidden="true"></canvas>
+      <div class="panel"><h2>Gespraech</h2><ol id="chat"></ol></div>
+      <div class="panel"><h2>Ereignisse</h2><ol id="log"></ol></div>
+    </div>
+    <div class="col-right" id="tasks-panel">
+      <div class="panel"><h2>Aufgaben</h2><ul id="task-list"></ul><p id="problems"></p></div>
+      <div class="panel"><h2>Details</h2><div id="task-detail"></div></div>
+      <div class="panel"><h2>Ergebnisse</h2><ul id="results-list"></ul></div>
+      <div class="panel"><h2>Rueckfrage</h2><p id="confirmation">keine</p></div>
+    </div>
   </section>
 </main>
 <form id="input-form" autocomplete="off">
