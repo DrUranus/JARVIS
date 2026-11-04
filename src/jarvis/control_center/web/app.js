@@ -48,10 +48,93 @@ function renderActivity(d) {
   el("problems").textContent = d.problems.length ? "Probleme: " + d.problems.map((p) => (typeof p === "string" ? p : JSON.stringify(p))).join("; ") : "";
 }
 
-function renderConfirmation(d) {
-  // Nur Anzeige. Antworten auf Rueckfragen gehoeren zum spaeteren Schritt cc-confirmation.
-  el("confirmation").textContent = d ? d.tool + " / " + d.action + " (" + d.level + "): " + d.reason : "keine";
+// ---- Rueckfragen (cc-confirmation) ------------------------------------------------------------------------------------------------------
+// Standard ist Ablehnen: "deny" steht zuerst und hat den Fokus; Escape lehnt ab, Enter bestaetigt nie. Angeboten und sendbar ist nur, was die Anfrage selbst
+// anbietet. Zeitablauf, Schliessen des Fensters und Verbindungsverlust gelten als abgelehnt (der Server schliesst dann die Anfrage).
+const CHOICE_TEXT = { deny: "Ablehnen", allow_once: "Einmal erlauben", allow_session: "Fuer die Sitzung erlauben" };
+const DENY_FIRST = ["deny", "allow_once", "allow_session"];
+const pending = new Map();
+let remainTimer = null;
+
+function currentRequest() {
+  const first = pending.values().next();
+  return first.done ? null : first.value;
 }
+
+function answer(id, choice) {
+  const q = pending.get(id);
+  if (!q || !q.choices.includes(choice) || q.answered) return;  // nur Angebotenes ist sendbar
+  q.answered = true;
+  for (const b of el("dlg-choices").querySelectorAll("button")) b.disabled = true;
+  send("confirm", { request_id: id, choice: choice });
+}
+
+function renderConfirmation() {
+  const q = currentRequest();
+  const dlg = el("confirm-dialog");
+  el("confirmation").textContent = q ? q.tool + " / " + q.action + " (" + q.level + "): " + q.reason + (pending.size > 1 ? " [+" + (pending.size - 1) + " weitere]" : "") : "keine";
+  if (!q) {
+    dlg.hidden = true;
+    if (remainTimer) { clearInterval(remainTimer); remainTimer = null; }
+    return;
+  }
+  el("dlg-count").textContent = pending.size > 1 ? "Offene Rueckfragen: " + pending.size + " (diese zuerst)" : "";
+  el("dlg-tool").textContent = q.tool;
+  el("dlg-action").textContent = q.action;
+  el("dlg-resource").textContent = q.resource;
+  el("dlg-level").textContent = q.level;
+  el("dlg-reason").textContent = q.reason;
+  const ctx = el("dlg-context");
+  ctx.replaceChildren();
+  for (const c of q.context) addItem(ctx, c.key + ": " + c.value);
+  const box = el("dlg-choices");
+  box.replaceChildren();
+  const offered = DENY_FIRST.filter((c) => q.choices.includes(c));
+  for (const choice of offered) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.choice = choice;
+    b.textContent = CHOICE_TEXT[choice];
+    b.addEventListener("click", () => answer(q.request_id, choice));
+    box.appendChild(b);
+  }
+  dlg.hidden = false;
+  updateRemaining();
+  if (!remainTimer) remainTimer = setInterval(updateRemaining, 250);
+  const first = box.querySelector("button");
+  if (first && !q.answered) first.focus();  // der Fokus liegt auf Ablehnen
+}
+
+function updateRemaining() {
+  const q = currentRequest();
+  if (!q) return;
+  const left = Math.max(0, Math.ceil((q.deadline - Date.now()) / 1000));
+  el("dlg-remaining").textContent = left > 0 ? left + " s (danach abgelehnt)" : "abgelaufen - gilt als abgelehnt";
+  if (left === 0) for (const b of el("dlg-choices").querySelectorAll("button")) b.disabled = true;
+}
+
+function openConfirmation(d) {
+  pending.set(d.request_id, { request_id: d.request_id, tool: d.tool, action: d.action, resource: d.resource, level: d.level, reason: d.reason,
+    context: d.context, choices: d.choices, deadline: Date.now() + d.timeout_s * 1000, answered: false });
+  renderConfirmation();
+}
+
+function closeConfirmation(d) {
+  pending.delete(d.request_id);
+  renderConfirmation();
+}
+
+// Verbindungsverlust: der Server lehnt ab (detach); die Oberflaeche zeigt nichts Beantwortbares mehr an.
+function clearConfirmations() {
+  pending.clear();
+  renderConfirmation();
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  const q = currentRequest();
+  if (q && q.choices.includes("deny")) answer(q.request_id, "deny");  // Escape lehnt ab, bestaetigt nie
+});
 
 function setEmergency(engaged) {
   el("emergency-banner").hidden = !engaged;
@@ -65,8 +148,8 @@ function handle(ev) {
     case "state": setState(d.state, d.detail); break;
     case "chat": addItem(el("chat"), d.sender + ": " + d.text, d.sender); break;
     case "activity": renderActivity(d); break;
-    case "confirmation_request": renderConfirmation(d); break;
-    case "confirmation_closed": renderConfirmation(null); break;
+    case "confirmation_request": openConfirmation(d); break;
+    case "confirmation_closed": closeConfirmation(d); break;
     case "emergency": setEmergency(d.engaged); if (d.engaged) setState("emergency", d.reason); break;
     case "voice_level": level = Math.max(0, Math.min(1, d.level)); break;
     case "error": addItem(el("chat"), "Fehler " + d.code + ": " + d.message, "system"); break;
@@ -81,6 +164,7 @@ function connect() {
   source.onmessage = (m) => { try { handle(JSON.parse(m.data)); } catch (e) { /* ungueltiges Ereignis ignorieren */ } };
   source.onerror = () => {
     document.body.dataset.conn = "closed";
+    clearConfirmations();
     el("conn").textContent = "GETRENNT";
     if (source.readyState === EventSource.CLOSED) { source.close(); setTimeout(connect, 2000); }
   };

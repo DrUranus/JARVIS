@@ -31,6 +31,23 @@
   <input id="input" type="text" maxlength="4000" placeholder="Nachricht an JARVIS" aria-label="Nachricht">
   <button type="submit">Senden</button>
 </form>
+<div id="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="dlg-title" aria-describedby="dlg-reason" hidden>
+  <div class="dlg-box">
+    <h2 id="dlg-title">Rueckfrage: Freigabe noetig</h2>
+    <p id="dlg-count"></p>
+    <dl>
+      <dt>Werkzeug</dt><dd id="dlg-tool"></dd>
+      <dt>Aktion</dt><dd id="dlg-action"></dd>
+      <dt>Ressource</dt><dd id="dlg-resource"></dd>
+      <dt>Stufe</dt><dd id="dlg-level"></dd>
+      <dt>Grund</dt><dd id="dlg-reason"></dd>
+      <dt>Kontext</dt><dd><ul id="dlg-context"></ul></dd>
+      <dt>Restzeit</dt><dd id="dlg-remaining"></dd>
+    </dl>
+    <p id="dlg-note">Ohne Antwort, bei Zeitablauf, beim Schliessen des Fensters und bei Verbindungsverlust gilt die Anfrage als abgelehnt.</p>
+    <div id="dlg-choices"></div>
+  </div>
+</div>
 <script src="app.js?t=__TOKEN__"></script>
 </body>
 </html>

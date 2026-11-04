@@ -1,7 +1,7 @@
 :root { color-scheme: dark; --bg: #0b0f17; --fg: #e6edf7; --dim: #8b98ab; --panel: #131a26; --accent: #4fb3ff; --danger: #ff4d4d; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.4 system-ui, "Segoe UI", sans-serif; display: flex; flex-direction: column; min-height: 100vh; }
-#bar { display: flex; gap: 12px; align-items: center; padding: 8px 14px; background: var(--panel); position: sticky; top: 0; z-index: 2; }
+#bar { display: flex; gap: 12px; align-items: center; padding: 8px 14px; background: var(--panel); position: sticky; top: 0; z-index: 20; }
 #bar strong { letter-spacing: 0.2em; }
 #conn, #state-label { color: var(--dim); }
 body[data-conn="open"] #conn { color: var(--accent); }
@@ -28,3 +28,15 @@ ol, ul { margin: 0; padding-left: 18px; }
 #input { flex: 1; background: #0b0f17; color: var(--fg); border: 1px solid #2c3a52; border-radius: 6px; padding: 8px 10px; font: inherit; }
 body[data-state="emergency"] #orb-view, body[data-conn="closed"] #orb-view { opacity: 0.6; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+#confirm-dialog { position: fixed; inset: 0; z-index: 10; background: rgba(5, 8, 14, 0.85); display: flex; align-items: center; justify-content: center; padding: 56px 14px 14px; overflow: auto; }
+#confirm-dialog[hidden] { display: none; }
+.dlg-box { background: var(--panel); border: 2px solid #ff9f4f; border-radius: 10px; padding: 16px 20px; max-width: 640px; width: 100%; }
+.dlg-box h2 { margin: 0 0 8px; font-size: 18px; }
+.dlg-box dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 8px 0; }
+.dlg-box dt { color: var(--dim); }
+.dlg-box dd { margin: 0; overflow-wrap: anywhere; }
+#dlg-note { color: var(--dim); font-size: 13px; }
+#dlg-choices { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+#dlg-choices button[data-choice="deny"] { background: #2a3a55; border-color: var(--accent); font-weight: 700; }
+#dlg-choices button[data-choice="allow_session"] { border-color: #ff9f4f; }
+#dlg-choices button:disabled { opacity: 0.5; cursor: not-allowed; }
