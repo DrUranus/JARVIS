@@ -158,6 +158,7 @@ Die Linux-Hashes (manylinux-Wheels fuer lxml, charset-normalizer und regex) wurd
 
 ## Entscheidung
 nehmen
+Besitzer-Freigabe: 2026-11-04
 
 Das ist die **Empfehlung dieser Pruefung; die Entscheidung liegt beim Besitzer (offen)**. Sie gilt **nur unter den Bedingungen unten** und ersetzt keine Freigabe: ohne ausdrueckliche Besitzerfreigabe wird nichts eingebaut. Zusammengefasst:
 
