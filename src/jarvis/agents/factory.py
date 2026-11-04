@@ -71,6 +71,12 @@ def _interrupt_of(core_subsystems: dict[str, Any], name: str) -> Callable[[], An
     return (lambda: sub.halt("agent task cancelled")) if sub is not None and getattr(sub, "available", False) and hasattr(sub, "halt") else None
 
 
+def build_research_search(settings: Settings, budget_check: Callable[[], str | None] | None = None, env: Any = None, transport: Any = None) -> Any:
+    """Opt-in Brave search source (OFF by default; key only from the environment). Composition only; the tests pass `env` and a fake `transport`."""
+    from jarvis.research.providers.build import build_research_search as build
+    return build(settings.research, env=env, budget_check=budget_check, transport=transport)
+
+
 def _research_agent(settings: Settings) -> Agent:
     """The Phase-10 research agent when [research] is enabled (same id, so everything that used the placeholder keeps working); else the placeholder."""
     if not settings.research.enabled:
