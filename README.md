@@ -623,6 +623,7 @@ Workspaces dürfen nur in `coding.workspace_roots` liegen (Standard: das JARVIS-
 | Ändern | `write mode=create\|overwrite\|replace`, `delete` | YELLOW; `delete` immer gefragt; `write.jarvis` / `write.deps` / `delete.jarvis` immer einzeln gefragt |
 | Prüfen | `test [runner=…] [args=…]` | YELLOW (Freigabe gilt nur für genau diesen Code-Stand) |
 | Planen | `plan goal=… paths=a.py,b.py` | YELLOW, immer gefragt (sendet Auszüge an den LLM-Provider) |
+| Entwerfen | `propose goal=… paths=a.py` | YELLOW, immer gefragt, **nur mit `coding.llm_edits = true`** (siehe unten); schreibt nichts |
 | nicht als Aktion vorhanden | `halt`, `resume` | nur der Benutzer (`/coding halt`, `/coding resume`) |
 | RED | `git commit\|push\|reset\|clean\|checkout …`, jedes andere Git-Kommando | immer abgelehnt und im Audit protokolliert |
 
@@ -656,6 +657,15 @@ Der Coding Agent hat keinen eigenen LLM-Client; die Aktion `plan` verwendet den 
 
 ### Sitzung, Budget, Notaus
 Jeder Auftrag hat eine Sitzung (`id`, Workspace, `created_at`, `status` = `active|halted|completed|failed`, geänderte Dateien, Testläufe, Aktionszähler). `max_actions_per_session` (300; Lesen zählt mit) und `max_actions_per_minute` begrenzen Schleifen: bei Überschreitung `action_budget_exceeded`, die Sitzung ist `failed`, nur `stop` bleibt. `/coding halt` stoppt sofort (auch einen laufenden Test), `/coding resume` setzt fort, `/coding stop` beendet die Sitzung (Dateien bleiben unverändert). `halt`/`resume` sind absichtlich keine Tool-Aktionen: der Agent kann sich nicht selbst entsperren.
+
+### Änderungsentwürfe durch das Modell (`coding.llm_edits`, `coding-llm-edits`)
+Standard **aus** (`llm_edits = false`, `llm_edits_max = 3`, 1..10). Mit `llm_edits = true` und einem LLM-Provider (derselbe wie im Core) darf `propose goal=… paths=a.py` das Modell **Änderungen entwerfen** lassen. `propose` schreibt **nie** selbst:
+- **Nur im bestätigten Workspace, nie im JARVIS-Repository** (dort `blocked`, das Modell wird nicht gefragt). Höchstens 5 genannte Dateien; Secret-/`.env`-/`.git`-Dateien und Pfade außerhalb werden abgelehnt. Gesendet werden geschwärzte, begrenzte Auszüge (Cloud-Provider ⇒ extern; die Rückfrage nennt den Anbieter). `propose` wird **jedes Mal** gefragt (Regel `coding-baseline-propose-confirm`, kein Schalter, keine Sitzungsfreigabe).
+- **Test vorher:** `propose` verlangt vorher einen Testlauf der Sitzung (`test`); dessen Ergebnis steht als `tests_before` im Ergebnis.
+- **Strikte Prüfung der Modellantwort** (Daten, keine Anweisungen): JSON `{"edits":[{path, old_text, new_text}]}`; nur Dateien, die gesendet wurden; `old_text` muss genau einmal vorkommen; keine Secrets im neuen Text, kein NUL, Größenlimit; höchstens `llm_edits_max`. Unbrauchbares ⇒ keine Änderung, Gründe in `rejected` (ohne den Text zu wiederholen).
+- **Hash-geschützt, einzeln bestätigt:** Jeder Entwurf enthält `expected_sha256` der Datei. Angewendet wird er nur mit `write mode=replace … expected_sha256=…`; die Aktion heißt dann `write.proposed` (Regel `write.*`): **immer einzeln gefragt**, nie durch eine Sitzungsfreigabe gedeckt, mit Hinweis „vom LLM entworfen". Hat sich die Datei geändert, wird nichts geschrieben (`file_changed`).
+- **Test nachher:** `test` (gefragt) auf dem neuen Stand; `changes` liefert `tests_report` mit `before`, `after` (`not_run`, solange nach der letzten Änderung nicht getestet wurde) und den geänderten Dateien.
+- Weiter gilt alles Bestehende: jede Aktion über `ToolRegistry.execute` → `PermissionEngine`, Notaus `/coding halt`, kein Shell, kein Commit/Push, kein Selbststart. Tests: `tests/test_coding_llm_edits.py` (Fake-LLM, kein Netzwerk). Der Eintrag `llm_edits = false` fehlt noch im `[coding]`-Abschnitt von `config/jarvis.toml` (die Routine ändert `config/` nicht); der Code-Standard (aus) gilt.
 
 ### Konfiguration `[coding]` (Umgebung: `JARVIS_CODING_<FELD>`)
 `enabled=false`, `provider="local"` (`fake` für Tests), `workspace_roots=[]`, `max_actions_per_session=300`, `max_actions_per_minute=120`, `max_output_bytes=200000`, `max_file_size=1000000`, `max_search_results=100`, `max_list_entries=500`, `test_timeout=120`, `test_commands=["pytest","python -m pytest","python -m unittest"]`, `llm_context_chars=12000`, `confirm_delete_each_time=true`, `confirm_llm_each_time=true`. Es gibt keinen Schalter für RED, Secret-Schutz, Shell, Git-Schreiben oder die Berechtigungsprüfung; unbekannte Schlüssel werden abgelehnt.

@@ -29,11 +29,11 @@ class CodingTool(ProtectedTool):
         "Work on a software project inside one confirmed workspace, one verifiable step per call. Session: start workspace=<dir> | status | stop. "
         "Read: info | list [path] | read path | search pattern [glob] | changes | git sub=status|diff|log. "
         "Change: write path mode=create|overwrite|replace (content | old_text+new_text, expected_sha256 from `read`) | delete path. "
-        "Verify: test [runner=pytest|python -m pytest|python -m unittest|npm test] [args=...]. Plan: plan goal=... paths=a.py,b.py. "
+        "Verify: test [runner=pytest|python -m pytest|python -m unittest|npm test] [args=...]. Plan: plan goal=... paths=a.py,b.py. Draft edits (only if coding.llm_edits; nothing is written): propose goal=... paths=a.py (after a test run). "
         "No shell, no arbitrary commands; secrets, .env and .git internals are never read or written; commit/push are not available.")
     permission = PermissionLevel.GREEN  # reading is GREEN; every plan raises the level for what it really does
     parameters = (
-        ToolParameter("action", "start|status|stop|info|list|read|search|changes|git|write|delete|test|plan"),
+        ToolParameter("action", "start|status|stop|info|list|read|search|changes|git|write|delete|test|plan|propose"),
         ToolParameter("workspace", "directory to work in (start)", required=False),
         ToolParameter("session", "session id (optional safety check)", required=False),
         ToolParameter("path", "path relative to the workspace", required=False),
