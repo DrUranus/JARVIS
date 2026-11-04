@@ -2,14 +2,18 @@
 // Control Center (cc-shell): zeigt den UI-Vertrag v1. Ereignisse per SSE, Befehle per POST. Kein Fremdcode, keine externen Adressen.
 const params = new URLSearchParams(location.search);
 const token = params.get("t") || "";
-const STATE_TEXT = { ready: "bereit", listening: "hoert zu", processing: "arbeitet", speaking: "spricht", awaiting_confirmation: "wartet auf Rueckfrage", error: "Fehler", emergency: "NOTAUS" };
-const STATE_COLOR = { ready: "#4fb3ff", listening: "#5dffb0", processing: "#ffd24f", speaking: "#c58bff", awaiting_confirmation: "#ff9f4f", error: "#ff6b6b", emergency: "#ff2a2a" };
+// Zustaende des UI-Vertrags (schema.STATES). Das Aussehen steht in core_states.json (Tabelle); ein Zustand wird nur gezeigt, wenn das Backend ihn meldet.
+const KNOWN_STATES = ["ready", "listening", "processing", "speaking", "awaiting_confirmation", "error", "emergency"];
+// Grenzen der Tabellenwerte (die Tests pruefen die Datei gegen dieselben Werte; hier wird zusaetzlich geklemmt).
+const LIMITS = { glow: [0, 1], pulse_hz: [0, 2], pulse_amp: [0, 0.08], spin: [0, 2], rings: [0, 3], particles: [0, 24], level_gain: [0, 0.2], flash_hz: [0, 3] };
+const NEUTRAL = { label: "kein Zustand gemeldet", color: "#6b7686", glow: 0.12, pulse_hz: 0, pulse_amp: 0, spin: 0, rings: 0, particles: 0, level_gain: 0, flash_hz: 0 };
 const MAX_LIST = 200;
 let lastSeq = 0;
 let source = null;
 let counter = 0;
 let level = 0;
-let currentState = "ready";
+let currentState = null;  // null = das Backend hat (noch) keinen Zustand gemeldet
+let coreTable = null;
 const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const el = (id) => document.getElementById(id);
 
@@ -23,6 +27,7 @@ function url(path, since) {
 function setMode(mode) {
   document.body.dataset.mode = mode === "dashboard" ? "dashboard" : "orb";
   el("mode-toggle").textContent = document.body.dataset.mode === "orb" ? "Dashboard" : "Orb";
+  redraw();
 }
 
 function addItem(list, text, cls) {
@@ -34,11 +39,13 @@ function addItem(list, text, cls) {
   list.scrollTop = list.scrollHeight;
 }
 
+// state: Zustand aus einem Backend-Ereignis oder null (unbekannt, z. B. nach Verbindungsverlust). Unbekannte Werte werden nicht gezeigt und nicht durch einen anderen ersetzt.
 function setState(state, detail) {
-  currentState = STATE_TEXT[state] ? state : "error";
-  document.body.dataset.state = currentState;
-  el("state-label").textContent = STATE_TEXT[currentState] + (detail ? ": " + detail : "");
-  el("orb-caption").textContent = detail || "";
+  currentState = KNOWN_STATES.includes(state) ? state : null;
+  document.body.dataset.state = currentState || "none";
+  el("state-label").textContent = look(currentState).label + (currentState && detail ? ": " + detail : "");
+  el("orb-caption").textContent = currentState && detail ? detail : "";
+  redraw();
 }
 
 // ---- Dashboard (cc-dashboard): Aufgaben, Agenten, Ergebnisse. Nur Vertragsdaten; jeder Text wird mit textContent gesetzt, nie als HTML/Link. -----------------
@@ -314,6 +321,7 @@ function connect() {
   source.onmessage = (m) => { try { handle(JSON.parse(m.data)); } catch (e) { /* ungueltiges Ereignis ignorieren */ } };
   source.onerror = () => {
     document.body.dataset.conn = "closed";
+    setState(null);  // der letzte Zustand ist unbekannt, solange die Verbindung fehlt
     clearConfirmations();
     el("conn").textContent = "GETRENNT";
     if (source.readyState === EventSource.CLOSED) { source.close(); setTimeout(connect, 2000); }
@@ -334,28 +342,160 @@ async function send(type, data) {
   }
 }
 
-function drawOrb(t, c) {
+// ---- Kern (cc-ai-core): Canvas 2D, Pseudo-3D-Kugel mit Meridianen, Ringen und Teilchen. Reine lokale Anzeige: sendet nichts. -----------------------------
+// Effektstufen: full (alles, bewegt) > reduced (Kugel und Ringe, ca. 20 Bilder/s) > off (ein stehendes Bild). prefers-reduced-motion erzwingt off.
+// Bei geringer Leistung (Bildzeit dauerhaft zu hoch) wird automatisch eine Stufe reduziert, nie wieder erhoeht; der Mensch kann jederzeit zuruecksetzen.
+const RANK = { off: 0, reduced: 1, full: 2 };
+let userEffects = "full";
+let autoEffects = "full";
+let rafId = 0;
+let lastT = 0;
+let ema = 16;
+let slowFrames = 0;
+const SLOW_FULL_MS = 45;      // Mittel ueber die Bildzeit; darueber (unter ca. 22 Bilder/s) zaehlt ein Bild als langsam
+const SLOW_REDUCED_MS = 120;
+const SLOW_LIMIT = 30;
+
+function effective() {
+  if (reduceMotion) return "off";
+  return RANK[userEffects] <= RANK[autoEffects] ? userEffects : autoEffects;
+}
+
+function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, Number.isFinite(v) ? v : lo)); }
+
+function sanitize(row) {
+  if (!row || typeof row !== "object" || !/^#[0-9a-fA-F]{6}$/.test(row.color)) return null;
+  const out = { label: typeof row.label === "string" ? row.label.slice(0, 40) : "", color: row.color };
+  for (const k of Object.keys(LIMITS)) out[k] = clamp(Number(row[k]), LIMITS[k][0], LIMITS[k][1]);
+  out.rings = Math.round(out.rings);
+  out.particles = Math.round(out.particles);
+  return out;
+}
+
+// Aussehen eines gemeldeten Zustands; ohne Zustand oder ohne (gueltige) Tabelle: neutral. Der Name des Zustands bleibt in der Beschriftung erhalten.
+function look(state) {
+  if (!state) return NEUTRAL;
+  const row = coreTable && coreTable.states ? sanitize(coreTable.states[state]) : null;
+  if (row) return row;
+  return Object.assign({}, NEUTRAL, { label: state });
+}
+
+function rgba(hex, a) {
+  return "rgba(" + parseInt(hex.slice(1, 3), 16) + "," + parseInt(hex.slice(3, 5), 16) + "," + parseInt(hex.slice(5, 7), 16) + "," + clamp(a, 0, 1).toFixed(3) + ")";
+}
+
+function ring(g, c, r, k, time, s, half) {
+  const rx = r * (1.45 + 0.2 * k), ry = rx * 0.32;
+  g.save();
+  g.translate(c.x, c.y);
+  g.rotate((k % 2 ? -1 : 1) * s.spin * time * 0.5 + k * 0.9);
+  g.strokeStyle = rgba(s.color, half === "back" ? 0.25 : 0.7);
+  g.lineWidth = 2;
+  g.beginPath();
+  if (half === "back") g.ellipse(0, 0, rx, ry, 0, Math.PI, 2 * Math.PI); else g.ellipse(0, 0, rx, ry, 0, 0, Math.PI);
+  g.stroke();
+  return { rx: rx, ry: ry };
+}
+
+function drawCore(t, c, quality) {
   const g = c.getContext("2d");
-  const w = c.width, h = c.height, cx = w / 2, cy = h / 2;
+  const w = c.width || 480, h = c.height || 480, cx = w / 2, cy = h / 2;
   g.clearRect(0, 0, w, h);
-  const color = STATE_COLOR[currentState] || STATE_COLOR.ready;
-  const pulse = reduceMotion ? 0 : Math.sin(t / 600) * 0.04 + level * 0.12;
-  const r = w * (0.28 + pulse);
-  const grad = g.createRadialGradient(cx, cy, r * 0.1, cx, cy, r * 1.6);
-  grad.addColorStop(0, color);
-  grad.addColorStop(0.5, color + "88");
-  grad.addColorStop(1, "#00000000");
-  g.fillStyle = grad;
-  g.beginPath(); g.arc(cx, cy, r * 1.6, 0, Math.PI * 2); g.fill();
-  g.fillStyle = color;
+  const s = look(currentState);
+  const animated = quality !== "off";
+  const time = animated ? t / 1000 : 0;
+  const pulse = animated ? Math.sin(2 * Math.PI * s.pulse_hz * time) * s.pulse_amp + level * s.level_gain : 0;
+  const r = w * (0.24 + pulse);
+  const flash = quality === "full" && s.flash_hz > 0 ? 0.7 + 0.3 * Math.sin(2 * Math.PI * s.flash_hz * time) : 1;  // Blinken nur im vollen Modus
+  const glow = g.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 2.1);
+  glow.addColorStop(0, rgba(s.color, s.glow * flash));
+  glow.addColorStop(1, rgba(s.color, 0));
+  g.fillStyle = glow;
+  g.beginPath(); g.arc(cx, cy, r * 2.1, 0, Math.PI * 2); g.fill();
+  const rings = quality === "off" ? Math.min(s.rings, 1) : s.rings;
+  const centre = { x: cx, y: cy };
+  for (let k = 0; k < rings; k++) { ring(g, centre, r, k, time, s, "back"); g.restore(); }  // Hinterseite der Ringe liegt hinter der Kugel
+  const body = g.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r);
+  body.addColorStop(0, rgba("#ffffff", 0.55));
+  body.addColorStop(0.25, rgba(s.color, 1));
+  body.addColorStop(1, rgba("#000000", 0.7));
+  g.fillStyle = body;
   g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
+  if (quality === "full") {  // Meridiane drehen sich: erzeugt den 3D-Eindruck
+    g.strokeStyle = rgba("#ffffff", 0.18);
+    g.lineWidth = 1;
+    for (let i = 0; i < 4; i++) {
+      g.beginPath(); g.ellipse(cx, cy, Math.abs(r * Math.cos(s.spin * time + i * Math.PI / 4)), r, 0, 0, Math.PI * 2); g.stroke();
+    }
+    g.beginPath(); g.ellipse(cx, cy, r, r * 0.28, 0, 0, Math.PI * 2); g.stroke();
+  }
+  for (let k = 0; k < rings; k++) {
+    const dims = ring(g, centre, r, k, time, s, "front");
+    if (quality === "full") {  // Energieteilchen laufen auf dem Ring
+      const n = Math.floor(s.particles / Math.max(1, rings));
+      g.fillStyle = rgba(s.color, 0.95);
+      for (let j = 0; j < n; j++) {
+        const a = s.spin * time * 2 * (k % 2 ? -1 : 1) + j * 2 * Math.PI / n;
+        g.beginPath(); g.arc(dims.rx * Math.cos(a), dims.ry * Math.sin(a), 2.5, 0, Math.PI * 2); g.fill();
+      }
+    }
+    g.restore();
+  }
 }
 
-function loop(t) {
-  drawOrb(t, el(document.body.dataset.mode === "orb" ? "orb" : "orb-mini"));
-  if (!reduceMotion) requestAnimationFrame(loop);
+function canvasNow() { return el(document.body.dataset.mode === "orb" ? "orb" : "orb-mini"); }
+
+function redraw(t) {
+  drawCore(t || lastT, canvasNow(), effective());
+  document.body.dataset.effects = effective();
+  schedule();
 }
 
+function schedule() {
+  if (!rafId && effective() !== "off") rafId = requestAnimationFrame(frame);
+}
+
+// Leistungsueberwachung: nur lokal; verzichtet auf Effekte, aendert sonst nichts.
+function monitorFrame(dt) {
+  const q = effective();
+  if (q === "off" || dt <= 0 || dt > 1000) return;  // Pausen (Tab im Hintergrund) zaehlen nicht
+  ema = ema * 0.9 + dt * 0.1;
+  slowFrames = ema > (q === "full" ? SLOW_FULL_MS : SLOW_REDUCED_MS) ? slowFrames + 1 : Math.max(0, slowFrames - 1);
+  if (slowFrames < SLOW_LIMIT) return;
+  autoEffects = q === "full" ? "reduced" : "off";
+  slowFrames = 0;
+  ema = 16;
+  el("effects-note").textContent = "Effekte wegen geringer Leistung automatisch reduziert";
+}
+
+function frame(t) {
+  rafId = 0;
+  const q = effective();
+  if (q === "off") { redraw(t); return; }
+  if (q === "reduced" && lastT && t - lastT < 50) { schedule(); return; }  // ca. 20 Bilder/s
+  monitorFrame(lastT ? t - lastT : 0);
+  lastT = t;
+  redraw(t);
+}
+
+function setEffects(value) {
+  userEffects = RANK[value] === undefined ? "full" : value;
+  autoEffects = "full";  // eine bewusste Wahl setzt die automatische Reduktion zurueck
+  slowFrames = 0;
+  ema = 16;
+  el("effects-note").textContent = reduceMotion ? "Bewegung vom System reduziert (prefers-reduced-motion)" : "";
+  redraw();
+}
+
+async function loadCoreTable() {
+  try {
+    const r = await fetch(url("core_states.json"), { method: "GET" });
+    if (r.ok) coreTable = await r.json();
+  } catch (e) { coreTable = null; /* ohne Tabelle bleibt der Kern neutral; gezeigt wird weiterhin nur der gemeldete Zustand */ }
+  setState(currentState);
+}
+
+el("effects").addEventListener("change", (e) => setEffects(el("effects").value));
 el("mode-toggle").addEventListener("click", () => { manualMode = true; setMode(document.body.dataset.mode === "orb" ? "dashboard" : "orb"); });
 el("emergency").addEventListener("click", () => send("emergency_stop", {}));
 el("input-form").addEventListener("submit", (e) => {
@@ -365,5 +505,6 @@ el("input-form").addEventListener("submit", (e) => {
 });
 
 setMode("orb");
-requestAnimationFrame(loop);
+setEffects("full");
+loadCoreTable();
 connect();

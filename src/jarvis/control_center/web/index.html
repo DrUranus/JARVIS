@@ -6,18 +6,21 @@
 <title>JARVIS Control Center</title>
 <link rel="stylesheet" href="styles.css?t=__TOKEN__">
 </head>
-<body data-mode="orb" data-state="ready" data-conn="connecting">
+<body data-mode="orb" data-state="none" data-conn="connecting">
 <header id="bar">
   <strong>JARVIS</strong>
   <span id="conn" role="status">verbinde ...</span>
-  <span id="state-label" role="status">bereit</span>
+  <span id="state-label" role="status">kein Zustand gemeldet</span>
+  <label for="effects">Effekte</label>
+  <select id="effects"><option value="full">voll</option><option value="reduced">reduziert</option><option value="off">aus</option></select>
+  <span id="effects-note" role="status"></span>
   <button id="mode-toggle" type="button">Dashboard</button>
   <button id="emergency" type="button" title="Notaus: stoppt alle Aktionen">NOTAUS</button>
 </header>
 <div id="emergency-banner" role="alert" hidden>Notaus aktiv. Aufheben nur ueber die Rueckfrage der Berechtigungs-Engine.</div>
 <main>
   <section id="orb-view" aria-label="Orb">
-    <canvas id="orb" width="480" height="480"></canvas>
+    <canvas id="orb" width="480" height="480" role="img" aria-label="Kern: zeigt den vom Backend gemeldeten Zustand"></canvas>
     <p id="orb-caption"></p>
   </section>
   <section id="dashboard-view" aria-label="Dashboard">
