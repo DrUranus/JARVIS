@@ -244,6 +244,7 @@ class ResearchSettings:
     max_actions: int = 40              # browser tool calls per task (hard limit 200)
     timeout_seconds: float = 300.0     # the whole task (hard limit 1800)
     max_result_chars: int = 20_000     # size of the structured result
+    extract_backend: str = "builtin"   # HTML-to-text backend: "builtin" (stdlib, default) or "trafilatura" (optional extra `research`)
 
 
 @dataclass(frozen=True)
@@ -501,6 +502,8 @@ class Settings:
         rs, bs, fs = self.research, self.business, self.finance
         if not 1 <= rs.max_sources <= 20 or not 1 <= rs.max_actions <= 200 or not 0 < rs.timeout_seconds <= 1800 or not 1000 <= rs.max_result_chars <= 100_000:
             raise ConfigError("research.max_sources 1..20, max_actions 1..200, timeout_seconds 0..1800 (positive), max_result_chars 1000..100000")
+        if rs.extract_backend not in ("builtin", "trafilatura"):
+            raise ConfigError("research.extract_backend must be 'builtin' or 'trafilatura'")
         if not 1 <= bs.max_steps <= 100 or not 0 < bs.timeout_seconds <= 600 or not 1000 <= bs.max_result_chars <= 100_000:
             raise ConfigError("business.max_steps 1..100, timeout_seconds 0..600 (positive), max_result_chars 1000..100000")
         if not 1 <= fs.max_steps <= 1000 or not 0 < fs.timeout_seconds <= 600 or not 1000 <= fs.max_result_chars <= 100_000:
