@@ -61,3 +61,7 @@ body[data-state="none"] #state-label { color: var(--dim); }
 #voice-wave { width: 240px; height: 40px; background: #0b0f17; border-radius: 6px; }
 body[data-voice="on"] #voice-mic { color: var(--accent); font-weight: 700; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.filters input, .filters select { background: #0b0f17; color: var(--fg); border: 1px solid #2c3a52; border-radius: 6px; padding: 4px 6px; font: inherit; max-width: 11em; }
+#history-list, #audit-list { max-height: 260px; overflow: auto; overflow-wrap: anywhere; }
+#history-list ul, #audit-list ul { color: var(--dim); font-size: 13px; }
