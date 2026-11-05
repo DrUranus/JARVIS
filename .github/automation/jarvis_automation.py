@@ -848,7 +848,7 @@ def decide_followup(state: dict[str, Any], cfg: Config, issue: dict[str, Any], *
         # beliebige Ad-hoc-Jobs oder echte neue Besitzerentscheidungen.
         if (item and item.get("approved") is True and chain.get("attempt", 1) < limit
                 and report.get("next_action") in {"needs_human", "continue"}
-                and report.get("pr_url") and state.get("merged") is True
+                and report.get("pr_url") and bool(state.get("merged"))
                 and state.get("ci_gated") is True
                 and (state.get("ci") or {}).get("result") == "success"
                 and tests_allow_continue(report.get("tests", []))):
@@ -1118,11 +1118,11 @@ def verified_legacy_partial_recovery(api: GitHubApi, state: dict[str, Any], issu
     report = state.get("report") or {}
     if not (state.get("status") == "partial" and followup.get("started") is False
             and state.get("chain", {}).get("item_id")
-            and report.get("status") == "partial" and report.get("next_action") == "needs_human"
+            and report.get("status") == "partial" and report.get("next_action") in {"needs_human", "continue"}
             and tests_allow_continue(report.get("tests", []))):
         return False
     pr_url = report.get("pr_url") or ""
-    match = re.fullmatch(r"https://github\\.com/" + re.escape(api.repo) + r"/pull/([1-9][0-9]*)", pr_url)
+    match = re.fullmatch(r"https://github\.com/" + re.escape(api.repo) + r"/pull/([1-9][0-9]*)", pr_url)
     if not match:
         return False
     pr = api.request("GET", f"/repos/{api.repo}/pulls/{match.group(1)}")
