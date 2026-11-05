@@ -9,7 +9,7 @@ const scenario = JSON.parse(fs.readFileSync(scenarioFile, "utf8"));
 
 class El {
   constructor(tag) { this.tag = tag; this.children = []; this._text = ""; this.dataset = {}; this.hidden = false; this.className = ""; this.listeners = {};
-    this.disabled = false; this.attrs = {}; this.scrollTop = 0; this.scrollHeight = 0; this.parent = null; this.value = ""; this.type = ""; this.title = ""; }
+    this.disabled = false; this.calls = []; this.min = 0; this.max = 1; this.attrs = {}; this.scrollTop = 0; this.scrollHeight = 0; this.parent = null; this.value = ""; this.type = ""; this.title = ""; }
   get textContent() { return this._text + this.children.map((c) => c.textContent).join("\n"); }
   set textContent(v) { this._text = String(v); this.children = []; }
   get firstChild() { return this.children[0] || null; }
@@ -23,7 +23,7 @@ class El {
   setAttribute(n, v) { this.attrs[n] = String(v); }
   focus() {}
   click() { if (this.disabled) return; for (const f of this.listeners.click || []) f({ preventDefault() {} }); }
-  getContext() { return new Proxy({}, { get: () => () => ({ addColorStop(_o, c) { drawn.push(String(c)); } }), set: (_t, k, v) => { if (k === "fillStyle" || k === "strokeStyle") drawn.push(String(v)); return true; } }); }
+  getContext() { const self = this; return new Proxy({}, { get: (_t, name) => (...a) => { self.calls.push([String(name), a]); return ({ addColorStop(_o, c) { drawn.push(String(c)); } }); }, set: (_t, k, v) => { if (k === "fillStyle" || k === "strokeStyle") drawn.push(String(v)); return true; } }); }
 }
 const drawn = [];  // alle beim Zeichnen benutzten Farben (Pruefung der Kern-Darstellung)
 const byId = new Map();
@@ -63,11 +63,13 @@ vm.runInContext(fs.readFileSync(webDir + "/app.js", "utf8"), ctx);
     if (step.ev) sources[0].onmessage({ data: JSON.stringify(step.ev) });
     if (step.ack) { const a = step.ack; ackReply = (cmd) => ({ id: cmd.id, ok: a.ok, code: a.code, message: a.message }); }
     if (step.click) { const e = byId.get(step.click.id); const btns = e.querySelectorAll("button"); btns.find((b) => b.textContent.trim() === step.click.text).click(); await new Promise((r) => setImmediate(r)); await new Promise((r) => setImmediate(r)); }
+    if (step.clickId) { byId.get(step.clickId).click(); await new Promise((r) => setImmediate(r)); await new Promise((r) => setImmediate(r)); }
     if (step.frames) for (const t of step.frames) { if (rafCb) { const cb = rafCb; rafCb = null; cb(t); } }
     if (step.effects) { const sel = byId.get("effects"); sel.value = step.effects; for (const f of sel.listeners.change || []) f({}); }
     if (step.disconnect) sources[0].onerror({});
     if (step.toggle) byId.get("mode-toggle").click();
     if (step.snap) snapshots[step.snap] = { mode: body.dataset.mode, state: body.dataset.state, effects: body.dataset.effects, drawn: drawn.splice(0), readyState: sources[0].readyState, sent: sent.slice(), text: Object.fromEntries([...byId].map(([k, v]) => [k, v.textContent])),
+      props: Object.fromEntries([...byId].map(([k, v]) => [k, { value: v.value, disabled: v.disabled, hidden: v.hidden, dataset: { ...v.dataset }, calls: v.calls.map((c) => c[0]) }])),
       buttons: Object.fromEntries([...byId].map(([k, v]) => [k, v.querySelectorAll("button").map((b) => b.textContent.trim())])) };
   }
   process.stdout.write(JSON.stringify(snapshots));
