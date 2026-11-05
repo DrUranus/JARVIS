@@ -80,9 +80,9 @@ def test_importing_package_starts_nothing_and_is_not_wired():
     assert out == "1"
     src = Path(cc.__file__).parents[1]
     for p in src.rglob("*.py"):
-        if "control_center" in p.parts:
+        if "control_center" in p.parts or p.name == "config.py":  # cc-backend-binding: nur die Einstellung control_center.enabled lebt in config.py
             continue
-        assert "control_center" not in p.read_text(encoding="utf-8"), p  # Verdrahtung kommt erst mit cc-backend-binding
+        assert "control_center" not in p.read_text(encoding="utf-8"), p  # sonst ist nichts verdrahtet (bootstrap.py startet das Control Center nie)
 
 
 def test_server_module_uses_only_stdlib_and_contract():

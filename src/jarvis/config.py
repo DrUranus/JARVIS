@@ -97,6 +97,13 @@ class AssistantSettings:
     confirmation_timeout_seconds: float = 120.0     # an unanswered question counts as DENIED after this time (1..600)
 
 
+@dataclass(frozen=True)
+class ControlCenterSettings:
+    """Control Center (cc-backend-binding): allows the explicit start command `jarvis-cc` (local web UI on 127.0.0.1 only). OFF by default; it needs
+    assistant.enabled (the real UiBackend). It starts nothing by itself and adds no permission path: commands still end in the engine."""
+    enabled: bool = False
+
+
 COMPUTER_BACKENDS = ("auto", "windows", "x11", "fake")
 SECURITY_MODES = ("standard", "lockdown")
 CONFIRMATION_PROVIDERS = ("cli", "deny")
@@ -353,6 +360,7 @@ class Settings:
     history: HistorySettings = field(default_factory=HistorySettings)
     journal: JournalSettings = field(default_factory=JournalSettings)
     assistant: AssistantSettings = field(default_factory=AssistantSettings)
+    control_center: ControlCenterSettings = field(default_factory=ControlCenterSettings)
     security: SecuritySettings = field(default_factory=SecuritySettings)
     computer: ComputerSettings = field(default_factory=ComputerSettings)
     browser: BrowserSettings = field(default_factory=BrowserSettings)

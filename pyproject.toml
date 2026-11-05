@@ -22,6 +22,7 @@ research = ["trafilatura>=2.3.1"]   # optional HTML text extraction backend (doc
 [project.scripts]
 jarvis = "jarvis.interface.cli:main"
 jarvis-gui = "jarvis.interface.gui:main"   # needs tkinter (bundled with the python.org / setup-python builds on Windows)
+jarvis-cc = "jarvis.control_center.launcher:main"   # Control Center (local web UI, 127.0.0.1 only); needs control_center.enabled + assistant.enabled, starts only on this command
 
 [tool.setuptools.packages.find]
 where = ["src"]
