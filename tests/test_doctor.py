@@ -130,7 +130,8 @@ def test_cc_section_german_and_default_off():
     assert "Control Center" in text and "jarvis-cc" in text
     assert "control_center.enabled = false" in text and "Der Doctor schaltet nichts ein" in text
     assert "Canvas-2D" in text and "2D-Rückfall" in text      # 3D/WebView2: Voraussetzung und Rueckfall benannt
-    assert "Mini-Overlay" in text and "nicht enthalten" in text
+    assert "Mini-Overlay" in text and "jarvis-cc --overlay" in text and "Standard: aus" in text   # optional, nur ausdruecklich gestartet
+    assert "Notaus" in text and "geschlossenem Hauptfenster" in text
 
 
 def test_webview2_found_missing_and_not_windows():
@@ -168,3 +169,10 @@ def test_doctor_does_not_import_control_center_or_start_it():
     before = set(sys.modules)
     run_cc(webview2=lambda: "1")
     assert not any(m.startswith("jarvis.control_center") for m in set(sys.modules) - before)
+
+
+def test_cc_overlay_prerequisite_pywebview_reported_read_only():
+    ok, code = doctor.run_doctor(settings=load_settings(env={}), env={}, find_spec=_find(), webview2_probe=lambda: "1", platform="win32")
+    assert "pywebview: verfügbar" in ok and code == 0
+    miss, code = doctor.run_doctor(settings=load_settings(env={}), env={}, find_spec=_find(("webview",)), webview2_probe=lambda: "1", platform="win32")
+    assert code == 0 and "pywebview: nicht installiert" in miss and ".[ui]" in miss and "HINWEIS" in miss

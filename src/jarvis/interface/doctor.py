@@ -110,7 +110,7 @@ def run_doctor(config_path: str | None = None, settings: Settings | None = None,
         if active and s.mode == "standard" and s.confirmation == "deny":
             add(HINT, "Aktive Subsysteme, aber confirmation = deny: Aktionen mit Rückfrage werden abgelehnt.")
 
-    _control_center(add, settings, sys.platform if platform is None else platform, webview2_probe or probe_webview2)
+    _control_center(add, settings, sys.platform if platform is None else platform, webview2_probe or probe_webview2, find_spec)
 
     errors = sum(1 for lvl, _ in lines if lvl == ERROR)
     hints = sum(1 for lvl, _ in lines if lvl == HINT)
@@ -120,7 +120,8 @@ def run_doctor(config_path: str | None = None, settings: Settings | None = None,
     return "\n".join(body), 1 if errors else 0
 
 
-def _control_center(add: Callable[[str, str], None], settings: Settings | None, platform: str, probe: Callable[[], str | None]) -> None:
+def _control_center(add: Callable[[str, str], None], settings: Settings | None, platform: str, probe: Callable[[], str | None],
+                    find_spec: Callable[[str], Any] = importlib.util.find_spec) -> None:
     """Control-Center-Voraussetzungen (cc-windows-start). Nur Hinweise, nie Fehler; kein Import von `jarvis.control_center`, kein Server, kein Schreiben."""
     if settings is not None:
         cc = settings.control_center.enabled
@@ -143,4 +144,9 @@ def _control_center(add: Callable[[str, str], None], settings: Settings | None, 
                           "das Control Center läuft heute im Systembrowser (Edge) und braucht sie nicht.")
     add(OK, "Darstellung: Canvas-2D im Browser. Ein 3D-Kern (WebGL/Three.js) ist nicht enthalten; bei fehlender 3D-Unterstützung gilt der 2D-Rückfall "
             "(Effekte lassen sich auf „reduziert/aus“ stellen).")
-    add(OK, "Mini-Overlay und natives Fenster: nicht enthalten (nicht freigegeben). Der Notaus-Knopf liegt in der Control-Center-Seite im Browser.")
+    if _module(find_spec, "webview"):
+        add(OK, "pywebview: verfügbar (nur für das optionale Mini-Overlay)")
+    else:
+        add(HINT, 'pywebview: nicht installiert. Nur für das optionale Mini-Overlay nötig: pip install -e ".[ui]" (Windows); ohne läuft alles im Browser.')
+    add(OK, "Mini-Overlay (optional, ca. 140x140, verschiebbar, nie klickdurchlässig): Standard: aus, Start nur ausdrücklich mit `jarvis-cc --overlay`. "
+            "Der Notaus-Knopf bleibt im Overlay und in der Browser-Seite erreichbar, auch bei geschlossenem Hauptfenster; der unabhängige Notaus (CLI/Tk-GUI) bleibt unberührt.")

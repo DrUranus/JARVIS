@@ -641,7 +641,20 @@ el("input-form").addEventListener("submit", (e) => {
   if (text) { send("submit_text", { text: text }); el("input").value = ""; }
 });
 
+// Mini-Overlay (?view=overlay, nur durch `jarvis-cc --overlay`): zeigt Kern, Zustand und den Notaus-Knopf; Klick auf den Kern oeffnet das Hauptfenster.
+// Rueckfragen beantwortet allein das Hauptfenster (ohne Antwort gilt: abgelehnt). Keine JS-Python-Bruecke: nur derselbe Vertrag per POST.
+function enterOverlay() {
+  manualMode = true;                                            // nie automatisch ins Dashboard wechseln
+  document.body.dataset.mode = "overlay";
+  el("overlay-open").hidden = false;
+  const open = () => fetch(url("/overlay/open"), { method: "POST", headers: { "Content-Type": "application/json", "X-JARVIS-Token": token }, body: "{}" }).catch(() => {});
+  el("overlay-open").addEventListener("click", open);
+  el("orb").addEventListener("click", open);
+  redraw();
+}
+
 setMode("orb");
+if (params.get("view") === "overlay") enterOverlay();
 setEffects("full");
 renderVoice();
 loadCoreTable();
