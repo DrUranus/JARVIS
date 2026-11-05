@@ -1,6 +1,6 @@
 # NEXUS Mini-Overlay: gezielte Technik- und Freigabepruefung (2026-11-05)
 
-Status: **Pruefung / Entscheidung ausstehend. Keine Implementierungs- oder Bibliotheksfreigabe.**
+Status: **Besitzerentscheidung vom 2026-11-05: Option A freigegeben, ausschliesslich bedingt und optional.** Umsetzung erst nach den unten beschriebenen technischen Vorpruefungen und Windows-Nachweisen.
 
 ## Anlass
 Die Kettenauftraege #159 und #161 (cc-windows-start) konnten die Kriterien 4 und 5 nicht erfuellen: natives Mini-Overlay fehlt, und Not-Aus-Erreichbarkeit bei geschlossenem Hauptfenster ist nicht nachgewiesen. Der Doctor/Schnellstart ist bereits auf main. Ein erneuter Routine-Start ohne Entscheidung wiederholt den Blocker.
@@ -23,8 +23,8 @@ Siehe `docs/integrations/control-center-ui.md`, Anhang A-C:
 6. Zielgerichtete Windows-CI- und GUI-Tests mit dokumentierten Ergebnissen; Linux-Tests gelten nicht als Windows-Nachweis. Keine Aenderung von PermissionEngine, X0, Not-Aus oder Merge-Gates.
 
 ## Besitzerentscheidung (noch offen)
-- [ ] **Option A:** Rechteckiges, nicht klickdurchlaessiges Mini-Overlay mit optionalem pywebview-Extra nach erfolgreicher Technikpruefung freigeben.
+- [x] **Option A:** Rechteckiges, nicht klickdurchlaessiges Mini-Overlay mit optionalem pywebview-Extra nach erfolgreicher Technikpruefung freigeben.
 - [ ] **Option B:** Kein pywebview; Browser-Oberflaeche behalten, natives Mini-Overlay als gesonderten spaeteren Schritt planen.
 - [ ] **Option C:** Andere Fenstertechnik erst gesondert pruefen.
 
-**Besitzer-Freigabe fuer pywebview/Overlay: AUSSTEHEND.** Die bisherige Freigabe vom 2026-11-04 gilt nur fuer Stufe 1 (Stdlib, Browser, Canvas 2D). Dieses Dokument aendert keine Freigabe, kein Backlog und keinen laufenden Job.
+**Besitzer-Freigabe: 2026-11-05.** Der Besitzer hat im Chat ausdruecklich pywebview fuer das optionale rechteckige Mini-Overlay freigegeben (Option A). Die Freigabe umfasst ausschliesslich die begrenzte technische Validierung und nach erfolgreicher Vorpruefung die optionale Implementierung mit den oben genannten Schutzmassnahmen. Vor produktiver Nutzung sind die noch offenen Lizenz-/Sicherheitsfragen, Abhaengigkeitsrisiken sowie die Windows-/Not-Aus-Nachweise zu klaeren; bei negativem Befund stoppen und eskalieren. Kein Zwangs-Dependency, kein Click-through, keine JS-Python-Bruecke, keine Aenderung von PermissionEngine, X0, Not-Aus oder Merge-Gates. Die bisherige Freigabe fuer Stufe 1 bleibt bestehen. Diese Dokumentation startet keinen Workflow und setzt einen blockierten Auftrag nicht automatisch fort.
