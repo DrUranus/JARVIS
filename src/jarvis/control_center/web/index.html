@@ -38,6 +38,15 @@
     </div>
   </section>
 </main>
+<section id="voice-bar" aria-label="Sprache">
+  <button id="voice-start" type="button" title="Startet den Sprachmodus (Mikrofon) nur auf Knopfdruck">Sprache starten</button>
+  <button id="voice-stop" type="button" disabled>Sprache beenden</button>
+  <span id="voice-mic" role="status">Mikrofon: unbekannt</span>
+  <span id="voice-state" role="status">Sprachzustand: -</span>
+  <meter id="voice-meter" min="0" max="1" value="0" aria-label="Mikrofonpegel"></meter>
+  <span id="voice-level-text" role="status">kein Pegel gemeldet</span>
+  <canvas id="voice-wave" width="240" height="40" aria-hidden="true"></canvas>
+</section>
 <form id="input-form" autocomplete="off">
   <input id="input" type="text" maxlength="4000" placeholder="Nachricht an JARVIS" aria-label="Nachricht">
   <button type="submit">Senden</button>

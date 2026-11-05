@@ -45,6 +45,8 @@ function setState(state, detail) {
   document.body.dataset.state = currentState || "none";
   el("state-label").textContent = look(currentState).label + (currentState && detail ? ": " + detail : "");
   el("orb-caption").textContent = currentState && detail ? detail : "";
+  renderVoice();
+  drawWave();
   redraw();
 }
 
@@ -292,6 +294,70 @@ document.addEventListener("keydown", (e) => {
 
 function setEmergency(engaged) {
   el("emergency-banner").hidden = !engaged;
+  emergencyOn = engaged === true;
+  if (emergencyOn) { voiceActive = false; level = 0; waveHistory.length = 0; }  // der Notaus beendet den Sprachmodus: kein "Mikrofon an" anzeigen
+  renderVoice();
+  drawWave();
+}
+
+// ---- Sprache (cc-voice-viz): Pegel, Welle und Zustand nur aus voice_level- und state-Ereignissen des Backends. -------------------------------------------
+// Das Mikrofon gehoert dem Backend; diese Seite sendet nur auf Knopfdruck start_voice/stop_voice und verarbeitet nie Audiodaten (kein Zugriff auf Mikrofon oder Audio-APIs).
+// Die Statusanzeige (Text, Pegelbalken) bleibt auch bei ausgeschalteten Effekten lesbar; die Welle wird nur bei einem Ereignis neu gezeichnet, nie durch Zeitablauf.
+const WAVE_POINTS = 48;
+const VOICE_WORDS = { listening: "hoert zu", processing: "verarbeitet", speaking: "spricht" };
+const waveHistory = [];
+let voiceActive = null;  // null = das Backend hat (noch) nichts gemeldet
+let emergencyOn = false;
+
+function clamp01(v) { return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0; }
+
+function renderVoice() {
+  const mic = voiceActive === null ? "unbekannt" : voiceActive ? "an" : "aus";
+  el("voice-mic").textContent = "Mikrofon: " + mic;
+  document.body.dataset.voice = voiceActive === null ? "none" : voiceActive ? "on" : "off";
+  el("voice-state").textContent = "Sprachzustand: " + (VOICE_WORDS[currentState] || "-");
+  el("voice-meter").value = level;
+  el("voice-level-text").textContent = voiceActive === true ? "Pegel " + Math.round(level * 100) + " %" : voiceActive === false ? "kein Pegel (Mikrofon aus)" : "kein Pegel gemeldet";
+  el("voice-start").disabled = voiceActive === true || emergencyOn;
+  el("voice-stop").disabled = voiceActive !== true;
+}
+
+function drawWave() {
+  const c = el("voice-wave");
+  const g = c.getContext("2d");
+  const w = c.width || 240, h = c.height || 40, mid = h / 2;
+  g.clearRect(0, 0, w, h);
+  const color = look(currentState).color;
+  g.strokeStyle = rgba(color, 0.9);
+  g.fillStyle = rgba(color, 0.9);
+  g.lineWidth = 2;
+  if (effective() === "off") {  // ohne Effekte nur der aktuelle Pegel als ruhige Mittellinie, keine Verlaufswelle
+    g.fillRect(0, mid - 1, w * level, 2);
+    return;
+  }
+  g.beginPath();
+  waveHistory.forEach((v, i) => {
+    const x = (i / (WAVE_POINTS - 1)) * w;
+    if (i === 0) g.moveTo(x, mid - v * mid); else g.lineTo(x, mid - v * mid);
+  });
+  for (let i = waveHistory.length - 1; i >= 0; i--) g.lineTo((i / (WAVE_POINTS - 1)) * w, mid + waveHistory[i] * mid);
+  g.stroke();
+}
+
+function onVoiceLevel(d) {
+  voiceActive = d.active === true;
+  level = voiceActive ? clamp01(d.level) : 0;
+  if (voiceActive) { waveHistory.push(level); while (waveHistory.length > WAVE_POINTS) waveHistory.shift(); } else { waveHistory.length = 0; }
+  renderVoice();
+  drawWave();
+}
+
+function resetVoice() {  // Verbindung verloren: der Mikrofonzustand ist unbekannt
+  voiceActive = null;
+  level = 0;
+  waveHistory.length = 0;
+  renderVoice();
+  drawWave();
 }
 
 function handle(ev) {
@@ -308,7 +374,7 @@ function handle(ev) {
     case "confirmation_request": openConfirmation(d); break;
     case "confirmation_closed": closeConfirmation(d); break;
     case "emergency": setEmergency(d.engaged); if (d.engaged) setState("emergency", d.reason); break;
-    case "voice_level": level = Math.max(0, Math.min(1, d.level)); break;
+    case "voice_level": onVoiceLevel(d); break;
     case "error": addItem(el("chat"), "Fehler " + d.code + ": " + d.message, "system"); break;
     case "ack": if (!d.ok) addItem(el("chat"), "Abgelehnt (" + d.code + "): " + d.message, "system"); break;
     default: break;
@@ -322,6 +388,7 @@ function connect() {
   source.onerror = () => {
     document.body.dataset.conn = "closed";
     setState(null);  // der letzte Zustand ist unbekannt, solange die Verbindung fehlt
+    resetVoice();
     clearConfirmations();
     el("conn").textContent = "GETRENNT";
     if (source.readyState === EventSource.CLOSED) { source.close(); setTimeout(connect, 2000); }
@@ -484,6 +551,7 @@ function setEffects(value) {
   slowFrames = 0;
   ema = 16;
   el("effects-note").textContent = reduceMotion ? "Bewegung vom System reduziert (prefers-reduced-motion)" : "";
+  drawWave();
   redraw();
 }
 
@@ -497,6 +565,8 @@ async function loadCoreTable() {
 
 el("effects").addEventListener("change", (e) => setEffects(el("effects").value));
 el("mode-toggle").addEventListener("click", () => { manualMode = true; setMode(document.body.dataset.mode === "orb" ? "dashboard" : "orb"); });
+el("voice-start").addEventListener("click", () => send("start_voice", {}));  // einzige Stelle, die das Mikrofon anfordert: ausdruecklicher Knopfdruck
+el("voice-stop").addEventListener("click", () => send("stop_voice", {}));
 el("emergency").addEventListener("click", () => send("emergency_stop", {}));
 el("input-form").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -506,5 +576,6 @@ el("input-form").addEventListener("submit", (e) => {
 
 setMode("orb");
 setEffects("full");
+renderVoice();
 loadCoreTable();
 connect();
