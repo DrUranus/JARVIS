@@ -1109,6 +1109,35 @@ def recover_lost_followups(api: GitHubApi, cfg: Config, now: dt.datetime, dispat
 # Controller
 # ---------------------------------------------------------------------------------------------------------------------
 
+def verified_legacy_partial_recovery(api: GitHubApi, state: dict[str, Any], issue_number: int) -> bool:
+    """Nur bereits abgebrochene technische Teilauftraege mit extern verifiziertem Merge/CI.
+
+    Der alte Issue-Marker wird nicht als Beleg fuer den Merge oder CI vertraut.
+    """
+    followup = state.get("followup") or {}
+    report = state.get("report") or {}
+    if not (state.get("status") == "partial" and followup.get("started") is False
+            and state.get("chain", {}).get("item_id")
+            and report.get("status") == "partial" and report.get("next_action") == "needs_human"
+            and tests_allow_continue(report.get("tests", []))):
+        return False
+    pr_url = report.get("pr_url") or ""
+    match = re.fullmatch(r"https://github\\.com/" + re.escape(api.repo) + r"/pull/([1-9][0-9]*)", pr_url)
+    if not match:
+        return False
+    pr = api.request("GET", f"/repos/{api.repo}/pulls/{match.group(1)}")
+    if not pr or pr.get("merged") is not True or not pr.get("merge_commit_sha"):
+        return False
+    sha = (pr.get("head") or {}).get("sha")
+    if not sha or not SHA_RE.fullmatch(sha):
+        return False
+    runs = api.request("GET", f"/repos/{api.repo}/actions/runs?head_sha={sha}&per_page=100") or {}
+    passed = [run for run in runs.get("workflow_runs", [])
+              if run.get("head_sha") == sha and run.get("name") == "pr-tests"
+              and run.get("status") == "completed" and run.get("conclusion") == "success"]
+    return bool(passed)
+
+
 def run_controller(api: GitHubApi, cfg: Config, *, after_job: int, backlog_path: Path, run_id: str, run_attempt: str,
                    fire_url: str, fire_token: str, fire=fire_routine, now: dt.datetime | None = None) -> str:
     now = now or utcnow()
@@ -1118,11 +1147,19 @@ def run_controller(api: GitHubApi, cfg: Config, *, after_job: int, backlog_path:
         raise AutomationError(f"#{after_job} ist kein Auftrags-Issue dieser Automatisierung.")
     if state["status"] in NONTERMINAL:
         raise AutomationError(f"#{after_job} ist noch nicht abgeschlossen ({state['status']}).")
-    if state.get("followup") or any(
-            (own_job_issue(i) or {}).get("parent_issue") == after_job
-            for i in api.list_job_issues(state="all", pages=3)):
-        log(f"#{after_job}: Folgeentscheidung bereits getroffen.")
+    existing_children = any((own_job_issue(i) or {}).get("parent_issue") == after_job
+                            for i in api.list_job_issues(state="all", pages=3))
+    if existing_children:
         return "already-decided"
+    legacy_recovery = False
+    if state.get("followup"):
+        # Ein alter terminaler Stopp kann nur nach erneuter GitHub-Verifikation
+        # und nur einmalig durch den normalen Controller weiterlaufen.
+        legacy_recovery = verified_legacy_partial_recovery(api, state, after_job)
+        if not legacy_recovery:
+            return "already-decided"
+        state = {**state, "followup": None, "merged": {"pr": int(state["report"]["pr_url"].rsplit("/", 1)[1]), "verified": True},
+                 "ci_gated": True, "ci": {"result": "success"}}
     merged = bool(state.get("merged"))
     if merge_gated(cfg, state) and state["status"] == "completed" and not merged:
         log(f"#{after_job}: wartet auf den Merge des Pull Requests (Auto-Merge aktiv); keine Entscheidung.")
