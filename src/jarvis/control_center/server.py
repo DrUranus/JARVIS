@@ -130,6 +130,7 @@ def _make_handler(srv: ControlCenterServer):
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header("Cross-Origin-Resource-Policy", "same-origin")
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+            self.send_header("Permissions-Policy", "microphone=(), camera=(), geolocation=()")  # die Seite selbst bekommt nie Mikrofon oder Kamera
 
         def _reply(self, status: int, body: bytes = b"", ctype: str = "text/plain; charset=utf-8") -> None:
             self._headers(status, ctype, len(body))

@@ -155,7 +155,7 @@ def test_meter_and_text_follow_voice_level_events(tmp_path):
     assert "kein Pegel" in snaps["none"]["text"]["voice-level-text"]
     assert [snaps[f"l{i}"]["props"]["voice-meter"]["value"] for i in range(3)] == [0.1, 0.8, 0.35]
     assert ["10 %" in snaps["l0"]["text"]["voice-level-text"], "80 %" in snaps["l1"]["text"]["voice-level-text"], "35 %" in snaps["l2"]["text"]["voice-level-text"]] == [True] * 3
-    assert "an" in snaps["l1"]["text"]["voice-mic"]
+    assert "Mikrofon: an" in snaps["l1"]["text"]["voice-mic"]
 
 
 @needs_node
@@ -207,7 +207,7 @@ def test_flow_against_fake_backend_events(tmp_path):
     start = fake_events("start_voice")
     stop = fake_events("start_voice", "stop_voice")
     snaps = run(tmp_path, [*start, {"snap": "listening"}, level(0.55), {"snap": "level"}, *stop[len(start):], {"snap": "stopped"}])
-    assert "hoert zu" in snaps["listening"]["text"]["voice-state"] and "an" in snaps["listening"]["text"]["voice-mic"]
+    assert "hoert zu" in snaps["listening"]["text"]["voice-state"] and "Mikrofon: an" in snaps["listening"]["text"]["voice-mic"]
     assert snaps["level"]["props"]["voice-meter"]["value"] == 0.55
     assert snaps["stopped"]["props"]["voice-meter"]["value"] == 0 and "aus" in snaps["stopped"]["text"]["voice-mic"]
     assert "hoert zu" not in snaps["stopped"]["text"]["voice-state"]
@@ -220,6 +220,6 @@ def test_status_stays_readable_with_effects_off(tmp_path, env, effects):
     steps = [{"effects": "off"}, ev("state", {"state": "listening"}), level(0.62), {"frames": [16, 32, 48]}, {"snap": "s"}]
     s = run(tmp_path, steps, **env)["s"]
     assert s["effects"] == effects
-    assert "hoert zu" in s["text"]["voice-state"] and "62 %" in s["text"]["voice-level-text"] and "an" in s["text"]["voice-mic"]
+    assert "hoert zu" in s["text"]["voice-state"] and "62 %" in s["text"]["voice-level-text"] and "Mikrofon: an" in s["text"]["voice-mic"]
     assert s["props"]["voice-meter"]["value"] == 0.62
     assert s["sent"] == []

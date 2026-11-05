@@ -55,3 +55,9 @@ body[data-state="none"] #state-label { color: var(--dim); }
 #dlg-choices button[data-choice="deny"] { background: #2a3a55; border-color: var(--accent); font-weight: 700; }
 #dlg-choices button[data-choice="allow_session"] { border-color: #ff9f4f; }
 #dlg-choices button:disabled { opacity: 0.5; cursor: not-allowed; }
+#voice-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 8px 14px; background: var(--panel); border-top: 1px solid #2c3a52; }
+#voice-bar span { color: var(--dim); }
+#voice-meter { width: 140px; height: 14px; }
+#voice-wave { width: 240px; height: 40px; background: #0b0f17; border-radius: 6px; }
+body[data-voice="on"] #voice-mic { color: var(--accent); font-weight: 700; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
