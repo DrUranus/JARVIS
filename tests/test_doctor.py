@@ -116,3 +116,55 @@ def test_chat_doctor_uses_loaded_settings_and_hides_keys(monkeypatch):
     s = load_settings(env={"JARVIS_LLM_PROVIDER": "anthropic", "ANTHROPIC_API_KEY": SECRET})
     out = cli.run_command(SimpleNamespace(), "/doctor", s)
     assert SECRET not in out and "ANTHROPIC_API_KEY: gesetzt" in out
+
+
+# --- cc-windows-start (B8): Control-Center-Voraussetzungen, nur lesend ---
+def run_cc(webview2=None, platform="win32", settings=None, env=None):
+    return doctor.run_doctor(settings=settings or load_settings(env={}), env=env or {}, find_spec=_find(),
+                             webview2_probe=webview2, platform=platform)
+
+
+def test_cc_section_german_and_default_off():
+    text, code = run_cc(webview2=lambda: "128.0.1")
+    assert code == 0
+    assert "Control Center" in text and "jarvis-cc" in text
+    assert "control_center.enabled = false" in text and "Der Doctor schaltet nichts ein" in text
+    assert "Canvas-2D" in text and "2D-Rückfall" in text      # 3D/WebView2: Voraussetzung und Rueckfall benannt
+    assert "Mini-Overlay" in text and "nicht enthalten" in text
+
+
+def test_webview2_found_missing_and_not_windows():
+    ok, _ = run_cc(webview2=lambda: "128.0.1")
+    assert "WebView2-Laufzeit: gefunden (Version 128.0.1)" in ok
+    miss, code = run_cc(webview2=lambda: None)
+    assert code == 0 and "HINWEIS" in miss and "WebView2-Laufzeit: nicht gefunden" in miss
+    lin, code = run_cc(platform="linux")
+    assert code == 0 and "nur unter Windows prüfbar" in lin
+
+
+def test_webview2_probe_failure_is_hint_not_error():
+    def boom():
+        raise OSError("kein Zugriff")
+    text, code = run_cc(webview2=boom)
+    assert code == 0 and "nicht prüfbar" in text
+
+
+def test_cc_prerequisites_reported_without_activating():
+    s = load_settings(env={"JARVIS_CONTROL_CENTER_ENABLED": "true"})
+    text, code = run_cc(webview2=lambda: None, settings=s)
+    assert code == 0
+    assert "control_center.enabled = true" in text and "assistant.enabled" in text and "agents.enabled" in text
+    assert s.control_center.enabled is True and s.assistant.enabled is False   # unveraendert
+
+
+def test_cc_check_is_read_only_and_creates_nothing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("socket.socket", lambda *a, **k: pytest.fail("kein Netz/Server"))
+    run_cc(webview2=lambda: "1")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_doctor_does_not_import_control_center_or_start_it():
+    before = set(sys.modules)
+    run_cc(webview2=lambda: "1")
+    assert not any(m.startswith("jarvis.control_center") for m in set(sys.modules) - before)

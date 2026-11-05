@@ -47,11 +47,17 @@ pip install -e ".[dev]"
 2. **Prüfen:** `jarvis doctor` liest nur und meldet auf Deutsch: Python, tkinter, sounddevice/numpy, playwright, ob die Konfiguration gültig ist,
    welche Schlüsselvariablen *gesetzt/nicht gesetzt* sind (nie der Wert), welche Subsysteme aktiv sind und den Sicherheitsmodus.
    Exit-Code 0 = keine Fehler (Hinweise sind möglich), 1 = mindestens ein Fehler. Im Chat gibt es dasselbe als `/doctor`.
-   Der Doctor schaltet nichts ein und schreibt nichts.
-3. **Erster Start:** `jarvis` (Textmodus, ohne Schlüssel mit dem Offline-Modell `mock`). Für ein echtes Modell vorher z. B.
+   Der Doctor schaltet nichts ein und schreibt nichts. Seit `cc-windows-start` meldet er zusätzlich (nur lesend, nur Hinweise) die Control-Center-Voraussetzungen:
+   Stand von `control_center.enabled`, ob die WebView2-Laufzeit gefunden wird (nur Registry-Lesen, nur unter Windows; heute nicht nötig, da das Control Center im Systembrowser läuft),
+   dass die Darstellung Canvas-2D ist (ein 3D-Kern ist nicht enthalten, es gilt der 2D-Rückfall) und dass Mini-Overlay/natives Fenster nicht enthalten sind.
+3. **Control Center (optional, standardmäßig aus):** `jarvis-cc` startet nur auf ausdrücklichen Befehl eine lokale Oberfläche auf `127.0.0.1` (URL mit Token wird ausgegeben, Browser nur mit `--open`).
+   Es startet nur mit `control_center.enabled = true` (oder `$env:JARVIS_CONTROL_CENTER_ENABLED="true"`) **und** `assistant.enabled` + `agents.enabled`; sonst Abbruch mit Fehlercode 2, nichts lauscht.
+   **Was aus ist:** Control Center, Assistent, Agenten, Computer-/Browser-/Coding-Werkzeuge, Ziele, Finanzen (nur Paper-Trading), Mikrofon, Mini-Overlay/natives Fenster/3D-Kern (nicht enthalten).
+   Windows-Nachweis steht aus (CI).
+4. **Erster Start:** `jarvis` (Textmodus, ohne Schlüssel mit dem Offline-Modell `mock`). Für ein echtes Modell vorher z. B.
    `$env:JARVIS_LLM_PROVIDER="anthropic"; $env:ANTHROPIC_API_KEY="..."` setzen (nur per Umgebung, nie in Dateien).
-4. **GUI:** `jarvis-gui` (Tkinter-Fenster um denselben Core, siehe „Grafische Oberfläche“).
-5. **Was ausgeschaltet ist:** Computersteuerung, Browser-Agent, Coding-Agent, Agenten, Ziele, Selbstreparatur, Selbstverbesserung, Research, Business, Finance
+5. **GUI:** `jarvis-gui` (Tkinter-Fenster um denselben Core, siehe „Grafische Oberfläche“).
+6. **Was ausgeschaltet ist:** Computersteuerung, Browser-Agent, Coding-Agent, Agenten, Ziele, Selbstreparatur, Selbstverbesserung, Research, Business, Finance
    und das Sitzungsbudget stehen in `config/jarvis.toml` auf `enabled = false`; Replanning ist aus, Finance bleibt nur Paper-Trading, der Sicherheitsmodus ist
    `standard` (Rückfrage bei YELLOW, RED nie erlaubt). Einschalten nur bewusst in der Konfiguration, jede Aktion läuft weiter durch die Berechtigungsprüfung.
    Der Notaus ist `/notaus` bzw. der rote Knopf in der GUI.

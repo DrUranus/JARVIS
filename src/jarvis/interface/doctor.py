@@ -23,8 +23,28 @@ def _module(find_spec: Callable[[str], Any], name: str) -> bool:
         return False
 
 
+WEBVIEW2_CLIENT_GUID = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+
+
+def probe_webview2() -> str | None:
+    """Version der Evergreen-WebView2-Laufzeit (nur Windows). Liest ausschliesslich Registry-Werte (kein Schreiben, kein Start); None = nicht gefunden."""
+    import winreg  # nur unter Windows vorhanden
+    sub = rf"SOFTWARE\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_CLIENT_GUID}"
+    for hive, view in ((winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_32KEY), (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_64KEY),
+                       (winreg.HKEY_CURRENT_USER, 0)):
+        try:
+            with winreg.OpenKey(hive, sub, 0, winreg.KEY_READ | view) as key:
+                version = str(winreg.QueryValueEx(key, "pv")[0])
+        except OSError:
+            continue
+        if version and version != "0.0.0.0":
+            return version
+    return None
+
+
 def run_doctor(config_path: str | None = None, settings: Settings | None = None, env: Mapping[str, str] | None = None,
-               find_spec: Callable[[str], Any] = importlib.util.find_spec) -> tuple[str, int]:
+               find_spec: Callable[[str], Any] = importlib.util.find_spec, webview2_probe: Callable[[], str | None] | None = None,
+               platform: str | None = None) -> tuple[str, int]:
     """Return (Bericht, Exit-Code). Exit-Code 0 = keine Fehler (Hinweise moeglich), 1 = mindestens ein Fehler."""
     env = os.environ if env is None else env
     lines: list[tuple[str, str]] = []
@@ -90,9 +110,37 @@ def run_doctor(config_path: str | None = None, settings: Settings | None = None,
         if active and s.mode == "standard" and s.confirmation == "deny":
             add(HINT, "Aktive Subsysteme, aber confirmation = deny: Aktionen mit Rückfrage werden abgelehnt.")
 
+    _control_center(add, settings, sys.platform if platform is None else platform, webview2_probe or probe_webview2)
+
     errors = sum(1 for lvl, _ in lines if lvl == ERROR)
     hints = sum(1 for lvl, _ in lines if lvl == HINT)
     body = ["JARVIS Doctor (nur lesend)"] + [f"  [{lvl}] {text}" for lvl, text in lines]
     body.append(f"Ergebnis: {errors} Fehler, {hints} Hinweis(e). " +
                 ("Bitte die Fehler beheben." if errors else "JARVIS ist startbereit."))
     return "\n".join(body), 1 if errors else 0
+
+
+def _control_center(add: Callable[[str, str], None], settings: Settings | None, platform: str, probe: Callable[[], str | None]) -> None:
+    """Control-Center-Voraussetzungen (cc-windows-start). Nur Hinweise, nie Fehler; kein Import von `jarvis.control_center`, kein Server, kein Schreiben."""
+    if settings is not None:
+        cc = settings.control_center.enabled
+        add(OK, f"Control Center: control_center.enabled = {str(cc).lower()}. Start nur ausdrücklich mit `jarvis-cc` (lokal, 127.0.0.1); "
+                "nötig sind control_center.enabled, assistant.enabled und agents.enabled. Der Doctor schaltet nichts ein.")
+        if cc and not (settings.assistant.enabled and settings.agents.enabled):
+            add(HINT, "control_center.enabled ist an, aber assistant.enabled und/oder agents.enabled fehlen: `jarvis-cc` bricht dann mit Fehlercode 2 ab.")
+    if not platform.startswith("win"):
+        add(HINT, "WebView2-Laufzeit: nur unter Windows prüfbar (hier nicht geprüft).")
+    else:
+        try:
+            version = probe()
+        except Exception as exc:  # Registry nicht lesbar o. ae.: melden, nie abbrechen
+            add(HINT, f"WebView2-Laufzeit: nicht prüfbar ({type(exc).__name__}).")
+        else:
+            if version:
+                add(OK, f"WebView2-Laufzeit: gefunden (Version {version})")
+            else:
+                add(HINT, "WebView2-Laufzeit: nicht gefunden. Nur für ein späteres natives Fenster nötig (Evergreen-Runtime von Microsoft); "
+                          "das Control Center läuft heute im Systembrowser (Edge) und braucht sie nicht.")
+    add(OK, "Darstellung: Canvas-2D im Browser. Ein 3D-Kern (WebGL/Three.js) ist nicht enthalten; bei fehlender 3D-Unterstützung gilt der 2D-Rückfall "
+            "(Effekte lassen sich auf „reduziert/aus“ stellen).")
+    add(OK, "Mini-Overlay und natives Fenster: nicht enthalten (nicht freigegeben). Der Notaus-Knopf liegt in der Control-Center-Seite im Browser.")
