@@ -838,6 +838,22 @@ def decide_followup(state: dict[str, Any], cfg: Config, issue: dict[str, Any], *
         if item and item.get("approved") is True and chain.get("attempt", 1) < limit and report.get("status") == "failed":
             return {"item": item, "attempt": chain["attempt"] + 1, "retry": True}, "Wiederholung nach Fehlschlag"
         return None, "fehlgeschlagen, keine Wiederholung mehr erlaubt"
+    # Ein technischer Teilabschluss darf denselben bereits genehmigten Schritt
+    # begrenzt erneut bearbeiten. Kein Ueberspringen der Abnahme oder CI:
+    # Der Folgeauftrag muss die fehlenden Nachweise tatsaechlich erbringen.
+    if state["status"] == "partial" and report.get("status") == "partial":
+        item = next((i for i in items if i["id"] == chain.get("item_id")), None)
+        limit = min(int(item.get("max_attempts", 2)), HARD_MAX_ATTEMPTS) if item else 1
+        # Nur fuer bestehende freigegebene Backlog-Auftraege, nie fuer
+        # beliebige Ad-hoc-Jobs oder echte neue Besitzerentscheidungen.
+        if (item and item.get("approved") is True and chain.get("attempt", 1) < limit
+                and report.get("next_action") in {"needs_human", "continue"}
+                and report.get("pr_url") and state.get("merged") is True
+                and state.get("ci_gated") is True
+                and (state.get("ci") or {}).get("result") == "success"
+                and tests_allow_continue(report.get("tests", []))):
+            return {"item": item, "attempt": chain["attempt"] + 1, "retry": True}, "begrenzte technische Nachpruefung nach gruenem Merge"
+        return None, "Teilabschluss: technische Nachpruefung nicht sicher oder Budget/CI/Freigabe fehlt"
     if state["status"] != "completed" or report.get("next_action") != "continue":
         return None, f"Status {state['status']} / next_action {report.get('next_action')} erlaubt keine Fortsetzung"
     # Nach dem Merge ist eine erfolgreich gepruefte CI fuer den gemergten PR massgeblich.
