@@ -82,7 +82,13 @@ def test_importing_package_starts_nothing_and_is_not_wired():
     for p in src.rglob("*.py"):
         if "control_center" in p.parts or p.name == "config.py":  # cc-backend-binding: nur die Einstellung control_center.enabled lebt in config.py
             continue
-        assert "control_center" not in p.read_text(encoding="utf-8"), p  # sonst ist nichts verdrahtet (bootstrap.py startet das Control Center nie)
+        content = p.read_text(encoding="utf-8")
+        if p.as_posix().endswith("/interface/doctor.py"):
+            # Doctor darf das Control Center nur lesend diagnostizieren; kein Import, kein Start.
+            assert not re.search(r"^(?:from|import)\s+jarvis\.control_center\b", content, re.M), p
+            assert not re.search(r"\b(?:start|serve_forever)\s*\(", content), p
+            continue
+        assert "control_center" not in content, p  # sonst ist nichts verdrahtet (bootstrap.py startet das Control Center nie)
 
 
 def test_server_module_uses_only_stdlib_and_contract():
