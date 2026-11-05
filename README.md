@@ -49,10 +49,11 @@ pip install -e ".[dev]"
    Exit-Code 0 = keine Fehler (Hinweise sind möglich), 1 = mindestens ein Fehler. Im Chat gibt es dasselbe als `/doctor`.
    Der Doctor schaltet nichts ein und schreibt nichts. Seit `cc-windows-start` meldet er zusätzlich (nur lesend, nur Hinweise) die Control-Center-Voraussetzungen:
    Stand von `control_center.enabled`, ob die WebView2-Laufzeit gefunden wird (nur Registry-Lesen, nur unter Windows; heute nicht nötig, da das Control Center im Systembrowser läuft),
-   dass die Darstellung Canvas-2D ist (ein 3D-Kern ist nicht enthalten, es gilt der 2D-Rückfall) und dass Mini-Overlay/natives Fenster nicht enthalten sind.
+   dass die Darstellung Canvas-2D ist (ein 3D-Kern ist nicht enthalten, es gilt der 2D-Rückfall), ob das optionale pywebview für das Mini-Overlay installiert ist (nur `find_spec`) und dass das Overlay standardmäßig aus ist.
 3. **Control Center (optional, standardmäßig aus):** `jarvis-cc` startet nur auf ausdrücklichen Befehl eine lokale Oberfläche auf `127.0.0.1` (URL mit Token wird ausgegeben, Browser nur mit `--open`).
    Es startet nur mit `control_center.enabled = true` (oder `$env:JARVIS_CONTROL_CENTER_ENABLED="true"`) **und** `assistant.enabled` + `agents.enabled`; sonst Abbruch mit Fehlercode 2, nichts lauscht.
-   **Was aus ist:** Control Center, Assistent, Agenten, Computer-/Browser-/Coding-Werkzeuge, Ziele, Finanzen (nur Paper-Trading), Mikrofon, Mini-Overlay/natives Fenster/3D-Kern (nicht enthalten).
+   **Was aus ist:** Control Center, Assistent, Agenten, Computer-/Browser-/Coding-Werkzeuge, Ziele, Finanzen (nur Paper-Trading), Mikrofon, Mini-Overlay (nur ausdrücklich), 3D-Kern (nicht enthalten).
+   **Optionales Mini-Overlay (Windows, `cc-mini-overlay`):** `pip install -e ".[ui]"` (pywebview, nicht Pflicht), dann `jarvis-cc --overlay` (optional `--overlay-on-top`). Kleines Rechteck (ca. 140x140), per Ziehen verschiebbar, nie klickdurchlässig, keine JS-Python-Brücke; Klick auf den Kern öffnet das Hauptfenster (Control Center im Systembrowser), der NOTAUS-Knopf ist im Overlay immer sichtbar und wirkt auch bei geschlossenem Hauptfenster. Ohne pywebview bricht `--overlay` mit Fehlercode 2 ab (kein Rückfall, nichts startet). Windows-Nachweis steht aus (CI).
    Windows-Nachweis steht aus (CI).
 4. **Erster Start:** `jarvis` (Textmodus, ohne Schlüssel mit dem Offline-Modell `mock`). Für ein echtes Modell vorher z. B.
    `$env:JARVIS_LLM_PROVIDER="anthropic"; $env:ANTHROPIC_API_KEY="..."` setzen (nur per Umgebung, nie in Dateien).

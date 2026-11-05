@@ -65,3 +65,17 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .filters input, .filters select { background: #0b0f17; color: var(--fg); border: 1px solid #2c3a52; border-radius: 6px; padding: 4px 6px; font: inherit; max-width: 11em; }
 #history-list, #audit-list { max-height: 260px; overflow: auto; overflow-wrap: anywhere; }
 #history-list ul, #audit-list ul { color: var(--dim); font-size: 13px; }
+
+/* Mini-Overlay (?view=overlay, ca. 140x140): rechteckig, nie klickdurchlaessig; der Notaus-Knopf wird nie ausgeblendet. Rueckfragen erscheinen wie in jedem Modus (Ablehnen ist Standard). */
+body[data-mode="overlay"] { min-height: 0; height: 100vh; overflow: hidden; }
+body[data-mode="overlay"] #bar { padding: 2px 4px; gap: 4px; flex-wrap: wrap; }
+body[data-mode="overlay"] #bar strong, body[data-mode="overlay"] #state-label, body[data-mode="overlay"] #conn,
+body[data-mode="overlay"] #mode-toggle, body[data-mode="overlay"] #effects, body[data-mode="overlay"] #effects-note,
+body[data-mode="overlay"] label[for="effects"] { display: none; }
+body[data-mode="overlay"] #dashboard-view, body[data-mode="overlay"] #orb-caption, body[data-mode="overlay"] #voice-bar,
+body[data-mode="overlay"] #input-form { display: none; }
+body[data-mode="overlay"] main { padding: 0; }
+body[data-mode="overlay"] #orb-view { display: flex; }
+body[data-mode="overlay"] #orb { width: 80px; height: 80px; cursor: pointer; }
+body[data-mode="overlay"] #emergency { display: block; width: 100%; padding: 4px; font-size: 12px; }
+body[data-mode="overlay"] #overlay-open { display: block; font-size: 10px; padding: 1px 6px; }

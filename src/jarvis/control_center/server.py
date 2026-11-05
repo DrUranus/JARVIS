@@ -10,7 +10,7 @@ import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import parse_qs, urlsplit
 
 from jarvis.control_center.views import ReadViews, ViewError
@@ -36,7 +36,8 @@ class _Httpd(ThreadingHTTPServer):
 
 class ControlCenterServer:
     def __init__(self, backend: UiBackend, *, host: str = LOOPBACK, port: int = 0, token: str | None = None, poll_interval: float = 0.25,
-                 heartbeat_s: float = 15.0, max_clients: int = 4, views: ReadViews | None = None) -> None:
+                 heartbeat_s: float = 15.0, max_clients: int = 4, views: ReadViews | None = None,
+                 on_open_main: Callable[[], None] | None = None) -> None:
         if host != LOOPBACK:
             raise ValueError("the control center listens on 127.0.0.1 only")
         if token is not None and len(token) < MIN_TOKEN_LEN:
@@ -44,6 +45,7 @@ class ControlCenterServer:
         self.backend, self.host, self._want_port = backend, host, port
         self.views = views                                            # nur lesende Ansichten (cc-results-audit); ohne sie gibt es keine /view-Pfade
         self.token = token or secrets.token_urlsafe(32)
+        self.on_open_main = on_open_main                              # nur fuer das optionale Mini-Overlay (Klick oeffnet das Hauptfenster); ohne Rueckruf keine Route
         self.poll_interval, self.heartbeat_s, self.max_clients = poll_interval, heartbeat_s, max_clients
         self.port: int | None = None
         self._httpd: _Httpd | None = None
@@ -205,6 +207,14 @@ def _make_handler(srv: ControlCenterServer):
             if checked is None:
                 return
             path, _ = checked
+            if path == "/overlay/open" and srv.on_open_main is not None:
+                try:
+                    srv.on_open_main()                                             # nur das Hauptfenster oeffnen; kein Befehl, keine Berechtigung
+                except Exception:                                                  # noqa: BLE001
+                    self._json(500, {"error": "unavailable"})
+                    return
+                self._json(200, {"ok": True})
+                return
             if path != "/command":
                 self._reply(404, b"not found")
                 return

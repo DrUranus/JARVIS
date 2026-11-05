@@ -17,6 +17,7 @@ browser = ["playwright>=1.49"]  # browser agent (then: python -m playwright inst
 uia = ["pywinauto>=0.6.9,<0.7; sys_platform == 'win32'"]  # read-only Windows UI Automation (docs/integrations/windows-uia.md); Windows only, imported lazily
 voice = ["sounddevice>=0.4", "numpy>=1.24"]   # microphone capture (needs the PortAudio system library); numpy: SystemPlayer on Windows plays through sounddevice with numpy samples
 stt-local = ["faster-whisper>=1.1.0", "numpy>=1.24"]   # optional local speech recognition (docs/integrations/stt-local.md); model from a local directory only, imported lazily
+ui = ["pywebview>=6.2.1,<7; sys_platform == 'win32'"]   # optional Windows mini overlay of the control center (docs/integrations/cc-mini-overlay-review.md); off by default, imported lazily
 research = ["trafilatura>=2.3.1"]   # optional HTML text extraction backend (docs/integrations/research.md); imported lazily, default stays the stdlib backend
 
 [project.scripts]
