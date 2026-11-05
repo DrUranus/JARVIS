@@ -15,6 +15,7 @@ from typing import Any, Sequence
 from jarvis.bootstrap import build_core
 from jarvis.config import Settings, load_settings
 from jarvis.control_center.server import ControlCenterServer
+from jarvis.control_center.views import ReadViews
 from jarvis.errors import JarvisError
 
 
@@ -32,7 +33,14 @@ def build_server(settings: Settings, core: Any) -> ControlCenterServer:
     if ui is None:
         reason = getattr(assistant, "reason", "") or "kein Assistent"
         raise LauncherError(f"Kein echtes Backend: der Assistent ist nicht aktiv ({reason}). Nötig: assistant.enabled = true und agents.enabled = true.")
-    return ControlCenterServer(ui)
+    return ControlCenterServer(ui, views=build_views(core, assistant))
+
+
+def build_views(core: Any, assistant: Any) -> ReadViews:
+    """Nur lesende Ansichten: Journal-Speicher des Assistenten (falls aktiv) und die `tail`-Funktion des Audit-Protokolls. Fehlt eines, meldet die Ansicht das leer."""
+    store = getattr(getattr(assistant, "journal", None), "store", None)
+    audit = getattr(getattr(core, "permissions", None), "audit", None)
+    return ReadViews(journal=store, audit_tail=getattr(audit, "tail", None))
 
 
 def main(argv: Sequence[str] | None = None) -> int:

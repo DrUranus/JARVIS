@@ -17,9 +17,10 @@ let coreTable = null;
 const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const el = (id) => document.getElementById(id);
 
-function url(path, since) {
+function url(path, since, params) {
   const q = new URLSearchParams({ t: token });
   if (since) q.set("since", String(since));
+  for (const k of Object.keys(params || {})) q.set(k, params[k]);
   return path + "?" + q.toString();
 }
 
@@ -409,6 +410,70 @@ async function send(type, data) {
   }
 }
 
+// ---- Verlauf und Audit (cc-results-audit): nur lesend. Abruf nur auf Knopfdruck (GET), ohne Zeitgeber; gezeigt wird nur, was das Backend liefert. ------------
+function viewItem(list, text, cls) {
+  const li = document.createElement("li");
+  li.textContent = text;
+  if (cls) li.className = cls;
+  list.appendChild(li);
+  return li;
+}
+
+function renderHistory(list, items) {
+  for (const it of items) {
+    const li = viewItem(list, it.status + " | " + it.kind + " " + it.id + " | " + it.text + (it.recorded_at ? " | " + it.recorded_at : ""));
+    const sub = document.createElement("ul");
+    if (it.result) viewItem(sub, "Ergebnis: " + it.result);
+    if (it.error) viewItem(sub, "Fehler: " + it.error, "error");
+    for (const ev of it.evidence || []) viewItem(sub, "Beleg: " + ev);
+    for (const st of it.steps || []) {
+      viewItem(sub, "Schritt " + st.no + " [" + st.status + (st.side_effect ? ", mit Wirkung" : "") + "]: " + st.text + (st.result ? " -> " + st.result : "") + (st.error ? " (Fehler: " + st.error + ")" : ""));
+    }
+    li.appendChild(sub);
+  }
+}
+
+function renderAudit(list, items) {
+  for (const it of items) {
+    const parts = [it.timestamp, it.type, it.tool, it.action, it.resource, it.level ? "Stufe " + it.level : "", it.status].filter((p) => p);
+    const li = viewItem(list, parts.join(" | "));
+    const sub = document.createElement("ul");
+    if (it.detail) viewItem(sub, "Detail: " + it.detail);
+    if (it.rule) viewItem(sub, "Regel: " + it.rule);
+    if (it.request_id) viewItem(sub, "Anfrage: " + it.request_id);
+    for (const k of Object.keys(it.extra || {})) viewItem(sub, k + ": " + it.extra[k]);
+    li.appendChild(sub);
+  }
+}
+
+async function loadView(which, params) {
+  const note = el(which + "-note");
+  const list = el(which + "-list");
+  note.textContent = "lade ...";
+  try {
+    const r = await fetch(url("view/" + which, 0, params), { method: "GET" });
+    const data = await r.json();
+    list.replaceChildren();
+    if (!r.ok) { note.textContent = "Abgelehnt: " + (data && data.error ? data.error : r.status); return; }
+    const items = Array.isArray(data.items) ? data.items : [];
+    if (!data.available) { note.textContent = data.reason || "nicht verfuegbar"; return; }
+    note.textContent = items.length ? items.length + " Eintraege (hoechstens " + data.limit + ")" : "keine Eintraege";
+    (which === "history" ? renderHistory : renderAudit)(list, items);
+  } catch (e) {
+    list.replaceChildren();
+    note.textContent = "nicht abrufbar (getrennt)";
+  }
+}
+
+function viewParams(which, fields) {
+  const p = { limit: el(which + "-limit").value || "50" };
+  for (const f of fields) {
+    const v = String(el(which + "-" + f).value || "").trim();
+    if (v) p[f] = f === "status" && which === "history" ? v.toUpperCase() : v;
+  }
+  return p;
+}
+
 // ---- Kern (cc-ai-core): Canvas 2D, Pseudo-3D-Kugel mit Meridianen, Ringen und Teilchen. Reine lokale Anzeige: sendet nichts. -----------------------------
 // Effektstufen: full (alles, bewegt) > reduced (Kugel und Ringe, ca. 20 Bilder/s) > off (ein stehendes Bild). prefers-reduced-motion erzwingt off.
 // Bei geringer Leistung (Bildzeit dauerhaft zu hoch) wird automatisch eine Stufe reduziert, nie wieder erhoeht; der Mensch kann jederzeit zuruecksetzen.
@@ -563,6 +628,8 @@ async function loadCoreTable() {
   setState(currentState);
 }
 
+el("history-refresh").addEventListener("click", () => loadView("history", viewParams("history", ["kind", "status"])));
+el("audit-refresh").addEventListener("click", () => loadView("audit", viewParams("audit", ["type", "tool", "status", "level"])));
 el("effects").addEventListener("change", (e) => setEffects(el("effects").value));
 el("mode-toggle").addEventListener("click", () => { manualMode = true; setMode(document.body.dataset.mode === "orb" ? "dashboard" : "orb"); });
 el("voice-start").addEventListener("click", () => send("start_voice", {}));  // einzige Stelle, die das Mikrofon anfordert: ausdruecklicher Knopfdruck

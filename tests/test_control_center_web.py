@@ -42,8 +42,8 @@ def test_js_talks_only_to_own_endpoints():
     js = text("app.js")
     assert "http://" not in js and "https://" not in js
     assert re.findall(r"new EventSource\((.*)\);", js) == ["url(\"events\", lastSeq)"]
-    # genau zwei eigene Ziele: Befehle (POST) und die Zustandstabelle des Kerns (GET, cc-ai-core)
-    assert re.findall(r"fetch\(([^,]*),", js) == ["url(\"command\")", "url(\"core_states.json\")"]
+    # genau drei eigene Ziele: Befehle (POST), die Zustandstabelle des Kerns (GET, cc-ai-core) und die lesenden Ansichten (GET, cc-results-audit)
+    assert re.findall(r"fetch\(([^,]*),", js) == ["url(\"command\")", "url(\"view/\" + which", "url(\"core_states.json\")"]
 
 
 def test_starts_in_orb_mode_and_has_toggle_and_emergency_button_in_both_modes():
@@ -89,7 +89,7 @@ def test_server_module_uses_only_stdlib_and_contract():
     tree = (ROOT / "server.py").read_text(encoding="utf-8")
     imports = set(re.findall(r"^(?:from|import) ([A-Za-z_\.]+)", tree, re.M))
     assert all(i.split(".")[0] in sys.stdlib_module_names or i.split(".")[0] in ("jarvis", "__future__") for i in imports), imports
-    assert not [i for i in imports if i.startswith("jarvis") and not i.startswith(("jarvis.ui_contract",))]
+    assert not [i for i in imports if i.startswith("jarvis") and not i.startswith(("jarvis.ui_contract", "jarvis.control_center.views"))]
 
 
 def test_pyproject_keeps_no_dependencies():

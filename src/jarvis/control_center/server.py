@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from jarvis.control_center.views import ReadViews, ViewError
 from jarvis.ui_contract.backend import UiBackend
 from jarvis.ui_contract.schema import MAX_COMMAND_BYTES, VERSION, ContractError, parse_command
 
@@ -23,6 +24,7 @@ CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'se
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"), "/index.html": ("index.html", "text/html; charset=utf-8"),
           "/app.js": ("app.js", "text/javascript; charset=utf-8"), "/styles.css": ("styles.css", "text/css; charset=utf-8"),
           "/core_states.json": ("core_states.json", "application/json; charset=utf-8")}
+VIEW_PATHS = {"/view/history": "history", "/view/audit": "audit"}   # nur GET, nur lesend
 MIN_TOKEN_LEN = 16
 MAX_SEQ = 2**53
 
@@ -34,12 +36,13 @@ class _Httpd(ThreadingHTTPServer):
 
 class ControlCenterServer:
     def __init__(self, backend: UiBackend, *, host: str = LOOPBACK, port: int = 0, token: str | None = None, poll_interval: float = 0.25,
-                 heartbeat_s: float = 15.0, max_clients: int = 4) -> None:
+                 heartbeat_s: float = 15.0, max_clients: int = 4, views: ReadViews | None = None) -> None:
         if host != LOOPBACK:
             raise ValueError("the control center listens on 127.0.0.1 only")
         if token is not None and len(token) < MIN_TOKEN_LEN:
             raise ValueError("token too short")
         self.backend, self.host, self._want_port = backend, host, port
+        self.views = views                                            # nur lesende Ansichten (cc-results-audit); ohne sie gibt es keine /view-Pfade
         self.token = token or secrets.token_urlsafe(32)
         self.poll_interval, self.heartbeat_s, self.max_clients = poll_interval, heartbeat_s, max_clients
         self.port: int | None = None
@@ -169,6 +172,8 @@ def _make_handler(srv: ControlCenterServer):
             path, query = checked
             if path == "/events":
                 self._events(query)
+            elif path in VIEW_PATHS and srv.views is not None:
+                self._view(path, query)
             elif path in STATIC:
                 name, ctype = STATIC[path]
                 try:
@@ -181,6 +186,19 @@ def _make_handler(srv: ControlCenterServer):
                 self._reply(200, body, ctype)
             else:
                 self._reply(404, b"not found")
+
+        def _view(self, path: str, query: dict[str, list[str]]) -> None:
+            """Lesende Ansicht (GET): Filter aus der Query, Antwort als JSON. Keine Wirkung ausser dem Lesen."""
+            params = {k: v[0] for k, v in query.items() if k != "t"}
+            if any(len(v) != 1 for k, v in query.items() if k != "t"):
+                self._json(400, {"error": "each parameter may be given once"})
+                return
+            try:
+                self._json(200, getattr(srv.views, VIEW_PATHS[path])(params))
+            except ViewError as exc:
+                self._json(400, {"error": str(exc)})
+            except Exception:                                                      # noqa: BLE001 - keine Interna nach aussen
+                self._json(500, {"error": "view unavailable"})
 
         def do_POST(self) -> None:
             checked = self._guard(need_origin=True)
