@@ -46,6 +46,8 @@ function setState(state, detail) {
   document.body.dataset.state = currentState || "none";
   el("state-label").textContent = look(currentState).label + (currentState && detail ? ": " + detail : "");
   el("orb-caption").textContent = currentState && detail ? detail : "";
+  el("orb-state").textContent = look(currentState).label;
+  renderStatus();
   renderVoice();
   drawWave();
   redraw();
@@ -176,7 +178,26 @@ function renderResults() {
   if (!results.size) addItem(ul, "noch keine Ergebnisse");
 }
 
-function renderDashboard() { renderTasks(); renderDetail(); renderAgents(); renderResults(); }
+function renderDashboard() { renderTasks(); renderDetail(); renderAgents(); renderResults(); renderStatus(); }
+
+// Systemstatus (Premium V2): nur Werte, die diese Seite aus echten Backend-Ereignissen kennt; ohne Meldung steht dort "unbekannt", nie ein erfundener Wert.
+function renderStatus() {
+  const conn = document.body.dataset.conn;
+  const active = [...tasks.values()].filter((t) => t.listed && !isFinal(t)).length;
+  const agents = new Set();
+  for (const [taskId, r] of routes) { const t = taskById(taskId); if (t && !isFinal(t) && t.listed) agents.add(r.agent); }
+  el("st-conn").textContent = conn === "open" ? "verbunden" : conn === "closed" ? "GETRENNT" : "verbinde ...";
+  el("st-state").textContent = look(currentState).label;
+  el("st-emergency").textContent = emergencyOn ? "AKTIV" : "nicht aktiv";
+  el("st-voice").textContent = voiceActive === null ? "unbekannt" : voiceActive ? "an" : "aus";
+  el("st-tasks").textContent = active + " aktiv, " + tasks.size + " bekannt";
+  el("st-agents").textContent = agents.size + " aktiv";
+  el("st-results").textContent = String(results.size);
+  el("st-confirm").textContent = pending.size ? pending.size + " offen" : "keine";
+  el("st-effects").textContent = effective();
+  el("st-seq").textContent = String(lastSeq);
+  document.body.dataset.pending = pending.size ? "yes" : "no";
+}
 
 // Abbrechen: sendet nur `cancel` (kind, id) und zeigt die echte Antwort: abgebrochen, Abbruch angefordert oder abgelehnt (mit Code und Meldung des Backends).
 function cancelText(ack) {
@@ -321,6 +342,7 @@ function renderVoice() {
   el("voice-level-text").textContent = voiceActive === true ? "Pegel " + Math.round(level * 100) + " %" : voiceActive === false ? "kein Pegel (Mikrofon aus)" : "kein Pegel gemeldet";
   el("voice-start").disabled = voiceActive === true || emergencyOn;
   el("voice-stop").disabled = voiceActive !== true;
+  renderStatus();
 }
 
 function drawWave() {
@@ -380,11 +402,12 @@ function handle(ev) {
     case "ack": if (!d.ok) addItem(el("chat"), "Abgelehnt (" + d.code + "): " + d.message, "system"); break;
     default: break;
   }
+  renderStatus();
 }
 
 function connect() {
   source = new EventSource(url("events", lastSeq));
-  source.onopen = () => { document.body.dataset.conn = "open"; el("conn").textContent = "verbunden"; };
+  source.onopen = () => { document.body.dataset.conn = "open"; el("conn").textContent = "verbunden"; renderStatus(); };
   source.onmessage = (m) => { try { handle(JSON.parse(m.data)); } catch (e) { /* ungueltiges Ereignis ignorieren */ } };
   source.onerror = () => {
     document.body.dataset.conn = "closed";
@@ -392,6 +415,7 @@ function connect() {
     resetVoice();
     clearConfirmations();
     el("conn").textContent = "GETRENNT";
+    renderStatus();
     if (source.readyState === EventSource.CLOSED) { source.close(); setTimeout(connect, 2000); }
   };
 }
@@ -516,17 +540,102 @@ function rgba(hex, a) {
   return "rgba(" + parseInt(hex.slice(1, 3), 16) + "," + parseInt(hex.slice(3, 5), 16) + "," + parseInt(hex.slice(5, 7), 16) + "," + clamp(a, 0, 1).toFixed(3) + ")";
 }
 
-function ring(g, c, r, k, time, s, half) {
+// ---- Kern (Premium V2): Kugel mit Tiefe (Nebel, Gitter, Randlicht, Glanz), Ringe, Energieteilchen, Staub. Reine Anzeige: die Farbe des Zustands kommt aus der Tabelle, ----------
+// die Grundfarben der Kugel (Violett/Blau) aendern nie, welcher Zustand gemeldet wird. Stufen: full (voll animiert), reduced (ruhig, ca. 20 Bilder/s), off (flacher 2D-Fallback, einmal gezeichnet).
+const VIOLET = "#7b4dff", BLUE = "#3b6bff", INDIGO = "#2a2a9a", DEEP = "#0a0626", WHITE = "#ffffff";
+const DUST = [];
+for (let i = 0; i < 36; i++) DUST.push({ a: (i * 2.399963) % (2 * Math.PI), d: 1.4 + ((i * 37) % 100) / 100 * 0.85, sz: 0.8 + ((i * 53) % 10) / 10 * 1.6, sp: 0.04 + ((i * 17) % 10) / 100, ph: i * 0.7 });
+
+function ring(g, c, r, k, time, s, half, quality) {
   const rx = r * (1.45 + 0.2 * k), ry = rx * 0.32;
   g.save();
   g.translate(c.x, c.y);
   g.rotate((k % 2 ? -1 : 1) * s.spin * time * 0.5 + k * 0.9);
-  g.strokeStyle = rgba(s.color, half === "back" ? 0.25 : 0.7);
-  g.lineWidth = 2;
+  g.strokeStyle = rgba(s.color, half === "back" ? 0.22 : 0.85);
+  g.lineWidth = half === "back" ? 1.5 : 2.2;
+  if (quality === "full" && half !== "back") { g.shadowColor = rgba(s.color, 0.9); g.shadowBlur = 14; }
   g.beginPath();
   if (half === "back") g.ellipse(0, 0, rx, ry, 0, Math.PI, 2 * Math.PI); else g.ellipse(0, 0, rx, ry, 0, 0, Math.PI);
   g.stroke();
   return { rx: rx, ry: ry };
+}
+
+function disc(g, x, y, r) { g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); }
+
+function drawNebula(g, cx, cy, r, s, time) {
+  g.globalCompositeOperation = "lighter";
+  for (let i = 0; i < 4; i++) {
+    const ang = time * (0.18 + 0.05 * i) * (i % 2 ? -1 : 1) * (0.4 + s.spin) + i * 1.7;
+    const bx = cx + Math.cos(ang) * r * 0.5, by = cy + Math.sin(ang * 1.3) * r * 0.42;
+    const blob = g.createRadialGradient(bx, by, 0, bx, by, r * 0.75);
+    blob.addColorStop(0, rgba(i % 2 ? BLUE : VIOLET, 0.55));
+    blob.addColorStop(1, rgba(i % 2 ? BLUE : VIOLET, 0));
+    g.fillStyle = blob;
+    g.fillRect(cx - r, cy - r, 2 * r, 2 * r);
+  }
+  g.globalCompositeOperation = "source-over";
+}
+
+function drawGrid(g, cx, cy, r, s, time) {
+  g.lineWidth = 1;
+  for (let i = 0; i < 6; i++) {  // Laengenkreise drehen sich: Vorderseite hell, Rueckseite blass (Tiefe)
+    const ph = s.spin * time * 0.5 + i * Math.PI / 6;
+    const rx = Math.abs(r * Math.cos(ph));
+    g.strokeStyle = rgba(WHITE, 0.07 + 0.14 * Math.abs(Math.sin(ph)));
+    g.beginPath(); g.ellipse(cx, cy, Math.max(0.5, rx), r, 0, 0, Math.PI * 2); g.stroke();
+  }
+  for (const lat of [-0.62, -0.32, 0, 0.32, 0.62]) {  // Breitenkreise: vordere Haelfte kraeftiger
+    const y = cy + r * lat, hw = r * Math.sqrt(1 - lat * lat), hh = hw * 0.2;
+    g.strokeStyle = rgba(WHITE, 0.08);
+    g.beginPath(); g.ellipse(cx, y, hw, hh, 0, Math.PI, 2 * Math.PI); g.stroke();
+    g.strokeStyle = rgba(WHITE, 0.2);
+    g.beginPath(); g.ellipse(cx, y, hw, hh, 0, 0, Math.PI); g.stroke();
+  }
+}
+
+function drawSphere(g, cx, cy, r, s, time, quality, flash) {
+  const body = g.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.05, cx, cy, r);
+  if (quality === "off") {  // flacher 2D-Fallback: zwei Farben, Randlinie in der Zustandsfarbe
+    body.addColorStop(0, rgba(VIOLET, 1));
+    body.addColorStop(1, rgba(DEEP, 1));
+    g.fillStyle = body; disc(g, cx, cy, r); g.fill();
+    g.strokeStyle = rgba(s.color, 0.95); g.lineWidth = 3; disc(g, cx, cy, r); g.stroke();
+    return;
+  }
+  body.addColorStop(0, rgba("#c9bbff", 1));
+  body.addColorStop(0.16, rgba(VIOLET, 1));
+  body.addColorStop(0.55, rgba(INDIGO, 1));
+  body.addColorStop(1, rgba(DEEP, 1));
+  g.fillStyle = body; disc(g, cx, cy, r); g.fill();
+  g.save();
+  disc(g, cx, cy, r); g.clip();
+  drawNebula(g, cx, cy, r, s, quality === "full" ? time : 0);
+  const tint = g.createRadialGradient(cx, cy, 0, cx, cy, r);  // Zustandsfarbe als Kernlicht
+  tint.addColorStop(0, rgba(s.color, 0.55 * s.glow * flash));
+  tint.addColorStop(0.7, rgba(s.color, 0.12 * s.glow));
+  tint.addColorStop(1, rgba(s.color, 0));
+  g.fillStyle = tint; g.fillRect(cx - r, cy - r, 2 * r, 2 * r);
+  drawGrid(g, cx, cy, r, s, quality === "full" ? time : 0);
+  const rim = g.createRadialGradient(cx, cy, r * 0.62, cx, cy, r);  // Fresnel: Randlicht in der Zustandsfarbe
+  rim.addColorStop(0, rgba(s.color, 0));
+  rim.addColorStop(1, rgba(s.color, 0.75 * flash));
+  g.fillStyle = rim; g.fillRect(cx - r, cy - r, 2 * r, 2 * r);
+  const spec = g.createRadialGradient(cx - r * 0.38, cy - r * 0.44, 0, cx - r * 0.38, cy - r * 0.44, r * 0.3);
+  spec.addColorStop(0, rgba(WHITE, 0.6));
+  spec.addColorStop(1, rgba(WHITE, 0));
+  g.fillStyle = spec; g.fillRect(cx - r, cy - r, 2 * r, 2 * r);
+  g.restore();
+  g.strokeStyle = rgba(s.color, 0.9 * flash); g.lineWidth = 1.6; disc(g, cx, cy, r); g.stroke();
+}
+
+function drawDust(g, cx, cy, r, s, time) {
+  g.fillStyle = rgba(s.color, 0.55);
+  for (const d of DUST) {
+    const a = d.a + time * d.sp, rad = r * d.d, tw = 0.5 + 0.5 * Math.sin(time * 1.5 + d.ph);
+    g.globalAlpha = 0.25 + 0.6 * tw;
+    disc(g, cx + Math.cos(a) * rad, cy + Math.sin(a) * rad * 0.8, d.sz); g.fill();
+  }
+  g.globalAlpha = 1;
 }
 
 function drawCore(t, c, quality) {
@@ -539,43 +648,35 @@ function drawCore(t, c, quality) {
   const pulse = animated ? Math.sin(2 * Math.PI * s.pulse_hz * time) * s.pulse_amp + level * s.level_gain : 0;
   const r = w * (0.24 + pulse);
   const flash = quality === "full" && s.flash_hz > 0 ? 0.7 + 0.3 * Math.sin(2 * Math.PI * s.flash_hz * time) : 1;  // Blinken nur im vollen Modus
-  const glow = g.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 2.1);
+  const halo = g.createRadialGradient(cx, cy, r * 0.5, cx, cy, r * 1.95);  // violett-blauer Hof hinter dem Zustandsglimmen
+  halo.addColorStop(0, rgba(VIOLET, 0.2));
+  halo.addColorStop(0.55, rgba(BLUE, 0.06));
+  halo.addColorStop(1, rgba(BLUE, 0));
+  g.fillStyle = halo; disc(g, cx, cy, r * 1.95); g.fill();
+  const glow = g.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 1.9);
   glow.addColorStop(0, rgba(s.color, s.glow * flash));
   glow.addColorStop(1, rgba(s.color, 0));
-  g.fillStyle = glow;
-  g.beginPath(); g.arc(cx, cy, r * 2.1, 0, Math.PI * 2); g.fill();
+  g.fillStyle = glow; disc(g, cx, cy, r * 1.9); g.fill();
+  if (quality === "full") drawDust(g, cx, cy, r, s, time);
   const rings = quality === "off" ? Math.min(s.rings, 1) : s.rings;
   const centre = { x: cx, y: cy };
-  for (let k = 0; k < rings; k++) { ring(g, centre, r, k, time, s, "back"); g.restore(); }  // Hinterseite der Ringe liegt hinter der Kugel
-  const body = g.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r);
-  body.addColorStop(0, rgba("#ffffff", 0.55));
-  body.addColorStop(0.25, rgba(s.color, 1));
-  body.addColorStop(1, rgba("#000000", 0.7));
-  g.fillStyle = body;
-  g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
-  if (quality === "full") {  // Meridiane drehen sich: erzeugt den 3D-Eindruck
-    g.strokeStyle = rgba("#ffffff", 0.18);
-    g.lineWidth = 1;
-    for (let i = 0; i < 4; i++) {
-      g.beginPath(); g.ellipse(cx, cy, Math.abs(r * Math.cos(s.spin * time + i * Math.PI / 4)), r, 0, 0, Math.PI * 2); g.stroke();
-    }
-    g.beginPath(); g.ellipse(cx, cy, r, r * 0.28, 0, 0, Math.PI * 2); g.stroke();
-  }
+  for (let k = 0; k < rings; k++) { ring(g, centre, r, k, time, s, "back", quality); g.restore(); }  // Hinterseite der Ringe liegt hinter der Kugel
+  drawSphere(g, cx, cy, r, s, time, quality, flash);
   for (let k = 0; k < rings; k++) {
-    const dims = ring(g, centre, r, k, time, s, "front");
+    const dims = ring(g, centre, r, k, time, s, "front", quality);
     if (quality === "full") {  // Energieteilchen laufen auf dem Ring
       const n = Math.floor(s.particles / Math.max(1, rings));
       g.fillStyle = rgba(s.color, 0.95);
       for (let j = 0; j < n; j++) {
         const a = s.spin * time * 2 * (k % 2 ? -1 : 1) + j * 2 * Math.PI / n;
-        g.beginPath(); g.arc(dims.rx * Math.cos(a), dims.ry * Math.sin(a), 2.5, 0, Math.PI * 2); g.fill();
+        disc(g, dims.rx * Math.cos(a), dims.ry * Math.sin(a), 3); g.fill();
       }
     }
     g.restore();
   }
 }
 
-function canvasNow() { return el(document.body.dataset.mode === "orb" ? "orb" : "orb-mini"); }
+function canvasNow() { return el(document.body.dataset.mode === "dashboard" ? "orb-mini" : "orb"); }
 
 function redraw(t) {
   drawCore(t || lastT, canvasNow(), effective());
@@ -616,6 +717,7 @@ function setEffects(value) {
   slowFrames = 0;
   ema = 16;
   el("effects-note").textContent = reduceMotion ? "Bewegung vom System reduziert (prefers-reduced-motion)" : "";
+  renderStatus();
   drawWave();
   redraw();
 }

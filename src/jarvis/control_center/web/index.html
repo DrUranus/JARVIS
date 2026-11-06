@@ -8,7 +8,7 @@
 </head>
 <body data-mode="orb" data-state="none" data-conn="connecting">
 <header id="bar">
-  <strong>JARVIS</strong>
+  <strong id="brand">JARVIS <span id="brand-sub">NEXUS</span></strong>
   <span id="conn" role="status">verbinde ...</span>
   <span id="state-label" role="status">kein Zustand gemeldet</span>
   <label for="effects">Effekte</label>
@@ -21,13 +21,30 @@
 <button id="overlay-open" type="button" title="Hauptfenster öffnen" hidden>Öffnen</button>
 <main>
   <section id="orb-view" aria-label="Orb">
-    <canvas id="orb" width="480" height="480" role="img" aria-label="Kern: zeigt den vom Backend gemeldeten Zustand"></canvas>
+    <p id="orb-state" role="status"></p>
+    <canvas id="orb" width="640" height="640" role="img" aria-label="Kern: zeigt den vom Backend gemeldeten Zustand"></canvas>
     <p id="orb-caption"></p>
   </section>
   <section id="dashboard-view" aria-label="Dashboard">
-    <div class="panel" id="agents-panel"><h2>Agenten</h2><ul id="agent-list"></ul></div>
+    <div class="col-left">
+      <div class="panel" id="agents-panel"><h2>Agenten</h2><ul id="agent-list"></ul></div>
+      <div class="panel" id="status-panel"><h2>Systemstatus</h2>
+        <dl id="status-list">
+          <dt>Verbindung</dt><dd id="st-conn">-</dd>
+          <dt>Zustand</dt><dd id="st-state">-</dd>
+          <dt>Notaus</dt><dd id="st-emergency">-</dd>
+          <dt>Mikrofon</dt><dd id="st-voice">-</dd>
+          <dt>Aufgaben</dt><dd id="st-tasks">-</dd>
+          <dt>Agenten</dt><dd id="st-agents">-</dd>
+          <dt>Ergebnisse</dt><dd id="st-results">-</dd>
+          <dt>Rueckfragen</dt><dd id="st-confirm">-</dd>
+          <dt>Effekte</dt><dd id="st-effects">-</dd>
+          <dt>Ereignis-Nr.</dt><dd id="st-seq">-</dd>
+        </dl>
+      </div>
+    </div>
     <div class="col-center">
-      <canvas id="orb-mini" width="240" height="240" aria-hidden="true"></canvas>
+      <canvas id="orb-mini" width="320" height="320" aria-hidden="true"></canvas>
       <div class="panel"><h2>Gespraech</h2><ol id="chat"></ol></div>
       <div class="panel"><h2>Ereignisse</h2><ol id="log"></ol></div>
     </div>
