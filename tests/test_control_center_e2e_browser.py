@@ -44,7 +44,12 @@ HUE_JS = """(id) => {
 def browser():
     with playwright_sync.sync_playwright() as pw:
         exe = os.environ.get("JARVIS_CHROMIUM_PATH")
-        b = pw.chromium.launch(headless=True, executable_path=exe) if exe else pw.chromium.launch(headless=True)
+        try:
+            b = pw.chromium.launch(headless=True, executable_path=exe) if exe else pw.chromium.launch(headless=True)
+        except playwright_sync.Error as exc:
+            if "Executable doesn't exist" in str(exc):
+                pytest.skip("Chromium fehlt (python -m playwright install chromium oder JARVIS_CHROMIUM_PATH): nicht ausgefuehrt, ein uebersprungener Test gilt nicht als bestanden")
+            raise
         yield b
         b.close()
 
