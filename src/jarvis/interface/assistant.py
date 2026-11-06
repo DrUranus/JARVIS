@@ -74,7 +74,11 @@ class AssistantSubsystem:
                     continue
                 self._published.add(g.goal_id)
                 status = str(getattr(g.status, "value", g.status)).upper()
-                summary = f"{status}: {res.summary}" if getattr(res, "summary", "") else status
+                try:
+                    from jarvis.interface.goal_text import event_summary
+                    summary = event_summary(status, res)
+                except Exception:                                                         # noqa: BLE001 - the explanation is a courtesy, never a failure
+                    summary = f"{status}: {res.summary}" if getattr(res, "summary", "") else status
                 self.ui.publish_finished("goal", g.goal_id, status, summary)
                 count += 1
         return count

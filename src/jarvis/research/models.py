@@ -140,7 +140,7 @@ def build_plan(objective: str, data: Mapping[str, Any], limits: "ResearchLimits"
     if not isinstance(data, Mapping):
         raise InvalidResearchRequest("the research input must be a mapping")
     unknown = set(data) - {"kind", "questions", "urls", "max_sources", "max_actions", "timeout", "allowed_domains", "excluded_domains", "discover",
-                           "follow_links"}
+                           "follow_links", "query", "search_max_hits"}
     if unknown:
         raise InvalidResearchRequest(f"unknown research input keys {sorted(str(k)[:30] for k in unknown)}")
 
@@ -162,7 +162,7 @@ def build_plan(objective: str, data: Mapping[str, Any], limits: "ResearchLimits"
     if "follow_links" in data and not isinstance(data["follow_links"], bool):
         raise InvalidResearchRequest("follow_links must be true or false")
     if not urls:
-        raise InvalidResearchRequest("no sources: pass 'urls' (this version reads the pages it is given and does not search the web)")
+        raise InvalidResearchRequest("no sources: pass 'urls', or a 'query' together with the opt-in web search ([research] search_enabled)")
     return ResearchPlan(objective, questions or ((objective,) if objective.strip() else ()), urls, bounded("max_sources", limits.max_sources),
                         bounded("max_actions", limits.max_actions), bounded("timeout", limits.timeout, False), allowed, excluded, bool(data.get("follow_links")))
 

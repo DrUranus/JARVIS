@@ -94,8 +94,11 @@ def validate_plan(goal: Goal, steps: Sequence[GoalStep], *, max_steps: int, max_
         elif s.input.get("kind") is not None:
             if s.input["kind"] not in P.ANALYSIS_KINDS:
                 raise InvalidPlanError(f"step {s.step_id!r}: unknown analysis kind {str(s.input['kind'])[:30]!r}")
+        elif isinstance(s.input.get("query"), str) and 0 < len(s.input["query"]) <= 300 and set(s.input) <= {"query", "search_max_hits"} \
+                and s.required_capabilities == frozenset({"research.web"}):
+            pass                                                           # research question without a URL: the research agent searches (opt-in source) and reads
         elif not P.valid_url(url):
-            raise InvalidPlanError(f"step {s.step_id!r}: the input needs 'steps', an analysis 'kind' or a valid http(s) 'url'")
+            raise InvalidPlanError(f"step {s.step_id!r}: the input needs 'steps', an analysis 'kind', a valid http(s) 'url' or a research 'query'")
         clean = s.input.get("cleanup")
         if clean is not None and (not isinstance(clean, str) or clean not in {x.step_id for x in steps} or clean == s.step_id):
             raise InvalidPlanError(f"step {s.step_id!r}: cleanup must name another step of the plan")

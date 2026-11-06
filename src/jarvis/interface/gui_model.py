@@ -355,8 +355,12 @@ class GuiController:
                 out = self._run_command(text)
                 reply = out if out is not None else "Beenden ist über das Fenster möglich."
             else:
-                result = self.core.handle(text)
-                reply = getattr(result, "text", str(result))
+                routed = self._research_route(text)
+                if routed:
+                    reply = self._run_command(routed) or ""
+                else:
+                    result = self.core.handle(text)
+                    reply = getattr(result, "text", str(result))
         except JarvisError as exc:
             reply = f"Fehler: {exc}"
         except Exception as exc:                                    # the reply is generic; details go to the log
@@ -373,6 +377,13 @@ class GuiController:
         if failure:
             self.tracker.fail(failure)
         self._emit(self._input_state())
+
+    def _research_route(self, text: str) -> str | None:
+        try:
+            from jarvis.interface.cli import research_route
+            return research_route(self.core, text)
+        except Exception:                                           # the routing is a courtesy: on any problem the text goes the usual way
+            return None
 
     def _run_command(self, line: str) -> str | None:
         runner = self._command_runner
