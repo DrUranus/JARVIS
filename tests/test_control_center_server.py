@@ -305,3 +305,33 @@ def test_index_carries_token_for_assets_only_when_authorised(srv):
 def test_error_responses_leak_no_internal_details(srv):
     status, _, body = request(srv, "GET", "/nope")
     assert status == 404 and b"Traceback" not in body and b"/home" not in body
+
+
+# ---- abgelehnte Anfragen lesen ihren Rumpf (Windows: sonst TCP-RST, WinError 10053 beim Client) -------------------------------------------------
+def test_rejected_requests_drain_the_announced_body_before_replying():
+    import io
+    from email.message import Message
+    from jarvis.control_center import server as server_mod
+
+    srv_obj = ControlCenterServer(FakeUiBackend(), poll_interval=0.02)
+    handler_cls = server_mod._make_handler(srv_obj)
+    for announced, sent, expect_read in ((7, b"{\"a\":1}", 7), (0, b"", 0), (MAX_COMMAND_BYTES + 1, b"x" * 10, 0)):
+        h = handler_cls.__new__(handler_cls)
+        h.headers = Message()
+        h.headers["Content-Length"] = str(announced)
+        h.rfile = io.BytesIO(sent)
+        h.connection = type("C", (), {"settimeout": lambda self, t: None})()
+        h._drain_body()
+        assert h.rfile.tell() == expect_read, (announced, h.rfile.tell())
+        h.rfile.seek(0)
+        h._drain_body()                                                                  # zweiter Aufruf liest nichts mehr
+        assert h.rfile.tell() == 0
+
+
+def test_every_reply_drains_first_and_a_read_body_is_not_read_twice():
+    import re as _re
+    from pathlib import Path
+    import jarvis.control_center.server as server_mod
+    src = Path(server_mod.__file__).read_text(encoding="utf-8")
+    assert _re.search(r"def _reply\(.*?\n\s+self\._drain_body\(\)", src, _re.S)
+    assert "self._body_done = True\n            body = self.rfile.read(length)" in src

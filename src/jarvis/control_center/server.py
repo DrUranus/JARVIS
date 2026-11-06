@@ -137,7 +137,29 @@ def _make_handler(srv: ControlCenterServer):
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
             self.send_header("Permissions-Policy", "microphone=(), camera=(), geolocation=()")  # die Seite selbst bekommt nie Mikrofon oder Kamera
 
+        def _drain_body(self) -> None:
+            """Eine abgelehnte Anfrage (403/405/411/413/415 ...) hat ihren Rumpf evtl. nie gelesen. Wuerde der Server mit ungelesenen Daten schliessen, sendet Windows ein TCP-RST
+            und der Client verliert die Antwort (WinError 10053, flaky). Darum wird ein angekuendigter Rumpf bis MAX_COMMAND_BYTES vor der Antwort gelesen (kurze Frist);
+            groessere Rumpfe werden nicht gelesen (die Verbindung wird ohnehin geschlossen). Aendert keine Pruefung und keine Antwort."""
+            if getattr(self, "_body_done", False):
+                return
+            self._body_done = True
+            raw = self.headers.get("Content-Length")
+            if not raw or not raw.isascii() or not raw.isdigit() or not 0 < int(raw) <= MAX_COMMAND_BYTES:
+                return
+            try:
+                self.connection.settimeout(2.0)
+                self.rfile.read(int(raw))
+            except (OSError, ValueError):
+                pass
+            finally:
+                try:
+                    self.connection.settimeout(None)
+                except OSError:
+                    pass
+
         def _reply(self, status: int, body: bytes = b"", ctype: str = "text/plain; charset=utf-8") -> None:
+            self._drain_body()
             self._headers(status, ctype, len(body))
             self.end_headers()
             if self.command != "HEAD":
@@ -229,6 +251,7 @@ def _make_handler(srv: ControlCenterServer):
             if length > MAX_COMMAND_BYTES:
                 self._reply(413, b"too large")
                 return
+            self._body_done = True
             body = self.rfile.read(length)
             try:
                 command = parse_command(body)
