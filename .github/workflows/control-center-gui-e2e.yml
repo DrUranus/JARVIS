@@ -1,13 +1,13 @@
 name: Control Center GUI E2E
 
-# Browser-E2E (echtes Chromium, headless) auf Linux und Windows plus ein nativer Windows-Desktop-Test des Mini-Overlays (nur manuell).
+# Browser-E2E (echtes Chromium, headless) auf Linux und Windows plus ein nativer Windows-Desktop-Test des Mini-Overlays (kein Pflichtcheck).
 # Nachweisgrenzen: docs/NEXUS_GUI.md. Der Browser-Job ist KEINE native Fensterabnahme; nur der Job native-desktop startet ein echtes pywebview-Fenster.
 # Es werden keine Secrets benutzt, nichts wird veroeffentlicht oder geschrieben ausser Artefakten.
 
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main]
+    branches: [main, 'claude/**']
     paths:
       - 'src/jarvis/control_center/**'
       - 'src/jarvis/ui_contract/**'
@@ -77,13 +77,13 @@ jobs:
           retention-days: 14
 
   native-desktop:
-    # Nur manuell (workflow_dispatch): startet ein echtes pywebview-Overlay auf dem Desktop des Runners und bedient es mit der Maus.
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    # Startet ein echtes pywebview-Overlay auf dem Desktop des Runners und bedient es mit der Maus (bei relevanten PRs und manuell; kein Pflichtcheck).
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
