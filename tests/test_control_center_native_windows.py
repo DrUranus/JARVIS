@@ -69,16 +69,18 @@ def grab(box, name):
     return shot
 
 
+OUTPUT: list[str] = []
+
+
 def read_url(proc, timeout: float) -> str:
     found: list[str] = []
 
     def pump():
         for line in proc.stdout:
+            OUTPUT.append(line.rstrip())
             m = re.search(r"(http://127\.0\.0\.1:\d+/\?t=[\w-]+)", line)
             if m and not found:
                 found.append(m.group(1))
-            if found:
-                continue
 
     threading.Thread(target=pump, daemon=True).start()
     end = time.monotonic() + timeout
@@ -86,7 +88,7 @@ def read_url(proc, timeout: float) -> str:
         if proc.poll() is not None:
             break
         time.sleep(0.1)
-    assert found, "keine Control-Center-URL in der Ausgabe (Start fehlgeschlagen?)"
+    assert found, "keine Control-Center-URL in der Ausgabe (Start fehlgeschlagen?). Ausgabe:\n" + "\n".join(OUTPUT[-30:])
     return found[0]
 
 
@@ -113,7 +115,7 @@ def saw_emergency(url: str, timeout: float) -> bool:
 
 def test_native_overlay_window_always_on_top_and_real_emergency_click(tmp_path):
     from test_control_center_binding import real_env
-    env = {**os.environ, **real_env(tmp_path), "PYTHONIOENCODING": "utf-8"}
+    env = {**os.environ, **real_env(tmp_path), "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
     proc = subprocess.Popen([sys.executable, "-m", "jarvis.control_center", "--overlay", "--overlay-on-top"], cwd=ROOT, env=env, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
     report: dict = {"started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
@@ -141,4 +143,5 @@ def test_native_overlay_window_always_on_top_and_real_emergency_click(tmp_path):
     finally:
         EVIDENCE.mkdir(parents=True, exist_ok=True)
         (EVIDENCE / "native_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+        (EVIDENCE / "native_stdout.txt").write_text("\n".join(OUTPUT), encoding="utf-8")
         subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
