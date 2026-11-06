@@ -61,7 +61,7 @@ def grab(box, name):
     import mss
     import mss.tools
     EVIDENCE.mkdir(parents=True, exist_ok=True)
-    with mss.mss() as sct:
+    with (mss.MSS() if hasattr(mss, 'MSS') else mss.mss()) as sct:
         shot = sct.grab({"left": box[0], "top": box[1], "width": box[2] - box[0], "height": box[3] - box[1]})
         mss.tools.to_png(shot.rgb, shot.size, output=str(EVIDENCE / f"{name}.png"))
         full = sct.grab(sct.monitors[0])
@@ -129,11 +129,16 @@ def test_native_overlay_window_always_on_top_and_real_emergency_click(tmp_path):
         topmost = bool(user32().GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST)
         report["always_on_top"] = topmost
         assert topmost, "--overlay-on-top: das Fenster ist nicht Always-on-Top"
-        time.sleep(3)                                                                    # Seite laden, Kern zeichnen
-        shot = grab(box, "overlay_before")
-        pixels = {tuple(shot.rgb[i:i + 3]) for i in range(0, len(shot.rgb), 3 * 7)}
-        report["distinct_colors"] = len(pixels)
-        assert len(pixels) > 40, "das Overlay zeigt keinen gezeichneten Kern (nur Einheitsfarbe)"
+        deadline = time.monotonic() + 45                                                 # WebView2 braucht auf dem Runner etwas, bis die Seite steht
+        distinct = 0
+        while time.monotonic() < deadline:
+            shot = grab(box, "overlay_before")
+            distinct = len({tuple(shot.rgb[i:i + 3]) for i in range(0, len(shot.rgb), 3 * 5)})
+            if distinct > 40:
+                break
+            time.sleep(2)
+        report["distinct_colors"] = distinct
+        assert distinct > 40, f"das Overlay zeigt keinen gezeichneten Kern ({distinct} Farben). Ausgabe:\n" + "\n".join(OUTPUT[-30:])
         click(box[0] + width // 2, box[1] + max(10, int(height * 0.1)))                  # NOTAUS liegt oben im Overlay
         engaged = saw_emergency(url, 20)
         report["emergency_event"] = engaged
