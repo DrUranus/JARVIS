@@ -9,3 +9,4 @@ data/
 *.db
 logs/*.jsonl
 config/policy.toml
+reports/
