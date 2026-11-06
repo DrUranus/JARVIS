@@ -229,10 +229,18 @@ def test_native_overlay_core_click_opens_main_window_confirmation_dialog_and_sta
                 break
             time.sleep(2)
         # 1) Klick auf den Kern: der Server ruft den Rueckruf (Hauptfenster oeffnen), ausgeloest durch einen echten Mausklick im echten Fenster
-        click(box[0] + width // 2, box[1] + int(height * 0.62))
-        deadline = time.monotonic() + 15
-        while not marker.exists() and time.monotonic() < deadline:
-            time.sleep(0.2)
+        report["core_clicks"] = 0
+        for attempt in range(4):                                                         # der erste Klick auf ein inaktives Fenster kann nur den Fokus setzen
+            if attempt == 0:
+                click(box[0] + width // 2, box[1] + width // 2 - 10 + int(height * 0.12))
+            else:
+                click(box[0] + width // 2, box[1] + int(height * (0.5 + 0.08 * attempt)))
+            report["core_clicks"] += 1
+            deadline = time.monotonic() + 4
+            while not marker.exists() and time.monotonic() < deadline:
+                time.sleep(0.2)
+            if marker.exists():
+                break
         report["core_click_opens_main"] = marker.exists()
         assert marker.exists(), "Klick auf den Kern oeffnete das Hauptfenster nicht (kein Rueckruf)"
         # 2) Freigabedialog im echten Fenster: sichtbar (goldener Rand), Escape lehnt ab (fail-closed)
