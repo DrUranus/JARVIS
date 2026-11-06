@@ -1,0 +1,42 @@
+# JARVIS NEXUS: Beispielkonfiguration fuer den Windows-Assistenten (Control Center + Assistent), ausdruecklich opt-in.
+# Start:   jarvis-cc -c config\nexus.example.toml --open        (oder: Kopie anlegen, anpassen, mit -c uebergeben)
+# Diese Datei schaltet NUR die Schichten ein, die das Control Center braucht, und aendert KEINE Sicherheitseinstellung: der Abschnitt [security] fehlt absichtlich
+# (es gelten die Standardwerte: GREEN automatisch, YELLOW fragt dich im NEXUS-Dialog, RED nie, Audit strikt, Notaus, Sitzungsbudget wie konfiguriert).
+# Werkzeuge mit Wirkung (Computer, Browser, Coding, Recherche, Mikrofon) bleiben AUS, bis du sie unten ausdruecklich einschaltest.
+# Schluessel (LLM, Suche) nie hier eintragen: nur als Umgebungsvariable (siehe README).
+
+[control_center]
+enabled = true           # lokale Oberflaeche auf 127.0.0.1 (nur auf ausdruecklichen Aufruf von jarvis-cc)
+
+[assistant]
+enabled = true           # Ziele -> Agenten -> Werkzeuge -> Freigabe-Dialog -> Ergebnis in NEXUS
+confirmation_timeout_seconds = 120   # ohne Antwort gilt jede Rueckfrage als abgelehnt
+
+[agents]
+enabled = true
+
+[agents.router]
+enabled = true           # waehlt je Schritt regelbasiert den passenden Agenten und zeigt die Wahl (kein LLM-Aufruf)
+
+[goals]
+enabled = true           # mehrstufige Aufgaben mit Obergrenzen (Schritte, Versuche, Zeit) und begrenztem Neuplanen
+# llm_planning = true    # nur mit echtem LLM (llm.provider != mock); Plan wird geprueft, sonst Vorlagen-Rueckfall
+# replanning = true      # nur mit echtem LLM
+
+[journal]
+enabled = true           # Aufgabenjournal (SQLite, geschwaerzt); Grundlage fuer /resume nach einer Unterbrechung
+path = "data/journal.db"
+
+[files]
+enabled = true           # Datei-Werkzeug nur innerhalb dieser bestaetigten Wurzeln, kein Loeschen
+roots = ["workspace"]
+
+# ---- Optional: nur nach bewusster Entscheidung einschalten (jeweils eigene Freigabe-Dialoge, siehe README) ----
+# [computer]
+# enabled = true         # Maus/Tastatur/Fenster/Programme (Windows); jede Eingabe fragt nach
+# uia_enabled = true     # lesende Windows-UI-Automation (pip install -e ".[uia]")
+# [browser]
+# enabled = true         # Playwright-Browser (pip install -e ".[browser]" und playwright install)
+# [coding]
+# enabled = true
+# workspace_roots = ["workspace"]

@@ -22,7 +22,7 @@ set JARVIS_AGENTS_ENABLED=true
 jarvis-cc --open                      # gibt http://127.0.0.1:<Port>/?t=<Token> aus und oeffnet den Systembrowser
 jarvis-cc --overlay --overlay-on-top  # optionales Mini-Overlay (140x140, verschiebbar, nie klickdurchlaessig)
 ```
-Ohne diese Einstellungen bricht der Befehl mit Fehlercode 2 ab und es lauscht nichts. Der Server haengt nur an `127.0.0.1` (Token, Host- und Origin-Pruefung, strenge CSP).
+Kürzer: `jarvis-cc -c config\nexus.example.toml --open` (Beispielkonfiguration, ändert keine Sicherheitseinstellung; Computer/Browser/Coding/Mikrofon bleiben aus). Ohne diese Einstellungen bricht der Befehl mit Fehlercode 2 ab und es lauscht nichts. Der Server haengt nur an `127.0.0.1` (Token, Host- und Origin-Pruefung, strenge CSP).
 
 ## Oberflaeche
 - **Orb-Modus (Start):** violett-blaue Kugel mit Tiefe (Nebel, Laengen-/Breitenkreise, Randlicht, Glanz), Ringen, Energieteilchen und Staub. Der Zustand steht als Chip und in der Kopfzeile.
