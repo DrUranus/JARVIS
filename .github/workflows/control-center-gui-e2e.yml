@@ -14,6 +14,8 @@ on:
       - 'tests/test_control_center_e2e_browser.py'
       - 'tests/test_control_center_status.py'
       - 'tests/test_control_center_native_windows.py'
+      - 'tests/test_control_center_voice_flow.py'
+      - 'tests/support/native_overlay_host.py'
       - '.github/workflows/control-center-gui-e2e.yml'
 
 permissions:
@@ -51,7 +53,7 @@ jobs:
           JARVIS_GUI_EVIDENCE: reports/gui
         run: |
           mkdir -p reports/gui
-          python -m pytest -v -rfEs tests/test_control_center_e2e_browser.py tests/test_control_center_status.py --junitxml=reports/gui/junit-browser.xml
+          python -m pytest -v -rfEs tests/test_control_center_e2e_browser.py tests/test_control_center_status.py tests/test_control_center_voice_flow.py --junitxml=reports/gui/junit-browser.xml
       - name: Fail on skipped or missing tests (a skipped test is not a pass)
         if: ${{ !cancelled() }}
         shell: bash
@@ -64,8 +66,8 @@ jobs:
           skipped = sum(int(s.get("skipped", 0)) for s in suites)
           failed = sum(int(s.get("failures", 0)) + int(s.get("errors", 0)) for s in suites)
           print(f"tests={tests} skipped={skipped} failed={failed}")
-          if tests < 21 or skipped or failed:
-              sys.exit(f"E2E nicht bestanden: tests={tests} (mindestens 21 erwartet), skipped={skipped}, failed={failed}")
+          if tests < 25 or skipped or failed:
+              sys.exit(f"E2E nicht bestanden: tests={tests} (mindestens 25 erwartet), skipped={skipped}, failed={failed}")
           PY
       - name: Upload evidence, including failures
         if: ${{ !cancelled() }}
@@ -106,7 +108,7 @@ jobs:
         if: ${{ !cancelled() }}
         shell: pwsh
         run: |
-          python -c "import sys,xml.etree.ElementTree as ET; r=ET.parse('reports/gui/junit-native.xml').getroot(); s=[r] if r.tag=='testsuite' else list(r); t=sum(int(x.get('tests',0)) for x in s); k=sum(int(x.get('skipped',0)) for x in s); print('tests',t,'skipped',k); sys.exit(0 if t>=1 and k==0 else 'native test skipped or missing')"
+          python -c "import sys,xml.etree.ElementTree as ET; r=ET.parse('reports/gui/junit-native.xml').getroot(); s=[r] if r.tag=='testsuite' else list(r); t=sum(int(x.get('tests',0)) for x in s); k=sum(int(x.get('skipped',0)) for x in s); print('tests',t,'skipped',k); sys.exit(0 if t>=2 and k==0 else 'native tests skipped or missing')"
       - name: Upload evidence, including failures
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
