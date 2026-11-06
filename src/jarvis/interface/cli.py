@@ -15,6 +15,8 @@ from jarvis.core import JarvisCore
 from jarvis.core.core import format_entries
 from jarvis.errors import JarvisError, VoiceError
 from jarvis.permissions import CliConfirmation
+from jarvis.permissions.confirmation import ConfirmationChoice, ConfirmationRequest
+from jarvis.permissions.levels import PermissionLevel
 
 HELP = """Befehle:
   /plan <ziel>   Plan für ein Ziel erstellen
@@ -47,6 +49,7 @@ HELP = """Befehle:
   /goal <Ziel>   Ziel ausführen (optional: url=… workspace=… runner=… read_paths=a,b) | status|steps|cancel <id>
   /voice         Sprachmodus starten (zurück mit „exit“)
   /doctor        Umgebung prüfen (nur lesend: Python, tkinter, voice, playwright, Konfiguration, Schlüssel gesetzt/nicht gesetzt, aktive Subsysteme, Sicherheitsmodus)
+  /resume        Unterbrochene Aufgaben (Journal): anzeigen | <id> ausdrücklich fortsetzen
   /help          Diese Hilfe
   /exit          Beenden"""
 
@@ -92,6 +95,8 @@ def run_command(core: JarvisCore, line: str, settings: Settings | None = None,
         return _goals(core, cmd, arg)
     if cmd == "/assistant":
         return _assistant(core, arg)
+    if cmd == "/resume":
+        return _resume(core, arg)
     if cmd == "/repair":
         return _repair(core, arg)
     if cmd == "/improve":
@@ -341,6 +346,51 @@ def _assistant(core: JarvisCore, arg: str) -> str:
         return "Verwendung: /assistant status"
     sub = core.subsystems.get("assistant")
     return sub.status_text() if sub is not None else "Assistent: nicht konfiguriert."
+
+
+def _resume(core: JarvisCore, arg: str) -> str:
+    """`/resume` zeigt unterbrochene Ziele aus dem Journal (nur lesen); `/resume <id>` setzt eines fort - nur auf diesen ausdruecklichen Befehl, nie automatisch.
+    Bereits erledigte Schritte laufen nicht erneut, Schritte mit moeglicher Aenderung ausserhalb von JARVIS brauchen eine NEUE Bestaetigung ueber den Bestaetigungskanal
+    der PermissionEngine (ohne Antwort: abgelehnt), der Notaus blockiert. Die Fortsetzung ist ein neues Ziel der Goal Engine und laeuft wie jedes Ziel ueber Orchestrator,
+    ToolRegistry und PermissionEngine."""
+    from jarvis.journal.resume import ResumeAwarePlanner, ResumeManager
+    assistant = core.subsystems.get("assistant")
+    journal = getattr(assistant, "journal", None)
+    goals = core.subsystems.get("goals")
+    engine, planner = getattr(goals, "engine", None), getattr(goals, "planner", None)
+    if journal is None or engine is None or not isinstance(planner, ResumeAwarePlanner):
+        return ("Wiederaufnahme nicht verfügbar. Nötig: assistant.enabled, journal.enabled, goals.enabled und agents.enabled "
+                "(bzw. JARVIS_ASSISTANT_ENABLED / JARVIS_JOURNAL_ENABLED / JARVIS_GOALS_ENABLED / JARVIS_AGENTS_ENABLED = true).")
+    emergency = core.permissions.emergency
+    provider_of = lambda: core.permissions.confirmation                                                  # noqa: E731 - der Kanal kann zur Laufzeit wechseln
+    counter = [0]
+
+    def confirm(text: str) -> bool:
+        counter[0] += 1
+        request = ConfirmationRequest(request_id=f"resume-{counter[0]}", tool="jarvis", action="resume_step", level=PermissionLevel.YELLOW, resource="journal",
+                                      reason=text[:300], context={"Hinweis": "erneute Ausführung nach Unterbrechung"}, session_allowed=False)
+        try:
+            return provider_of().confirm(request) == ConfirmationChoice.ALLOW_ONCE                      # alles andere (auch ALLOW_SESSION) gilt als Nein
+        except Exception:                                                                                 # noqa: BLE001 - fail closed
+            return False
+
+    manager = ResumeManager(journal.store, goals=engine, planner=planner, emergency=lambda: bool(emergency.engaged), confirm=confirm)
+    ref = arg.strip()
+    if not ref:
+        items = manager.interrupted()
+        if not items:
+            return "Keine unterbrochenen Aufgaben im Journal."
+        lines = ["Unterbrochene Aufgaben (startet nichts; fortsetzen mit /resume <id>):"]
+        for t in items:
+            note = f", {t.needs_confirmation} brauchen neue Bestätigung" if t.needs_confirmation else ""
+            lines.append(f"  {t.ref_id}  [{t.kind}] {t.status}: {t.text[:60]} ({t.done_steps} erledigt, {t.open_steps} offen{note})" + ("" if t.resumable else " – nicht fortsetzbar"))
+        return "\n".join(lines)
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", ref):
+        return "Verwendung: /resume [<id>]"
+    r = manager.resume(ref)
+    head = f"Wiederaufnahme {ref}: {r.status}" + (f" ({r.reason})" if r.reason else "")
+    detail = f"; neues Ziel {r.new_goal_id}" if r.new_goal_id else ""
+    return f"{head}{detail}; ohne erneut: {r.skipped_steps}; bestätigt: {r.confirmed_steps}"
 
 
 def _fmt_goal(g: Any) -> str:

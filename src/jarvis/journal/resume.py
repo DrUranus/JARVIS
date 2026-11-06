@@ -44,6 +44,12 @@ class ResumeAwarePlanner:
     def supports_replanning(self) -> bool:
         return bool(getattr(self.inner, "supports_replanning", False))
 
+    def __getattr__(self, name: str) -> Any:
+        """Read-only capabilities of the wrapped planner (e.g. supports_llm_planning) stay visible; nothing is added or changed."""
+        if name.startswith("_") or name in ("inner",):
+            raise AttributeError(name)
+        return getattr(self.inner, name)
+
     def skip(self, goal_id: str, done_texts: Sequence[str], truncated_at: int | None = None) -> None:
         self._skip[goal_id] = ([_norm(t) for t in done_texts], truncated_at)
 

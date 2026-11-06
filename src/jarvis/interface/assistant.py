@@ -98,6 +98,20 @@ class AssistantSubsystem:
                           f"  Vertragsereignisse: {d['events']}   veröffentlichte Ergebnisse: {d['results_published']}"])
 
 
+def _enable_resume_planner(core: Any, journal: Any) -> None:
+    """With a journal, the goal planner is wrapped once by the pass-through `ResumeAwarePlanner` so that an explicit `/resume` can leave out finished steps. Goals that are
+    not registered by that command are planned exactly as before. Never raises."""
+    goals = core.subsystems.get("goals")
+    engine = getattr(goals, "engine", None)
+    if journal is None or engine is None or not hasattr(engine, "wrap_planner"):
+        return
+    try:
+        from jarvis.journal.resume import ResumeAwarePlanner
+        goals.planner = engine.wrap_planner(ResumeAwarePlanner) if not isinstance(getattr(engine, "_planner", None), ResumeAwarePlanner) else engine._planner
+    except Exception:                                                                     # noqa: BLE001 - JARVIS starts without it
+        log.warning("resume planner unavailable", exc_info=True)
+
+
 def build_assistant(settings: Any, core: Any, *, ui_factory: Any, journal: Any = None, router: Any = None, sink: RoutingSink | None = None) -> AssistantSubsystem:
     """Never raises: JARVIS starts without it. `ui_factory(controller)` builds the adapter (bootstrap passes it so that this module needs no permission import)."""
     cfg = settings.assistant
@@ -110,6 +124,7 @@ def build_assistant(settings: Any, core: Any, *, ui_factory: Any, journal: Any =
         from jarvis.interface.gui_model import GuiController
         ui = ui_factory(GuiController(core, settings))
         sub = AssistantSubsystem("enabled", "", ui, journal, router, getattr(core.subsystems.get("goals"), "engine", None))
+        _enable_resume_planner(core, journal)
         ui.add_pump_hook(sub.sync)
         if sink is not None:
             sink.attach(ui)
