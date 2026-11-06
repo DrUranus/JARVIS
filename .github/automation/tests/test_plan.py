@@ -276,11 +276,11 @@ def test_the_shipped_plan_starts_the_open_steps_one_by_one_through_the_existing_
     api, fire = FakeApi(), Fire()
     first = begin(api, "next", path=SHIPPED, fire=fire, chain_budget=5)
     st = state_of(api, first["issue"])
-    assert st["chain"]["item_id"] == "llm-compat-provider" and st["chain"]["budget"] == 5 and st["chain"]["auto_continue"] is True
+    assert st["chain"]["item_id"] == "cc-windows-smoke" and st["chain"]["budget"] == 5 and st["chain"]["auto_continue"] is True
     assert "ABNAHMEKRITERIEN" in fire.calls[0]
-    for ref, why in (("llm-routing-policy", "(?i)abhaengigkeit"), ("stt-local-provider", "(?i)abhaengigkeit"),
-                     ("research-search-interface", "(?i)abhaengigkeit"), ("coding-llm-edits", "(?i)abhaengigkeit"), ("llm-goal-planning", "(?i)abhaengigkeit"),
-                     ("task-resume", "(?i)abhaengigkeit"), ("cc-shell", "(?i)abhaengigkeit"), ("agent-router", "(?i)abhaengigkeit"),
+    for ref, why in (("llm-routing-policy", "(?i)bereits erledigt"), ("stt-local-provider", "(?i)bereits erledigt"),
+                     ("research-search-interface", "(?i)bereits erledigt"), ("coding-llm-edits", "(?i)bereits erledigt"), ("llm-goal-planning", "(?i)bereits erledigt"),
+                     ("task-resume", "(?i)bereits erledigt"), ("cc-shell", "(?i)bereits erledigt"), ("agent-router", "(?i)bereits erledigt"),
                      ("audit-hash-chain", "(?i)nicht freigegeben"), ("mail-provider", "(?i)nicht freigegeben"), ("smartphone-api-design", "(?i)nicht freigegeben")):
         with pytest.raises(ja.AutomationError, match=why):
             begin(FakeApi(), ref, path=SHIPPED)
