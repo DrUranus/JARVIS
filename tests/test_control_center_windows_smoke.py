@@ -101,6 +101,26 @@ def test_server_smoke_start_token_origin_stream_command_stop(tmp_path):
     srv.stop()
 
 
+def test_server_smoke_foreign_host_header_rejected(tmp_path):
+    """Host-Pruefung (DNS-Rebinding-Schutz) wird auch auf dem Windows-Runner erzwungen; Server danach sauber beendet."""
+    core = build_core(load_settings(env=_env(tmp_path)))
+    srv = build_server(load_settings(env=_env(tmp_path)), core)
+    srv.start()
+    port = srv.port
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        try:
+            conn.request("GET", f"/?t={srv.token}", headers={"Host": "evil.example"})
+            assert conn.getresponse().status in (400, 403)
+        finally:
+            conn.close()
+        assert _http(srv, "GET", "/")[0] == 200
+    finally:
+        srv.stop()
+    with pytest.raises(OSError):
+        socket.create_connection(("127.0.0.1", port), timeout=2).close()
+
+
 def test_smoke_file_has_no_skip_markers():
     text = Path(__file__).read_text(encoding="utf-8")
     needles = ["pytest.mark." + "skip", "pytest." + "skip(", "importor" + "skip", "skip" + "if("]

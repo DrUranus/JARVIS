@@ -26,7 +26,7 @@ def _req(srv, method, path, *, body=None, token=True, origin=None):
         conn.close()
 
 
-def _sse(srv, *, since=None, want=3):
+def _sse(srv, *, since=None, want=3, until=None):
     conn = http.client.HTTPConnection("127.0.0.1", srv.port, timeout=5)
     path = "/events?t=" + srv.token + (f"&since={since}" if since is not None else "")
     conn.request("GET", path, headers={"Host": f"127.0.0.1:{srv.port}"})
@@ -34,7 +34,7 @@ def _sse(srv, *, since=None, want=3):
     events, buf = [], b""
     try:
         assert resp.status == 200 and resp.getheader("Content-Type").startswith("text/event-stream")
-        while len(events) < want:
+        while len(events) < want and not (until and any(until(e) for e in events)):
             line = resp.fp.readline()
             if not line:
                 break
@@ -77,7 +77,7 @@ def test_windows_smoke_server_lifecycle_token_origin_stream_command():
         assert status == 200 and ack["type"] == "ack" and ack["data"] == {**ack["data"], "ok": True, "id": "s1"}
         validate_event(ack)
         # Der Befehl erscheint im Ereignisstrom (Wiederaufnahme ab letzter Nummer)
-        more = _sse(srv, since=first[-1]["seq"], want=2)
+        more = _sse(srv, since=first[-1]["seq"], want=20, until=lambda e: e["type"] == "chat" and e["data"]["text"] == "smoke")
         assert any(e["type"] == "chat" and e["data"]["text"] == "smoke" for e in more)
     finally:
         srv.stop()
