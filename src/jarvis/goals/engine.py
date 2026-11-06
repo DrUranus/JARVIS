@@ -188,6 +188,11 @@ class GoalEngine:
             out = [r.goal for r in recs if status is None or r.status is status]
             return out[:limit] if limit else out
 
+    def wrap_planner(self, wrapper: Callable[[Any], Any]) -> Any:
+        """Replace the planner by `wrapper(current_planner)` (same interface; used once at wiring time, e.g. by the explicit resume path). Starts nothing."""
+        self._planner = wrapper(self._planner)
+        return self._planner
+
     def describe(self) -> dict[str, Any]:
         with self._lock:
             return {"goals": len(self._recs), "active": self._active(), "max_active": self.max_active, "max_steps": self.max_steps,
