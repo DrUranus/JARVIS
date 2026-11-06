@@ -27,6 +27,7 @@ _WRITE = re.compile(r"\b(fix\w*|behebe|repar\w*|ändere|ändern|change|edit|schr
 _TEST = re.compile(r"\b(tests?|testlauf|pytest|unittest|prüf\w*|teste)\b", re.IGNORECASE)
 _SCREEN = re.compile(r"\b(screenshot|bildschirm\w*|fenster|windows?)\b", re.IGNORECASE)
 _INPUT = re.compile(r"\b(klick\w*|click|tipp\w*|type|maus|mouse|tastatur|keyboard|drücke|press|öffne|open|starte|start)\b", re.IGNORECASE)
+_RESEARCH = re.compile(r"\b(recherchier\w*|research|finde\s+\w*\s*heraus|find\s+out|informier\w*\s+dich|informationen\s+(?:über|ueber|zu)|information\s+about|quellen|sources)\b", re.IGNORECASE)
 _RUNNERS = ("pytest", "python -m pytest", "python -m unittest", "npm test")
 _EDIT_KEYS = frozenset({"path", "content", "mode", "old_text", "new_text", "expected_sha256"})
 MAX_EDITS = 10
@@ -58,8 +59,9 @@ def find_url(objective: str, ctx: dict[str, Any]) -> str | None:
 
 class GoalPlanner:
     def __init__(self, agent_planner: AgentPlanner | None, *, max_attempts: int = 2, step_timeout: float | None = None,
-                 replanner: Replanner | None = None, decomposer: Decomposer | None = None) -> None:
+                 replanner: Replanner | None = None, decomposer: Decomposer | None = None, web_search: bool = False) -> None:
         self._agents = agent_planner
+        self._web_search = bool(web_search)          # the opt-in web search is configured: a research question without a URL becomes a search-and-read step
         self._replanner = replanner
         self._decomposer = decomposer
         self._max_attempts, self._step_timeout = max(1, min(int(max_attempts), P.MAX_ATTEMPTS_HARD)), step_timeout
@@ -110,13 +112,15 @@ class GoalPlanner:
             matches.append("coding")
         if not matches and _SCREEN.search(objective) and "url" not in user:
             matches.append("screen")
+        if not matches and self._web_search and _RESEARCH.search(objective):
+            matches.append("search")
         if not matches:
             raise PlanningError("no plan: the objective names no web page (url), no coding workspace and no screen question; "
                                 "give a url or a workspace explicitly")
         if len(matches) > 1:
             raise PlanningError("the objective is ambiguous: it fits more than one kind of goal")
         kind = matches[0]
-        specs = {"web": self._web, "coding": self._coding, "screen": self._screen}[kind](goal, objective, user, url)
+        specs = {"web": self._web, "coding": self._coding, "screen": self._screen, "search": self._search}[kind](goal, objective, user, url)
         steps = self._build(goal, specs)
         if len(steps) > max_steps:
             raise PlanningError(f"the plan needs {len(steps)} steps; the limit is {max_steps}")
@@ -232,6 +236,14 @@ class GoalPlanner:
             raise PlanningError("the url must be an http(s) address")
         return [
             {"objective": "Recherchiere und lese die Webseite " + url[:200] + " (Browser)", "caps": {"research.web"}, "input": {"url": url}},
+            {"evaluate": True},
+        ]
+
+    def _search(self, goal: Goal, objective: str, user: dict[str, Any], url: str | None) -> list[dict[str, Any]]:
+        """Research question without a URL: ONE research step that searches (opt-in source) and reads the chosen pages. Only the question text goes in; the agent derives
+        and redacts the search text, so no context, file or history travels with it."""
+        return [
+            {"objective": "Recherchiere im Web: " + objective[:200] + " (Websuche, Quellen)", "caps": {"research.web"}, "input": {"query": objective[:300]}},
             {"evaluate": True},
         ]
 

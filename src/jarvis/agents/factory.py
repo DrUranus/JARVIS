@@ -77,7 +77,7 @@ def build_research_search(settings: Settings, budget_check: Callable[[], str | N
     return build(settings.research, env=env, budget_check=budget_check, transport=transport)
 
 
-def _research_agent(settings: Settings) -> Agent:
+def _research_agent(settings: Settings, subsystems: dict[str, Any] | None = None) -> Agent:
     """The Phase-10 research agent when [research] is enabled (same id, so everything that used the placeholder keeps working); else the placeholder."""
     if not settings.research.enabled:
         return ResearchAgent()
@@ -86,7 +86,8 @@ def _research_agent(settings: Settings) -> Agent:
     r = settings.research
     # the research layer's own URL filter mirrors (never exceeds) what the browser layer allows: the user's exact browser.private_hosts_allowed
     return WebResearchAgent(ResearchLimits(r.max_sources, r.max_actions, r.timeout_seconds, r.max_result_chars),
-                            private_hosts_allowed=tuple(settings.browser.private_hosts_allowed))
+                            private_hosts_allowed=tuple(settings.browser.private_hosts_allowed),
+                            search_source=(lambda: subsystems.get("research_search")) if subsystems is not None else None)   # looked up at use time: built after the agents
 
 
 def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | None, task_manager: TaskManager,
@@ -103,7 +104,7 @@ def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | 
                                  max_queue=cfg.max_queue, max_history=cfg.max_history, cancel_grace=cfg.cancel_grace_seconds,
                                  tool_call_limit=cfg.tool_call_limit, max_output_chars=cfg.max_output_chars, task_manager=task_manager,
                                  memory_lookup=lookup)
-        agents: list[Agent] = [_research_agent(settings), BrowserAgent(), CodingAgent(interrupt=_interrupt_of(subsystems, "coding")), ComputerAgent()]
+        agents: list[Agent] = [_research_agent(settings, subsystems), BrowserAgent(), CodingAgent(interrupt=_interrupt_of(subsystems, "coding")), ComputerAgent()]
         if settings.business.enabled:
             from jarvis.business.agent import BusinessAgent
             agents.append(BusinessAgent(max_steps=settings.business.max_steps, timeout=settings.business.timeout_seconds,

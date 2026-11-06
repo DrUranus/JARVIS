@@ -47,7 +47,7 @@ def build_goals(settings: Settings, agents: Any, llm: Any = None) -> GoalsSubsys
         usable = llm is not None and callable(getattr(llm, "complete_text", None))
         decomposer = LLMDecomposer(llm) if cfg.llm_planning and usable else None            # opt-in; the fixed templates stay the fallback
         planner = GoalPlanner(agents.planner, max_attempts=cfg.max_attempts_per_step, step_timeout=cfg.step_timeout_seconds, replanner=replanner,
-                              decomposer=decomposer)
+                              decomposer=decomposer, web_search=bool(settings.research.enabled and settings.research.search_enabled))
         engine = GoalEngine(agents.orchestrator, planner, max_steps=cfg.max_steps, max_attempts=cfg.max_attempts_per_step,
                             goal_timeout=cfg.goal_timeout_seconds, step_timeout=cfg.step_timeout_seconds, max_active=cfg.max_active_goals,
                             max_history=cfg.max_history)
