@@ -1,0 +1,117 @@
+name: Control Center GUI E2E
+
+# Browser-E2E (echtes Chromium, headless) auf Linux und Windows plus ein nativer Windows-Desktop-Test des Mini-Overlays (nur manuell).
+# Nachweisgrenzen: docs/NEXUS_GUI.md. Der Browser-Job ist KEINE native Fensterabnahme; nur der Job native-desktop startet ein echtes pywebview-Fenster.
+# Es werden keine Secrets benutzt, nichts wird veroeffentlicht oder geschrieben ausser Artefakten.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/jarvis/control_center/**'
+      - 'src/jarvis/ui_contract/**'
+      - 'tests/test_control_center_e2e_browser.py'
+      - 'tests/test_control_center_status.py'
+      - 'tests/test_control_center_native_windows.py'
+      - '.github/workflows/control-center-gui-e2e.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cc-gui-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-e2e:
+    name: browser-e2e (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Install test dependencies (CI only)
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check -e ".[dev]" "playwright>=1.49,<2"
+          if [ "$RUNNER_OS" = "Linux" ]; then python -m playwright install --with-deps chromium; else python -m playwright install chromium; fi
+      - name: Browser E2E (real Chromium, real loopback server, real engine for the emergency stop)
+        shell: bash
+        env:
+          JARVIS_GUI_EVIDENCE: reports/gui
+        run: |
+          mkdir -p reports/gui
+          python -m pytest -v -rfEs tests/test_control_center_e2e_browser.py tests/test_control_center_status.py --junitxml=reports/gui/junit-browser.xml
+      - name: Fail on skipped or missing tests (a skipped test is not a pass)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          root = ET.parse("reports/gui/junit-browser.xml").getroot()
+          suites = [root] if root.tag == "testsuite" else list(root)
+          tests = sum(int(s.get("tests", 0)) for s in suites)
+          skipped = sum(int(s.get("skipped", 0)) for s in suites)
+          failed = sum(int(s.get("failures", 0)) + int(s.get("errors", 0)) for s in suites)
+          print(f"tests={tests} skipped={skipped} failed={failed}")
+          if tests < 21 or skipped or failed:
+              sys.exit(f"E2E nicht bestanden: tests={tests} (mindestens 21 erwartet), skipped={skipped}, failed={failed}")
+          PY
+      - name: Upload evidence, including failures
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: control-center-browser-e2e-${{ matrix.os }}
+          path: reports/gui/
+          if-no-files-found: warn
+          retention-days: 14
+
+  native-desktop:
+    # Nur manuell (workflow_dispatch): startet ein echtes pywebview-Overlay auf dem Desktop des Runners und bedient es mit der Maus.
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Install (CI only)
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check -e ".[dev,ui,computer]"
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          if (Test-Path $key) { "WebView2 runtime: " + (Get-ItemProperty $key).pv } else { "WebView2 runtime missing, installing"; choco install webview2-runtime -y --no-progress }
+      - name: Native overlay test on the interactive desktop
+        shell: pwsh
+        env:
+          JARVIS_NATIVE_GUI: '1'
+          JARVIS_GUI_EVIDENCE: reports/gui
+        run: |
+          New-Item -ItemType Directory -Force reports/gui | Out-Null
+          python -m pytest -v -rfEs tests/test_control_center_native_windows.py --junitxml=reports/gui/junit-native.xml
+      - name: Fail if the native test was skipped
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          python -c "import sys,xml.etree.ElementTree as ET; r=ET.parse('reports/gui/junit-native.xml').getroot(); s=[r] if r.tag=='testsuite' else list(r); t=sum(int(x.get('tests',0)) for x in s); k=sum(int(x.get('skipped',0)) for x in s); print('tests',t,'skipped',k); sys.exit(0 if t>=1 and k==0 else 'native test skipped or missing')"
+      - name: Upload evidence, including failures
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: control-center-native-desktop
+          path: reports/gui/
+          if-no-files-found: warn
+          retention-days: 14
