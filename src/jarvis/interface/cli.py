@@ -157,7 +157,8 @@ def repl(core: JarvisCore, input_fn: Callable[[str], str] | None = None,
                     output_fn("Bis bald.")
                     return
             else:
-                out = core.handle(line).text
+                routed = research_route(core, line)
+                out = run_command(core, routed, settings, output_fn, input_fn) if routed else core.handle(line).text
         except JarvisError as exc:
             out = f"Fehler: {exc}"
         output_fn(out)
@@ -348,6 +349,19 @@ def _assistant(core: JarvisCore, arg: str) -> str:
     return sub.status_text() if sub is not None else "Assistent: nicht konfiguriert."
 
 
+_RESEARCH_START = re.compile(r"^\s*(?:bitte\s+)?(?:recherchier\w*|recherche\b|finde\s+\w*\s*heraus|informier\w*\s+dich|research\b|find\s+out)", re.IGNORECASE)
+
+
+def research_route(core: JarvisCore, text: str) -> str | None:
+    """A typed request that STARTS with a research verb ("Recherchiere …") becomes the goal `/goal <text>` when the goal engine is on: with a URL the page is read, with the
+    opt-in web search a search is made, and without either the person gets a plain explanation of what is missing (instead of a generic plan). Otherwise None:
+    the text then goes the usual way. Only the start of the sentence decides; nothing is sent anywhere by this function."""
+    goals = core.subsystems.get("goals")
+    if getattr(goals, "engine", None) is None or not isinstance(text, str) or text.startswith("/") or not _RESEARCH_START.match(text):
+        return None
+    return "/goal " + text.strip()
+
+
 def _resume(core: JarvisCore, arg: str) -> str:
     """`/resume` zeigt unterbrochene Ziele aus dem Journal (nur lesen); `/resume <id>` setzt eines fort - nur auf diesen ausdruecklichen Befehl, nie automatisch.
     Bereits erledigte Schritte laufen nicht erneut, Schritte mit moeglicher Aenderung ausserhalb von JARVIS brauchen eine NEUE Bestaetigung ueber den Bestaetigungskanal
@@ -448,11 +462,8 @@ def _goals(core: JarvisCore, cmd: str, arg: str) -> str:
             rep = core.cancel_goal(goal.goal_id)
             result = engine.wait(goal.goal_id, timeout=10)
             print(f"Abbruch angefordert: {rep.message}", flush=True)
-        lines = [f"Ziel {result.goal.goal_id}: {result.status.value}" + (f" – {result.summary}" if result.summary else "")]
-        lines += [f"  {st.step_id}: {st.status.value} {st.assigned_agent or 'prüfung'}" + (f" ({st.attempts} Versuche)" if st.attempts > 1 else "")
-                  for st in result.steps]
-        lines += [f"  Hinweis: {w}" for w in result.warnings]
-        return "\n".join(lines)
+        from jarvis.interface.goal_text import report
+        return report(result)
     except JarvisError as exc:
         return f"Nicht möglich: {exc}"
 
