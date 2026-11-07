@@ -262,7 +262,7 @@ def test_flipping_the_single_plan_switch_in_the_shipped_backlog_approves_exactly
         order.append(nxt["id"])
         finished.add(nxt["id"])
     assert "windows-capture-tests" in done and "windows-capture-tests" in raw["plan"]["approved_items"]       # erledigt, aber weiter Teil der sieben freigegebenen Schritte
-    assert order == [i for i in raw["plan"]["approved_items"] if i not in done]                              # nur offene Schritte laufen, jeder genau einmal
+    assert order == [i for i in raw["plan"]["approved_items"] if i not in done and not next(x for x in raw["items"] if x["id"] == i).get("deferred")]                              # nur offene Schritte laufen, jeder genau einmal
     for sensitive in ("audit-hash-chain", "cli-confirm-timeout", "smartphone-api-design"):        # llm-goal-planning/coding-llm-edits: ausdrueckliche Besitzerfreigabe (Release-Plan)
         assert not next(i for i in items if i["id"] == sensitive)["approved"]
 
@@ -276,7 +276,7 @@ def test_the_shipped_plan_starts_the_open_steps_one_by_one_through_the_existing_
     api, fire = FakeApi(), Fire()
     first = begin(api, "next", path=SHIPPED, fire=fire, chain_budget=5)
     st = state_of(api, first["issue"])
-    assert st["chain"]["item_id"] == "cc-windows-smoke" and st["chain"]["budget"] == 5 and st["chain"]["auto_continue"] is True
+    assert st["chain"]["item_id"] == "os-sandbox-design" and st["chain"]["budget"] == 5 and st["chain"]["auto_continue"] is True
     assert "ABNAHMEKRITERIEN" in fire.calls[0]
     for ref, why in (("llm-routing-policy", "(?i)bereits erledigt"), ("stt-local-provider", "(?i)bereits erledigt"),
                      ("research-search-interface", "(?i)bereits erledigt"), ("coding-llm-edits", "(?i)bereits erledigt"), ("llm-goal-planning", "(?i)bereits erledigt"),
@@ -285,7 +285,7 @@ def test_the_shipped_plan_starts_the_open_steps_one_by_one_through_the_existing_
         with pytest.raises(ja.AutomationError, match=why):
             begin(FakeApi(), ref, path=SHIPPED)
     order, api2 = [], FakeApi()
-    for _ in RELEASE_ORDER:
+    for _ in [i for i in RELEASE_ORDER if i != "cc-windows-smoke"]:
         r = ja.start_backlog_job(api2, cfg(JARVIS_MAX_JOBS_PER_DAY="50"), item_ref="next", backlog_path=SHIPPED, auto_continue=True, chain_budget=5, run_id=str(600 + len(order)),
                                  run_attempt="1", fire_url="https://example.invalid/f", fire_token="T", fire=Fire(), now=NOW)         # Standard-Tageslimit ist 10: 16 Schritte brauchen mehr
         item = state_of(api2, r["issue"])["chain"]["item_id"]
@@ -294,7 +294,7 @@ def test_the_shipped_plan_starts_the_open_steps_one_by_one_through_the_existing_
         ja.set_state(api2, api2.get_issue(n), state_of(api2, n), "completed", extra={"report": {"branch": f"claude/{item}", "pr_url": f"https://github.com/DrUranus/JARVIS/pull/{100 + len(order)}",
                                                                                                 "commits": ["d" * 40], "tests": [], "next_action": "continue", "status": "success"}})
         ja.mark_merged(api2, n, pr_number=100 + len(order), sha="d" * 40, now=NOW)
-    assert order == RELEASE_ORDER
+    assert order == [i for i in RELEASE_ORDER if i != "cc-windows-smoke"]
     with pytest.raises(ja.AutomationError, match="(?i)kein freigegebener"):
         ja.start_backlog_job(api2, cfg(JARVIS_MAX_JOBS_PER_DAY="50"), item_ref="next", backlog_path=SHIPPED, auto_continue=True, chain_budget=5, run_id="699", run_attempt="1",
                              fire_url="https://example.invalid/f", fire_token="T", fire=Fire(), now=NOW)                    # danach ist nichts mehr freigegeben
