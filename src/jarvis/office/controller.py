@@ -78,6 +78,13 @@ class OfficeController(FilesController):
         info.pop("organize_plans", None)
         return info
 
+    def _locate(self, raw: Any, *, write: bool, label: str = "path") -> Located:
+        # Windows drive-relative paths (C:x.xlsx) depend on per-drive process state.
+        # Reject them before the inherited workspace/PathGuard checks.
+        if isinstance(raw, str) and re.match(r"^[A-Za-z]:(?![/\\\\])", raw):
+            raise _bad("path_denied", f"{label}: drive-relative paths are not accepted")
+        return super()._locate(raw, write=write, label=label)
+
     # -- build -------------------------------------------------------------------------------------------------------------------------------
     def _build(self, action: Any, *, path: Any = None, content: Any = None, sheet: Any = None, limit: Any = None, **_ignored: Any) -> Plan:
         name = action.strip().lower() if isinstance(action, str) else ""
