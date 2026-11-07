@@ -97,7 +97,7 @@ Das ist ausdruecklich **kein** Windows-Nachweis: Windows-Nachweis ausstehend, bi
 - Mikrofon, Lautsprecher, echter Browser (Playwright), X11-Tests unter Windows.
 - Windows-Runner: ein Fenstertest wurde einmal wegen eines nicht auffindbaren `tk.tcl` uebersprungen (Lauf 39153201869, nicht reproduziert). Seit 85b036f scheitert der Job in so einem Fall sichtbar. Es trat danach in 2 von 3 Laeufen wieder auf (jedes Mal ein anderer Test, `tk.tcl`, `icons.tcl`, `init.tcl`); seit 8f0b2dd wird der Start bis zu dreimal versucht und jeder Wiederholungsversuch als Warnung ausgegeben. Die Ursache ist **nicht ermittelt** (Verdacht: transienter Dateizugriff auf dem Runner, z. B. Virenscanner); eine Wiederholung hat bisher jedes Mal geholfen.
 - Verhalten ausserhalb der Runner-Umgebung (andere Konten, Domaenen, Antivirus).
-- Phase 15 bleibt ein deaktivierter Vorschlagsworkflow; es gibt keine Sandbox. Job Objects sind Eindaemmung, keine Isolation.
+- Phase 15 bleibt ein deaktivierter Vorschlagsworkflow; es gibt keine Sandbox. Job Objects sind Eindaemmung, keine Isolation. Abnahmetests einer kuenftigen Sandbox: `docs/SANDBOX_DESIGN.md`, Abschnitt 7 (nur Windows-CI belegt sie).
 
 ## Echte Windows-Aufnahmetests (Computer-Provider)
 
