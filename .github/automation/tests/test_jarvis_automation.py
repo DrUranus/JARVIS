@@ -599,7 +599,7 @@ def test_shipped_backlog_approvals_are_exactly_the_owner_approved_steps():
     items = ja.load_backlog(ROOT / ".github/automation/backlog.json")
     plan = raw["plan"]
     assert plan["approved_items"] == PINNED_PLAN and isinstance(plan["approved"], bool)
-    assert [i["id"] for i in raw["items"] if i.get("approved") is True] == ["autonomy-invariants", "session-budget"]       # Einzelfreigaben ausserhalb des Plans
+    assert [i["id"] for i in raw["items"] if i.get("approved") is True] == ["autonomy-invariants", "session-budget", "office-design"]       # Einzelfreigaben ausserhalb des Plans
     assert [i["id"] for i in items if i["approved"]] == ["autonomy-invariants", "session-budget"] + (PINNED_PLAN if plan["approved"] else [])
     assert [i["id"] for i in items if i.get("done")] == ["autonomy-invariants", "session-budget"] + PINNED_DONE          # erledigt (gemergt); bleibt Teil des Plans
     expected_next = next((i for i in PINNED_PLAN if i not in PINNED_DONE), None) if plan["approved"] else None          # kein freigegebener Schritt offen
