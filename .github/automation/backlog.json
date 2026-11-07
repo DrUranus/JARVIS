@@ -1184,6 +1184,7 @@
       "id": "media-design",
       "title": "Medienbearbeitung: Entwurf (nur Dokument)",
       "approved": false,
+      "done": true,
       "depends_on": [
         "int-vetting-policy"
       ],
@@ -1227,6 +1228,7 @@
       "id": "office-docs",
       "title": "Dokumente: Tabellen, Texte und Praesentationen im Workspace (vorbereitet, nicht freigegeben)",
       "approved": true,
+      "done": true,
       "depends_on": [
         "office-design"
       ],
