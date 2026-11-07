@@ -599,7 +599,7 @@ def test_shipped_backlog_approvals_are_exactly_the_owner_approved_steps():
     items = ja.load_backlog(ROOT / ".github/automation/backlog.json")
     plan = raw["plan"]
     assert plan["approved_items"] == PINNED_PLAN and isinstance(plan["approved"], bool)
-    assert [i["id"] for i in raw["items"] if i.get("approved") is True] == ["autonomy-invariants", "session-budget", "office-design"]       # Einzelfreigaben ausserhalb des Plans
+    assert [i["id"] for i in raw["items"] if i.get("approved") is True] == ["autonomy-invariants", "session-budget", "office-design", "office-docs"]       # Einzelfreigaben ausserhalb des Plans
     assert [i["id"] for i in items if i["approved"]] == ["autonomy-invariants", "session-budget"] + (PINNED_PLAN if plan["approved"] else [])
     assert [i["id"] for i in items if i.get("done")] == ["autonomy-invariants", "session-budget"] + PINNED_DONE          # erledigt (gemergt); bleibt Teil des Plans
     expected_next = next((i for i in PINNED_PLAN if i not in PINNED_DONE and not next(x for x in raw["items"] if x["id"] == i).get("deferred")), None) if plan["approved"] else None          # kein freigegebener Schritt offen
@@ -613,7 +613,7 @@ SECURITY_CRITICAL_APPROVED = ["uia-actions", "uia-agent-integration", "uia-windo
 ROADMAP_NEW = ["event-bus", "task-journal", "task-resume", "agent-router", "agent-error-recovery", "file-tools", "assistant-e2e", "ui-tech-evaluation", "cc-shell", "cc-confirmation",
                "cc-dashboard", "cc-ai-core", "cc-voice-viz", "cc-backend-binding", "cc-results-audit", "cc-windows-start", "cc-windows-smoke"]       # Roadmap Control Center und Autonomie
 WIRING_IN_BOOTSTRAP = {"file-tools", "assistant-e2e", "cc-backend-binding"}        # die einzigen neuen Schritte mit bootstrap.py im Aufgabenbereich: der Besitzer mergt sie
-STILL_BLOCKED = ["audit-hash-chain", "cli-confirm-timeout", "smartphone-api-design", "mcp-security-review", "mail-provider", "office-docs", "media-agent"]
+STILL_BLOCKED = ["audit-hash-chain", "cli-confirm-timeout", "smartphone-api-design", "mcp-security-review", "mail-provider", "media-agent"]
 SCOPE_DIGESTS = {      # SHA-256 ueber Aufgabe, Abnahmekriterien, Abhaengigkeiten, Zeit, Versuche, sensitive_edits und scope zum Zeitpunkt der Freigabe: eine Umfangserweiterung schlaegt an
 
     "file-tools": "e2ab2f42ee51b8075f112de7e810ebc5a28039cf0c8a041ef7666272a7b3bad5",
