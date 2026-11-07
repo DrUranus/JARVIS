@@ -558,6 +558,37 @@ PINNED_PLAN = [   # Reihenfolge in backlog.json = Ausfuehrungsreihenfolge der Au
                "office-design",
                "media-design"]
 DONE_AT_RELEASE_PLAN = {"ui-contract-v1", "llm-compat-vetting", "file-tools", "assistant-e2e", "uia-windows-e2e"}      # per direktem Auftrag umgesetzt (PR #73), steht als done
+MERGED_AFTER_RELEASE_PLAN = {
+ "llm-compat-provider": "#79",
+ "llm-routing-design": "#81",
+ "llm-routing-policy": "#84",
+ "llm-goal-planning": "#88",
+ "event-bus": "#90 (+#92)",
+ "task-journal": "#95",
+ "agent-router": "#97",
+ "uia-actions": "#99",
+ "uia-agent-integration": "#101",
+ "agent-error-recovery": "#103",
+ "task-resume": "#105",
+ "stt-vetting": "#120",
+ "stt-local-provider": "#126",
+ "stt-vad-endpointing": "#128",
+ "research-vetting": "#130",
+ "research-search-interface": "bd7c7cf",
+ "research-extract-backend": "#136",
+ "research-search-provider": "#138",
+ "coding-llm-edits": "#140",
+ "ui-tech-evaluation": "#142",
+ "cc-shell": "#146",
+ "cc-confirmation": "#148",
+ "cc-dashboard": "#150",
+ "cc-ai-core": "#152",
+ "cc-voice-viz": "#154",
+ "cc-backend-binding": "#156",
+ "cc-results-audit": "#158",
+ "cc-windows-start": "#160/#168"
+}      # nachweislich gemergt (PR/Commit je Schritt), steht als done: der Controller startet sie nie erneut
+DONE_AT_RELEASE_PLAN |= set(MERGED_AFTER_RELEASE_PLAN)
 PINNED_DONE = [i for i in PINNED_PLAN if i in set(PINNED_PLAN[:12]) | DONE_AT_RELEASE_PLAN]     # gemergt: done verhindert jede Wiederholung
 
 
@@ -585,37 +616,9 @@ WIRING_IN_BOOTSTRAP = {"file-tools", "assistant-e2e", "cc-backend-binding"}     
 STILL_BLOCKED = ["audit-hash-chain", "cli-confirm-timeout", "smartphone-api-design", "mcp-security-review", "mail-provider", "office-docs", "media-agent"]
 SCOPE_DIGESTS = {      # SHA-256 ueber Aufgabe, Abnahmekriterien, Abhaengigkeiten, Zeit, Versuche, sensitive_edits und scope zum Zeitpunkt der Freigabe: eine Umfangserweiterung schlaegt an
 
-    "llm-compat-provider": "9fa08b09912cdc285055389c94dda43be9568a3c5189aede0771193a4f9c645c",
-    "llm-routing-design": "5edfac70e7b4e9d4a8374ba0ce1e1f3a4ef9e4080d6d3ea5265d48e2c69c5931",
-    "llm-routing-policy": "018bdbd7fd938895156f4fcc61372021fe0e5b7303f2e62d785f239030b45919",
-    "llm-goal-planning": "f1674218effceb58d01df6e8b85922fcf04c751038d0f08a9f3f3255dc332e61",
-    "event-bus": "029162a8f20a9cd4efe876fd8a09ee98642754033ffb3dac551bd0ec8da193c9",
-    "task-journal": "fc68c47d6c309e606b3574944dd19d4f348e986ad3b83bd889eec5d34baaf578",
-    "agent-router": "983d0b0adf1ebf8f504dfd2222611653ab2d3335945eb029780076585c13b4aa",
-    "uia-actions": "c098afa47b64a5055e8539c2ef1c0b51e96a009771581c113d4d757edab47c49",
-    "uia-agent-integration": "549856178055bf6fbebbcb9ee3d32cf9c7bbd85e6f4a55f86c582d49012f3b74",
-    "agent-error-recovery": "af72b1eeab0da04767e8625978eb9b05b9c346433cb3c64c35f7807086416911",
-    "task-resume": "b207446b2ae382bed4e607c009405bec1ec9beb9445a030e06c63ef0731a60b2",
     "file-tools": "e2ab2f42ee51b8075f112de7e810ebc5a28039cf0c8a041ef7666272a7b3bad5",
     "assistant-e2e": "18194a7f5a30ebcc4664905a2eea46786384ff2fec2e1943d1635ff61016212f",
     "uia-windows-e2e": "86d44b835803c638bfdb2bbd8675eb8e99e665b9c6a6829a6586f62d4506d9ae",
-    "stt-vetting": "a8939a92236283c4a5e4dc12ae935b74f97003d69c6bd5c61a5e470daefb9829",
-    "stt-local-provider": "2113225f581e1c13c20e252b63cd77d93d30bfdd9b3a8acaefb16ee776f76e04",
-    "stt-vad-endpointing": "ce118d676fc82dd6050939e8c0fc108ed5087020e64abcbaed5a9f8846f81115",
-    "research-vetting": "78f02ce93ff52c2f7b2ceec2637f60fcf25fde02773d1424f3f2d08378cbf8a0",
-    "research-search-interface": "ad2a55bc44aee7f111f66f0cab9c32cc0a951c7d00b4644ebee2491b4928eabb",
-    "research-extract-backend": "9c2d9abd6ec7e0ab8935fc1886f8e00ee9c8c969f6cdf59e7576890e00ff421f",
-    "research-search-provider": "7426d5f463f9372c626ba9fc3ba72cb881de84572dfc7e13377f4a23ea1a9e80",
-    "coding-llm-edits": "9920c14187f22e28ba40e86f9f1bd21fb263dc8356b9f02deeee53f9a64dd4e8",
-    "ui-tech-evaluation": "943aa7d8c7c9525c1381a1440d3b07163e994bd522da2b1c8d1dbb352572713b",
-    "cc-shell": "cc37d700ca2fff80e96fa7f84505fc1c615f70ded0a8e02cc9a8fa7ab82fe32c",
-    "cc-confirmation": "530748f563b2e6acffd25e1b6d50d2b40d6f0d32eabe743afc16ce3aab7ccbb4",
-    "cc-dashboard": "bc26a03efb069da5596e0317d4e0305fe6d704d260edfaef5cd2e641172c3791",
-    "cc-ai-core": "576241d972959188a99cf5438890850f403be853fc6ca67a5c3783cdc7a91360",
-    "cc-voice-viz": "65d52257a03659cbe787cefc675fd3fbe8b001717db859fb0b5033450e7d5609",
-    "cc-backend-binding": "1a8326cece62118ebd10f3c037c0be27b02dbec381f11ed500ecd97b1de33391",
-    "cc-results-audit": "381471ec0006f8ee077c998ad3e6820e9e2413136586079e79a4ae4547eab0c8",
-    "cc-windows-start": "1d30ad271268f973850256b60d3a84c2d32988fd96dc627d93cd747b737aa9b6",
     "cc-windows-smoke": "45506772719112a35698910449d0430cef2e9477421f72ed8b0f79ff7292c4eb",
     "os-sandbox-design": "03d2f95ad9d2cb135d3e2cbb1d2903bcae0d2554d38847a1fcec0f7e1159dd1d",
     "mail-design": "9d1002498bb3ea3e8a56f60c7a998c3341df952c4709a4aac22cef6a748db1fc",
@@ -638,10 +641,9 @@ def test_the_open_approved_steps_run_in_dependency_order_llm_first_and_the_contr
     while (nxt := ja.select_next_item(items, done, set())) is not None:
         order.append(nxt["id"])
         done.add(nxt["id"])
-    assert order == RELEASE_ORDER and order[:3] == LLM_CHAIN[1:] and order[3] == "llm-goal-planning"
-    assert order.index("llm-goal-planning") < order.index("agent-router") < order.index("cc-backend-binding")
-    assert {"assistant-e2e", "uia-windows-e2e"} <= set(PINNED_DONE)
-    assert order.index("coding-llm-edits") < order.index("ui-tech-evaluation")                        # Control Center nach Coding (Prioritaet des Besitzers)
+    assert order == RELEASE_ORDER == ["cc-windows-smoke", "os-sandbox-design", "mail-design", "office-design", "media-design"]      # alles andere ist nachweislich gemergt (done)
+    assert set(LLM_CHAIN) | {"llm-goal-planning", "agent-router", "cc-backend-binding", "coding-llm-edits", "ui-tech-evaluation", "assistant-e2e", "uia-windows-e2e"} <= set(PINNED_DONE)
+    assert "cc-windows-smoke" not in PINNED_DONE                                                       # B9: die Abnahme (Issue #186) ist offen, der Schritt bleibt offen
     by_id = {i["id"]: i for i in items}
     assert all(by_id[i]["approved"] is False for i in STILL_BLOCKED)
     assert {"ui-contract-v1"} <= {i["id"] for i in items if i.get("done")}
@@ -656,7 +658,7 @@ def test_dependencies_of_the_open_steps_point_only_to_earlier_steps_and_the_stra
     for step in PINNED_PLAN[12:] + ["mail-provider", "office-docs", "media-agent"]:
         assert all(ids.index(d) < ids.index(step) for d in by_id[step]["depends_on"]), step
     base = {"autonomy-invariants", "session-budget"} | set(PINNED_DONE)
-    assert ja.select_next_item(items, base, set())["id"] == "llm-compat-provider"
+    assert ja.select_next_item(items, base, set())["id"] == "cc-windows-smoke"
     for step in RELEASE_ORDER[1:]:                                                                           # kein Schritt ist ohne seine Vorgaenger waehlbar
         if set(by_id[step]["depends_on"]) - base:
             assert ja.select_next_item([by_id[step]], base, set()) is None, step
