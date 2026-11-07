@@ -85,6 +85,8 @@ Standard sind nur Loopback-Ziele (`localhost`, `127.0.0.0/8`, `::1`); ein entfer
 **Routing-Richtlinie (`[llm_routing]`, Standard aus):** reine Entscheidungsfunktion `jarvis.llm.routing.route` (Aufgabenklasse × Datenklasse → Anbieter oder Ablehnung), `secret`/`never` nie an die Cloud, kein stiller Cloud-Rückfall, jede Entscheidung als Audit-Ereignis `llm_route`; noch in keinen Aufrufweg eingehängt. Siehe `docs/LLM_ROUTING.md`.
 Entwurf einer Richtlinie für lokales vs. Cloud-Modell (nur Dokument, nicht umgesetzt, Entscheidungen des Besitzers offen): `docs/LLM_ROUTING.md`.
 
+Entwurf der E-Mail-Anbindung (`mail-design`; nur Dokument, nichts implementiert, Entscheidungen des Besitzers offen): erste Stufe nur Lesen, Senden erst später mit Einzelbestätigung je Nachricht, Zugangsdaten nur im Windows-Anmeldeinformationsspeicher, Datenschutz und Schutz vor Prompt-Injection: `docs/MAIL_DESIGN.md`.
+
 Beispiel mit echtem Modell: `JARVIS_LLM_PROVIDER=anthropic JARVIS_LLM_MODEL=<modell> ANTHROPIC_API_KEY=... jarvis`
 
 ## Start
