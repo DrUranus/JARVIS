@@ -317,10 +317,45 @@ def load_backlog(path: Path) -> list[dict[str, Any]]:
             _check_sensitive_edits(it["id"], it["sensitive_edits"])
         if "scope" in it:
             _check_scope(it["id"], it["scope"])
+        if "deferred" in it:
+            _check_deferred(it["id"], it["deferred"], it.get("done") is True)
         it["approved"] = it.get("approved") is True
         it["_scopes_active"] = it["approved"]            # Einzelfreigabe durch den Besitzer: ihre Deklarationen gelten; Plan-Schritte: siehe _apply_plan
     _apply_plan(data.get("plan"), items)
     return items
+
+
+DEFER_MAX_DAYS = 60       # eine Zurueckstellung gilt hoechstens so lange und endet danach von selbst (kein dauerhafter, stiller Stopp)
+
+
+def _check_deferred(item_id: str, d: Any, done: bool) -> None:
+    """Besitzer-Zurueckstellung eines Schritts: {"reason": Text, "since": JJJJ-MM-TT, "until": JJJJ-MM-TT}. Sie loescht weder die Freigabe noch zaehlt sie als erledigt oder als Versuch;
+    sie nimmt den Schritt nur aus der automatischen Auswahl und Wiederholung, bis `until` erreicht ist. Nur der Besitzer kann sie setzen (backlog.json ist die Freigabe-Instanz)."""
+    where = f"backlog.json: {item_id}: deferred"
+    if not isinstance(d, dict) or set(d) != {"reason", "since", "until"}:
+        raise AutomationError(f"{where} braucht genau reason, since und until")
+    if not isinstance(d["reason"], str) or not d["reason"].strip() or len(d["reason"]) > 300:
+        raise AutomationError(f"{where}: reason muss 1-300 Zeichen haben")
+    try:
+        since, until = (dt.date.fromisoformat(d[k]) for k in ("since", "until"))
+    except (TypeError, ValueError):
+        raise AutomationError(f"{where}: since und until muessen Daten (JJJJ-MM-TT) sein") from None
+    if until < since or (until - since).days > DEFER_MAX_DAYS:
+        raise AutomationError(f"{where}: until muss zwischen since und since + {DEFER_MAX_DAYS} Tagen liegen")
+    if done:
+        raise AutomationError(f"{where}: ein erledigter Schritt braucht keine Zurueckstellung")
+
+
+def deferral_of(item: dict[str, Any], today: dt.date | None = None) -> dict[str, Any] | None:
+    """Die wirksame Zurueckstellung (heute zwischen since und until, inklusive) oder None."""
+    d = item.get("deferred")
+    if not isinstance(d, dict):
+        return None
+    today = today or utcnow().date()
+    try:
+        return d if dt.date.fromisoformat(d["since"]) <= today <= dt.date.fromisoformat(d["until"]) else None
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def _overlaps_never(path: str) -> bool:
@@ -403,12 +438,12 @@ def item_task(item: dict[str, Any]) -> str:
     return item["task"] + "\n\nABNAHMEKRITERIEN (jedes einzeln im Bericht belegen):\n" + "\n".join(f"- {c}" for c in criteria)
 
 
-def select_next_item(items: list[dict[str, Any]], done: set[str], blocked: set[str]) -> dict[str, Any] | None:
-    """Erster freigegebener, nicht erledigter Schritt, dessen Abhaengigkeiten erledigt sind. Gesperrte Schritte stoppen die Suche nicht,
+def select_next_item(items: list[dict[str, Any]], done: set[str], blocked: set[str], today: dt.date | None = None) -> dict[str, Any] | None:
+    """Erster freigegebener, nicht erledigter Schritt, dessen Abhaengigkeiten erledigt sind. Gesperrte und vom Besitzer zurueckgestellte Schritte stoppen die Suche nicht,
     werden aber uebersprungen; ein nicht freigegebener Schritt wird nie ausgewaehlt."""
     done = done | {it["id"] for it in items if it.get("done") is True}        # "done": true = bereits gemergt, nie erneut starten
     for it in items:
-        if it["id"] in done or it["id"] in blocked or it.get("approved") is not True:
+        if it["id"] in done or it["id"] in blocked or it.get("approved") is not True or deferral_of(it, today):
             continue
         if all(d in done for d in it.get("depends_on", [])):
             return it
@@ -835,6 +870,8 @@ def decide_followup(state: dict[str, Any], cfg: Config, issue: dict[str, Any], *
     if state["status"] == "failed":
         item = next((i for i in items if i["id"] == chain.get("item_id")), None)
         limit = min(int(item.get("max_attempts", 2)), HARD_MAX_ATTEMPTS) if item else 1
+        if item and deferral_of(item):
+            return None, "Schritt ist vom Besitzer zurueckgestellt: keine Wiederholung"
         if item and item.get("approved") is True and chain.get("attempt", 1) < limit and report.get("status") == "failed":
             return {"item": item, "attempt": chain["attempt"] + 1, "retry": True}, "Wiederholung nach Fehlschlag"
         return None, "fehlgeschlagen, keine Wiederholung mehr erlaubt"
@@ -846,6 +883,8 @@ def decide_followup(state: dict[str, Any], cfg: Config, issue: dict[str, Any], *
         limit = min(int(item.get("max_attempts", 2)), HARD_MAX_ATTEMPTS) if item else 1
         # Nur fuer bestehende freigegebene Backlog-Auftraege, nie fuer
         # beliebige Ad-hoc-Jobs oder echte neue Besitzerentscheidungen.
+        if item and deferral_of(item):
+            return None, "Schritt ist vom Besitzer zurueckgestellt: keine Wiederholung"
         if (item and item.get("approved") is True and chain.get("attempt", 1) < limit
                 and report.get("next_action") in {"needs_human", "continue"}
                 and report.get("pr_url") and bool(state.get("merged"))
@@ -929,6 +968,9 @@ def start_backlog_job(api: GitHubApi, cfg: Config, *, item_ref: str, backlog_pat
             raise AutomationError(f"Backlog-Schritt {item_ref} ist bereits erledigt.")
         if item.get("approved") is not True:
             raise AutomationError(f"Backlog-Schritt {item_ref} ist nicht freigegeben.")
+        hold = deferral_of(item)
+        if hold:
+            raise AutomationError(f"Backlog-Schritt {item_ref} ist vom Besitzer bis {hold['until']} zurueckgestellt ({hold['reason'][:120]}).")
         open_deps = [d for d in item.get("depends_on", []) if d not in done]
         if open_deps:
             raise AutomationError(f"Backlog-Schritt {item_ref}: Abhaengigkeit noch offen ({', '.join(open_deps)}).")
