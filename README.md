@@ -89,6 +89,8 @@ Entwurf der E-Mail-Anbindung (`mail-design`; nur Dokument, nichts implementiert,
 
 Entwurf für Tabellen und Dokumente (`office-design`; nur Dokument, nichts implementiert, Entscheidungen des Besitzers offen): Kandidaten openpyxl, python-docx und Office-COM, Makros nie ausführen, Schreiben nur im bestätigten Workspace, Abnahmetests: `docs/OFFICE_DESIGN.md`.
 
+Entwurf für Bild-, Audio- und Videobearbeitung (`media-design`; nur Dokument, nichts implementiert, Entscheidungen des Besitzers offen): FFmpeg als externes Programm mit festen Argumentlisten, Pillow/OpenCV als Kandidaten, Lizenzvarianten, Ressourcengrenzen, Ausgabe nur im bestätigten Workspace, Abnahmetests: `docs/MEDIA_DESIGN.md`.
+
 Beispiel mit echtem Modell: `JARVIS_LLM_PROVIDER=anthropic JARVIS_LLM_MODEL=<modell> ANTHROPIC_API_KEY=... jarvis`
 
 ## Start
