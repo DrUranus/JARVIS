@@ -47,6 +47,10 @@ def build_core(settings: Settings) -> JarvisCore:
     # The file tools are a fourth, equally opt-in subsystem (files.enabled = false by default): one ProtectedTool, only inside confirmed roots, no delete.
     from jarvis.files.factory import build_files
     core.subsystems["files"] = build_files(settings, tools, permissions)
+    # Office files (office-docs, O1) are a fifth, equally opt-in subsystem (office.enabled = false by default): read and create NEW .xlsx/.docx inside confirmed roots,
+    # never macros, never overwriting. The libraries come from the optional extra `office` and are imported lazily.
+    from jarvis.office.factory import build_office
+    core.subsystems["office"] = build_office(settings, tools, permissions, baseline_rules=office_baseline_rules())
     # Multi-agent orchestration sits ABOVE those subsystems: agents only use their tools through the registry (and so the permission engine).
     from jarvis.agents.factory import build_agents
     core.subsystems["agents"] = build_agents(settings, tools, memory, core.tasks, core.subsystems)
@@ -178,6 +182,7 @@ def register_emergency_components(core: JarvisCore) -> None:
     halting("computer", "further steps are refused; actions already executed (clicks, typed text, started programs) stay as they are")
     halting("browser", "further steps are refused; pages already loaded or forms already sent stay as they are")
     halting("files", "further steps are refused and pending organize plans are dropped; files already created, changed or moved stay as they are")
+    halting("office", "further steps are refused and a running read is aborted; files already created stay as they are")
     halting("research_search", "further searches are refused; requests already sent to the search provider cannot be recalled")
     halting("coding", "further steps are refused and a running test process is aborted; files already written stay as they are")
 
@@ -227,3 +232,11 @@ def register_emergency_components(core: JarvisCore) -> None:
     cancelling("goals", lambda sub: getattr(sub, "engine", None), lambda e: [(g.goal_id, g.status) for g in e.list()], GOAL_TERMINAL)
     cancelling("agents", lambda sub: getattr(sub, "orchestrator", None), lambda o: [(r.task_id, r.status) for r in o.list()], TASK_TERMINAL)
     cancelling("self_repair", lambda sub: getattr(sub, "engine", None), lambda e: [(r.run_id, r.status) for r in e.list()], RUN_TERMINAL)
+
+
+def office_baseline_rules() -> list:
+    """Rules merged into the permission policy when the office tool is installed (visible in /permissions). `confirm` = ask every time and never offer a
+    session permission; deny > confirm > allow, so a user `allow` rule cannot switch the question off: every new Office file is confirmed on its own."""
+    from jarvis.office.factory import RULE_ID
+    from jarvis.permissions import Effect, Rule
+    return [Rule(id=RULE_ID, effect=Effect.CONFIRM, tool="office", action="create", description="Every new Office file is confirmed one by one, with a preview")]

@@ -321,6 +321,26 @@ class FilesSettings:
     max_actions_per_minute: int = 120
 
 
+@dataclass(frozen=True)
+class OfficeSettings:
+    """Office files (office-docs, O1): read and create NEW .xlsx/.docx inside the confirmed workspace. Opt-in; never macros, never overwriting, no delete.
+    Needs the optional extra `office` (imported lazily; a missing library gives a clear message)."""
+    enabled: bool = False
+    roots: tuple[str, ...] = ()          # confirmed directories; () = security.allowed_roots (else the workspace). Must also lie inside the engine's roots
+    max_file_size: int = 5_000_000       # larger files are neither read nor written
+    max_unpacked_bytes: int = 50_000_000  # zip bomb guard: total size of all parts after unpacking (counted while reading, not from the headers)
+    max_zip_entries: int = 2000
+    max_sheets: int = 20
+    max_rows: int = 1000                 # rows per sheet (read and create)
+    max_cols: int = 50
+    max_cells: int = 20_000              # cells per call (read) / per file (create)
+    max_paragraphs: int = 500            # blocks per call (read) / paragraphs per file (create)
+    max_read_chars: int = 20_000         # most characters one `read` returns
+    read_timeout_seconds: float = 10.0   # parsing time limit (cooperative: checked per row / block)
+    max_actions_per_session: int = 100   # hard stop against runaway loops (reads count too)
+    max_actions_per_minute: int = 30
+
+
 BROWSER_PROVIDERS = ("playwright", "fake")
 BROWSER_KINDS = ("chromium", "chrome", "msedge")
 
@@ -366,6 +386,7 @@ class Settings:
     browser: BrowserSettings = field(default_factory=BrowserSettings)
     coding: CodingSettings = field(default_factory=CodingSettings)
     files: FilesSettings = field(default_factory=FilesSettings)
+    office: OfficeSettings = field(default_factory=OfficeSettings)
     agents: AgentsSettings = field(default_factory=AgentsSettings)
     goals: GoalsSettings = field(default_factory=GoalsSettings)
     budget: BudgetSettings = field(default_factory=BudgetSettings)
@@ -477,6 +498,16 @@ class Settings:
             raise ConfigError("files.max_list_entries 1..20000, max_organize_moves 1..1000")
         if fs.max_actions_per_session < 0 or fs.max_actions_per_minute < 0:
             raise ConfigError("files.max_actions_per_session/max_actions_per_minute must be >= 0")
+        of = self.office
+        if any(not r.strip() for r in of.roots):
+            raise ConfigError("office.roots must not contain empty entries")
+        if not 1000 <= of.max_file_size <= 50_000_000 or not 10_000 <= of.max_unpacked_bytes <= 500_000_000 or not 1 <= of.max_zip_entries <= 20_000:
+            raise ConfigError("office.max_file_size 1000..50000000, max_unpacked_bytes 10000..500000000, max_zip_entries 1..20000")
+        if not 1 <= of.max_sheets <= 100 or not 1 <= of.max_rows <= 100_000 or not 1 <= of.max_cols <= 1000 or not 1 <= of.max_cells <= 1_000_000 \
+                or not 1 <= of.max_paragraphs <= 20_000 or not 100 <= of.max_read_chars <= 500_000:
+            raise ConfigError("office.max_sheets 1..100, max_rows 1..100000, max_cols 1..1000, max_cells 1..1000000, max_paragraphs 1..20000, max_read_chars 100..500000")
+        if not 0 < of.read_timeout_seconds <= 300 or of.max_actions_per_session < 0 or of.max_actions_per_minute < 0:
+            raise ConfigError("office.read_timeout_seconds 0..300 (positive); max_actions_per_session/max_actions_per_minute must be >= 0")
         ag = self.agents
         if not 1 <= ag.max_concurrent <= 16 or not 0 < ag.task_timeout_seconds <= 3600 or not 1 <= ag.max_queue <= 1000:
             raise ConfigError("agents.max_concurrent 1..16, task_timeout_seconds 0..3600 (positive), max_queue 1..1000")
