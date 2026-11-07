@@ -87,6 +87,8 @@ Entwurf einer Richtlinie für lokales vs. Cloud-Modell (nur Dokument, nicht umge
 
 Entwurf der E-Mail-Anbindung (`mail-design`; nur Dokument, nichts implementiert, Entscheidungen des Besitzers offen): erste Stufe nur Lesen, Senden erst später mit Einzelbestätigung je Nachricht, Zugangsdaten nur im Windows-Anmeldeinformationsspeicher, Datenschutz und Schutz vor Prompt-Injection: `docs/MAIL_DESIGN.md`.
 
+Entwurf für Tabellen und Dokumente (`office-design`; nur Dokument, nichts implementiert, Entscheidungen des Besitzers offen): Kandidaten openpyxl, python-docx und Office-COM, Makros nie ausführen, Schreiben nur im bestätigten Workspace, Abnahmetests: `docs/OFFICE_DESIGN.md`.
+
 Beispiel mit echtem Modell: `JARVIS_LLM_PROVIDER=anthropic JARVIS_LLM_MODEL=<modell> ANTHROPIC_API_KEY=... jarvis`
 
 ## Start
