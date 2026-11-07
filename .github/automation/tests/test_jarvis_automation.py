@@ -600,7 +600,7 @@ def test_shipped_backlog_approvals_are_exactly_the_owner_approved_steps():
     plan = raw["plan"]
     assert plan["approved_items"] == PINNED_PLAN and isinstance(plan["approved"], bool)
     assert [i["id"] for i in raw["items"] if i.get("approved") is True] == ["autonomy-invariants", "session-budget", "office-design", "office-docs"]       # Einzelfreigaben ausserhalb des Plans
-    assert [i["id"] for i in items if i["approved"]] == ["autonomy-invariants", "session-budget"] + (PINNED_PLAN if plan["approved"] else [])
+    assert [i["id"] for i in items if i["approved"]] == ["autonomy-invariants", "session-budget", "office-docs"] + (PINNED_PLAN if plan["approved"] else [])
     assert [i["id"] for i in items if i.get("done")] == ["autonomy-invariants", "session-budget"] + PINNED_DONE          # erledigt (gemergt); bleibt Teil des Plans
     expected_next = next((i for i in PINNED_PLAN if i not in PINNED_DONE and not next(x for x in raw["items"] if x["id"] == i).get("deferred")), None) if plan["approved"] else None          # kein freigegebener Schritt offen
     nxt = ja.select_next_item(items, set(), set())
@@ -641,7 +641,7 @@ def test_the_open_approved_steps_run_in_dependency_order_llm_first_and_the_contr
     while (nxt := ja.select_next_item(items, done, set())) is not None:
         order.append(nxt["id"])
         done.add(nxt["id"])
-    assert order == [i for i in RELEASE_ORDER if i != "cc-windows-smoke"] == ["media-design"]      # alles andere ist nachweislich gemergt (done)
+    assert order == [i for i in RELEASE_ORDER if i != "cc-windows-smoke"] + ["office-docs"] == ["media-design", "office-docs"]      # alles andere ist nachweislich gemergt (done)
     assert set(LLM_CHAIN) | {"llm-goal-planning", "agent-router", "cc-backend-binding", "coding-llm-edits", "ui-tech-evaluation", "assistant-e2e", "uia-windows-e2e"} <= set(PINNED_DONE)
     assert "cc-windows-smoke" not in PINNED_DONE                                                       # B9: die Abnahme (Issue #186) ist offen, der Schritt bleibt offen
     by_id = {i["id"]: i for i in items}
