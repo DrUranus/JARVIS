@@ -602,7 +602,7 @@ def test_shipped_backlog_approvals_are_exactly_the_owner_approved_steps():
     assert [i["id"] for i in raw["items"] if i.get("approved") is True] == ["autonomy-invariants", "session-budget", "office-design"]       # Einzelfreigaben ausserhalb des Plans
     assert [i["id"] for i in items if i["approved"]] == ["autonomy-invariants", "session-budget"] + (PINNED_PLAN if plan["approved"] else [])
     assert [i["id"] for i in items if i.get("done")] == ["autonomy-invariants", "session-budget"] + PINNED_DONE          # erledigt (gemergt); bleibt Teil des Plans
-    expected_next = next((i for i in PINNED_PLAN if i not in PINNED_DONE), None) if plan["approved"] else None          # kein freigegebener Schritt offen
+    expected_next = next((i for i in PINNED_PLAN if i not in PINNED_DONE and not next(x for x in raw["items"] if x["id"] == i).get("deferred")), None) if plan["approved"] else None          # kein freigegebener Schritt offen
     nxt = ja.select_next_item(items, set(), set())
     assert (nxt["id"] if nxt else None) == expected_next          # Teilziel 3 und 4 sind erledigt; ohne freigegebenen Plan gibt es keinen naechsten Schritt
 
@@ -641,7 +641,7 @@ def test_the_open_approved_steps_run_in_dependency_order_llm_first_and_the_contr
     while (nxt := ja.select_next_item(items, done, set())) is not None:
         order.append(nxt["id"])
         done.add(nxt["id"])
-    assert order == RELEASE_ORDER == ["cc-windows-smoke", "os-sandbox-design", "mail-design", "office-design", "media-design"]      # alles andere ist nachweislich gemergt (done)
+    assert order == [i for i in RELEASE_ORDER if i != "cc-windows-smoke"] == ["os-sandbox-design", "mail-design", "office-design", "media-design"]      # alles andere ist nachweislich gemergt (done)
     assert set(LLM_CHAIN) | {"llm-goal-planning", "agent-router", "cc-backend-binding", "coding-llm-edits", "ui-tech-evaluation", "assistant-e2e", "uia-windows-e2e"} <= set(PINNED_DONE)
     assert "cc-windows-smoke" not in PINNED_DONE                                                       # B9: die Abnahme (Issue #186) ist offen, der Schritt bleibt offen
     by_id = {i["id"]: i for i in items}
@@ -658,7 +658,7 @@ def test_dependencies_of_the_open_steps_point_only_to_earlier_steps_and_the_stra
     for step in PINNED_PLAN[12:] + ["mail-provider", "office-docs", "media-agent"]:
         assert all(ids.index(d) < ids.index(step) for d in by_id[step]["depends_on"]), step
     base = {"autonomy-invariants", "session-budget"} | set(PINNED_DONE)
-    assert ja.select_next_item(items, base, set())["id"] == "cc-windows-smoke"
+    assert ja.select_next_item(items, base, set())["id"] == "os-sandbox-design"
     for step in RELEASE_ORDER[1:]:                                                                           # kein Schritt ist ohne seine Vorgaenger waehlbar
         if set(by_id[step]["depends_on"]) - base:
             assert ja.select_next_item([by_id[step]], base, set()) is None, step
