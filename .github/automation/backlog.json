@@ -1101,6 +1101,11 @@
       "id": "cc-windows-smoke",
       "title": "Control Center: Windows-Rauchtest auf dem Runner (ohne Oberflaeche)",
       "approved": false,
+      "deferred": {
+        "reason": "B9: echte Desktop-Abnahme (Issue #186) steht aus",
+        "since": "2026-11-07",
+        "until": "2026-12-07"
+      },
       "depends_on": [
         "cc-windows-start"
       ],
