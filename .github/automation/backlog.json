@@ -383,7 +383,8 @@
         "Keine neue Bibliothek; Schluessel nur aus der Umgebung und nie in Logs (Test)",
         "Fehlerpfade (Zeitlimit, HTTP-Fehler, ungueltige Antwort) getestet, Fake-Transport statt Netz"
       ],
-      "_note": "Liest einen API-Schluessel aus der Umgebung und kann Daten an Remote-Server senden: Aktivierung nur durch den Besitzer."
+      "_note": "Liest einen API-Schluessel aus der Umgebung und kann Daten an Remote-Server senden: Aktivierung nur durch den Besitzer.",
+      "done": true
     },
     {
       "id": "llm-routing-design",
@@ -400,7 +401,8 @@
         "Offene Besitzer-Entscheidungen ausdruecklich aufgelistet",
         "Kein Code, nichts aktiviert"
       ],
-      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json).",
+      "done": true
     },
     {
       "id": "llm-routing-policy",
@@ -418,7 +420,8 @@
         "Standard unveraendert, unbekannte Konfigurationsschluessel abgelehnt (Tests)",
         "Jede Entscheidung als Audit-Ereignis, kein Rueckfall ohne Konfiguration (Tests)"
       ],
-      "_note": "Entscheidet ueber Datenabfluss an die Cloud und beruehrt bootstrap.py/Audit: Besitzer-Freigabe erforderlich."
+      "_note": "Entscheidet ueber Datenabfluss an die Cloud und beruehrt bootstrap.py/Audit: Besitzer-Freigabe erforderlich.",
+      "done": true
     },
     {
       "id": "ui-contract-v1",
@@ -457,7 +460,8 @@
         "Jeder Kandidat wird validiert: max_steps <= 50, max_attempts_per_step <= 5, keine neuen Faehigkeiten, Tools oder Agenten, keine Berechtigungsumgehung (je ein Test pro Verstoss)",
         "Standardmaessig aus, kein Selbststart, keine Lockerung bestehender Grenzen (Tests)",
         "Fake-LLM statt Netzwerk in den Tests; Sicherheitsregression gruen"
-      ]
+      ],
+      "done": true
     },
     {
       "id": "event-bus",
@@ -486,7 +490,8 @@
         "docs/TESTING.md",
         "tests/test_ui_contract.py"
       ],
-      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt.",
+      "done": true
     },
     {
       "id": "task-journal",
@@ -512,7 +517,8 @@
         "docs/TESTING.md",
         "docs/BACKLOG.md"
       ],
-      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt.",
+      "done": true
     },
     {
       "id": "agent-router",
@@ -537,7 +543,8 @@
         "README.md",
         "docs/TESTING.md"
       ],
-      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt.",
+      "done": true
     },
     {
       "id": "uia-actions",
@@ -555,7 +562,8 @@
         "Nach jeder Aktion Rueckmeldung ueber den tatsaechlich gelesenen Zustand, bei Abweichung ehrlich als nicht erfolgreich gemeldet",
         "Windows-Test mit echtem Testfenster auf dem Runner bestanden, nicht uebersprungen"
       ],
-      "_note": "Sicherheitsrelevant (steuert den PC): ohne konkrete sensitive_edits-Freigabe merged der Besitzer den PR; Aktivierung nur durch den Besitzer."
+      "_note": "Sicherheitsrelevant (steuert den PC): ohne konkrete sensitive_edits-Freigabe merged der Besitzer den PR; Aktivierung nur durch den Besitzer.",
+      "done": true
     },
     {
       "id": "uia-agent-integration",
@@ -572,7 +580,8 @@
         "Rueckfall auf Bildschirmfoto nur bei nicht erreichbarem Element und im Ergebnis benannt",
         "Orchestrator-Limits, Abbruch und Notaus unveraendert wirksam (Tests)"
       ],
-      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json).",
+      "done": true
     },
     {
       "id": "agent-error-recovery",
@@ -596,7 +605,8 @@
         "README.md",
         "docs/TESTING.md"
       ],
-      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt.",
+      "done": true
     },
     {
       "id": "task-resume",
@@ -620,7 +630,8 @@
         "README.md",
         "docs/TESTING.md"
       ],
-      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt.",
+      "done": true
     },
     {
       "id": "file-tools",
@@ -713,7 +724,8 @@
         "Windows-/CPU-Eignung und Empfehlung mit Begruendung",
         "Kein Code, keine Installation, kein Modell-Download"
       ],
-      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json).",
+      "done": true
     },
     {
       "id": "stt-local-provider",
@@ -731,7 +743,8 @@
         "Fehlendes Modell und Zeitlimit liefern klare Meldungen (Tests mit Fake-Modell)",
         "Start nur mit Entscheidung 'nehmen' und Besitzer-Freigabe-Zeile im Pruefdokument, sonst blocked ohne Aenderung"
       ],
-      "_note": "Neue optionale Bibliothek und Modelldatei: der Besitzer gibt beides mit der Freigabe dieses Schritts frei."
+      "_note": "Neue optionale Bibliothek und Modelldatei: der Besitzer gibt beides mit der Freigabe dieses Schritts frei.",
+      "done": true
     },
     {
       "id": "stt-vad-endpointing",
@@ -749,7 +762,8 @@
         "Kein Hotword und kein Unterbrechen in diesem Schritt (Strukturtest ueber den Umfang), kein doppelter Code zu voice-barge-in-hotword",
         "Optionales Extra, Standard unveraendert"
       ],
-      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json).",
+      "done": true
     },
     {
       "id": "research-vetting",
@@ -766,7 +780,8 @@
         "Empfehlung fuer genau eine Suchquelle und die Extraktion, Besitzerentscheidung offen markiert",
         "Kein Code, keine Installation, kein Netzwerkzugriff in der CI"
       ],
-      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json).",
+      "done": true
     },
     {
       "id": "research-search-interface",
@@ -783,7 +798,8 @@
         "Abruf nur ueber die vorhandenen kontrollierten Wege (Strukturtest)",
         "Bestehende Research-Tests unveraendert gruen"
       ],
-      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json)."
+      "_note": "Neu in der Integrations-Planung. Nicht in plan.approved_items: startet nie ohne ausdrueckliche Freigabe des Besitzers (eigener PR auf backlog.json).",
+      "done": true
     },
     {
       "id": "research-extract-backend",
@@ -801,7 +817,8 @@
         "Obergrenzen fuer Eingabe und Ausgabe (Tests), kein Netzwerk",
         "Start nur mit Entscheidung 'nehmen' und Besitzer-Freigabe-Zeile im Pruefdokument, sonst blocked ohne Aenderung"
       ],
-      "_note": "Neue optionale Bibliothek: der Besitzer gibt sie mit der Freigabe dieses Schritts frei."
+      "_note": "Neue optionale Bibliothek: der Besitzer gibt sie mit der Freigabe dieses Schritts frei.",
+      "done": true
     },
     {
       "id": "research-search-provider",
@@ -819,7 +836,8 @@
         "Schluessel nur aus der Umgebung, nie in Logs; Ratenbegrenzung und Zeitlimit (Tests mit Fake-Transport)",
         "Konfiguration dokumentiert, welche Daten an den Anbieter gehen"
       ],
-      "_note": "Nutzt einen externen Dienst und einen API-Schluessel: Aktivierung nur durch den Besitzer."
+      "_note": "Nutzt einen externen Dienst und einen API-Schluessel: Aktivierung nur durch den Besitzer.",
+      "done": true
     },
     {
       "id": "coding-llm-edits",
@@ -836,7 +854,8 @@
         "Jede Aenderung bleibt hash-geschuetzt und braucht eine Einzelbestaetigung (Tests)",
         "Tests laufen vor und nach der Aenderung; das Ergebnis wird ehrlich gemeldet",
         "Standardmaessig aus, keine Lockerung bestehender Grenzen (Tests); Fake-LLM statt Netzwerk"
-      ]
+      ],
+      "done": true
     },
     {
       "id": "ui-tech-evaluation",
@@ -859,7 +878,8 @@
         "docs/integrations/",
         "docs/UI_CONTRACT.md"
       ],
-      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt.",
+      "done": true
     },
     {
       "id": "cc-shell",
@@ -886,7 +906,8 @@
         "README.md",
         "docs/TESTING.md"
       ],
-      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt.",
+      "done": true
     },
     {
       "id": "cc-confirmation",
@@ -911,7 +932,8 @@
         "docs/UI_CONTRACT.md",
         "README.md"
       ],
-      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt.",
+      "done": true
     },
     {
       "id": "cc-dashboard",
@@ -937,7 +959,8 @@
         "docs/UI_CONTRACT.md",
         "README.md"
       ],
-      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt.",
+      "done": true
     },
     {
       "id": "cc-ai-core",
@@ -962,7 +985,8 @@
         "docs/UI_CONTRACT.md",
         "README.md"
       ],
-      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt.",
+      "done": true
     },
     {
       "id": "cc-voice-viz",
@@ -986,7 +1010,8 @@
         "docs/UI_CONTRACT.md",
         "README.md"
       ],
-      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt.",
+      "done": true
     },
     {
       "id": "cc-backend-binding",
@@ -1016,7 +1041,8 @@
         "README.md",
         "docs/TESTING.md"
       ],
-      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt.",
+      "done": true
     },
     {
       "id": "cc-results-audit",
@@ -1041,7 +1067,8 @@
         "docs/UI_CONTRACT.md",
         "README.md"
       ],
-      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt.",
+      "done": true
     },
     {
       "id": "cc-windows-start",
@@ -1067,7 +1094,8 @@
         "README.md",
         "docs/TESTING.md"
       ],
-      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt."
+      "_note": "Roadmap Control Center und Autonomie (docs/RELEASE_PLAN.md). Wirksam nur ueber plan.approved_items; Aufgabenbereich per scope begrenzt.",
+      "done": true
     },
     {
       "id": "cc-windows-smoke",
