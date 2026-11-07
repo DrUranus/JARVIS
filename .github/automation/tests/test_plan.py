@@ -262,7 +262,7 @@ def test_flipping_the_single_plan_switch_in_the_shipped_backlog_approves_exactly
         order.append(nxt["id"])
         finished.add(nxt["id"])
     assert "windows-capture-tests" in done and "windows-capture-tests" in raw["plan"]["approved_items"]       # erledigt, aber weiter Teil der sieben freigegebenen Schritte
-    assert order == [i for i in raw["plan"]["approved_items"] if i not in done and not next(x for x in raw["items"] if x["id"] == i).get("deferred")] + ["office-docs"]                              # nur offene Schritte laufen, jeder genau einmal
+    assert order == [i for i in raw["plan"]["approved_items"] if i not in done and not next(x for x in raw["items"] if x["id"] == i).get("deferred")] + (["office-docs"] if "office-docs" not in done else [])                              # nur offene Schritte laufen, jeder genau einmal
     for sensitive in ("audit-hash-chain", "cli-confirm-timeout", "smartphone-api-design"):        # llm-goal-planning/coding-llm-edits: ausdrueckliche Besitzerfreigabe (Release-Plan)
         assert not next(i for i in items if i["id"] == sensitive)["approved"]
 
