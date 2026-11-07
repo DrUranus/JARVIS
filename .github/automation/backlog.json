@@ -1158,7 +1158,7 @@
     {
       "id": "office-design",
       "title": "Dokumente und Office: Entwurf (nur Dokument)",
-      "approved": false,
+      "approved": true,
       "depends_on": [
         "int-vetting-policy"
       ],
