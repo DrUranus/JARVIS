@@ -151,6 +151,26 @@ auf `tests-linux` und `tests-windows` des Commits und stößt das Gate danach **
 exakte Commit-Prüfung, Merge und Not-Aus (`JARVIS_AUTOMATION_HALT`) bleiben im Gate. Keine Rekursion: das Gate startet den Warte-Lauf je Kopf höchstens einmal (`ci_dispatched`, höchstens
 `MAX_BRANCH_UPDATES + 1` je Auftrag), der Warte-Lauf startet nur das Gate. Push auf `main` und Zeitplan bleiben das Netz darunter.
 
+## Besitzer-Zurückstellung (`deferred`) – einen Schritt bewusst pausieren
+
+Ein freigegebener Schritt, der nicht automatisch weiterlaufen soll (z. B. `cc-windows-smoke`, bis die echte Desktop-Abnahme aus Issue #186 vorliegt), kann der **Besitzer** in `backlog.json` zurückstellen:
+
+```json
+"deferred": {"reason": "B9: echte Desktop-Abnahme (Issue #186) steht aus", "since": "2026-11-07", "until": "2026-12-07"}
+```
+
+- **Wirkung:** `next` und die Kettenfortsetzung überspringen den Schritt (Schritte, die von ihm abhängen, bleiben ohnehin gesperrt); `backlog_item=<id>` lehnt ihn mit Grund ab; keine Wiederholung nach Fehlschlag oder Teilabschluss.
+- **Keine Fälschung:** `approved`, `done`, `max_attempts`, Versuchszähler und Abnahmekriterien bleiben unverändert. Ein abgelaufener Hold gibt **keinen** zusätzlichen Versuch frei; die Versuchsgrenze gilt weiter.
+- **Begrenzt:** genau `reason` (1–300 Zeichen), `since` und `until` (ISO-Datum, höchstens 60 Tage), `until` beendet die Zurückstellung von selbst. Ein erledigter Schritt braucht keine.
+- **Nur der Besitzer:** `backlog.json` ist Freigabe-Instanz (CODEOWNERS, nie per Auftrag deklarierbar). Aufheben: den Eintrag löschen oder `until` verstreichen lassen.
+- **Anwendung:** ein kleiner Besitzer-PR, der nur diesen Eintrag ergänzt.
+
+### Sicherer Neustart der Kette bei zurückgestelltem Schritt
+1. Keine offenen Aufträge (`label jarvis-job`, Status `running`/`queued`) und kein offener PR eines Kettenauftrags.
+2. Besitzer-PR mit dem `deferred`-Eintrag (und alle Freigaben/Vorbedingungen, z. B. #195, gemergt).
+3. Actions → „Trigger Claude Code Routine“: `backlog_item = next`, `auto_continue = true`, `chain_budget` klein (z. B. 3). Das Tageslimit (`JARVIS_MAX_JOBS_PER_DAY`) und das Kettenbudget gelten unverändert.
+4. Nicht `AFTER_JOB=<alter Auftrag>` wiederholen und keine zweite Kette starten.
+
 ## Sicherheitsgrenzen
 
 - Secrets: `ROUTINE_FIRE_URL` / `ROUTINE_FIRE_TOKEN` nur in `claude-routine-fire.yml` und `jarvis-controller.yml`, nur im Lauf auf dem Standard-Branch,
