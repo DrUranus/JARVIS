@@ -276,7 +276,7 @@ def test_the_shipped_plan_starts_the_open_steps_one_by_one_through_the_existing_
     api, fire = FakeApi(), Fire()
     first = begin(api, "next", path=SHIPPED, fire=fire, chain_budget=5)
     st = state_of(api, first["issue"])
-    assert st["chain"]["item_id"] == "os-sandbox-design" and st["chain"]["budget"] == 5 and st["chain"]["auto_continue"] is True
+    assert st["chain"]["item_id"] == "media-design" and st["chain"]["budget"] == 5 and st["chain"]["auto_continue"] is True
     assert "ABNAHMEKRITERIEN" in fire.calls[0]
     for ref, why in (("llm-routing-policy", "(?i)bereits erledigt"), ("stt-local-provider", "(?i)bereits erledigt"),
                      ("research-search-interface", "(?i)bereits erledigt"), ("coding-llm-edits", "(?i)bereits erledigt"), ("llm-goal-planning", "(?i)bereits erledigt"),

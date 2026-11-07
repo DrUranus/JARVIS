@@ -1129,6 +1129,7 @@
       "id": "os-sandbox-design",
       "title": "OS-Sandbox fuer fremden Code: Entwurf (nur Dokument)",
       "approved": false,
+      "done": true,
       "depends_on": [
         "int-vetting-policy"
       ],
@@ -1146,6 +1147,7 @@
       "id": "mail-design",
       "title": "E-Mail: Entwurf eines lesenden Providers (nur Dokument)",
       "approved": false,
+      "done": true,
       "depends_on": [
         "int-vetting-policy",
         "llm-routing-design"
@@ -1164,6 +1166,7 @@
       "id": "office-design",
       "title": "Dokumente und Office: Entwurf (nur Dokument)",
       "approved": true,
+      "done": true,
       "depends_on": [
         "int-vetting-policy"
       ],

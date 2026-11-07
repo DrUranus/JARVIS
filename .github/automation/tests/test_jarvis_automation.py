@@ -588,7 +588,7 @@ MERGED_AFTER_RELEASE_PLAN = {
  "cc-results-audit": "#158",
  "cc-windows-start": "#160/#168"
 }      # nachweislich gemergt (PR/Commit je Schritt), steht als done: der Controller startet sie nie erneut
-DONE_AT_RELEASE_PLAN |= set(MERGED_AFTER_RELEASE_PLAN)
+DONE_AT_RELEASE_PLAN |= set(MERGED_AFTER_RELEASE_PLAN) | {"os-sandbox-design", "mail-design", "office-design"}
 PINNED_DONE = [i for i in PINNED_PLAN if i in set(PINNED_PLAN[:12]) | DONE_AT_RELEASE_PLAN]     # gemergt: done verhindert jede Wiederholung
 
 
@@ -641,7 +641,7 @@ def test_the_open_approved_steps_run_in_dependency_order_llm_first_and_the_contr
     while (nxt := ja.select_next_item(items, done, set())) is not None:
         order.append(nxt["id"])
         done.add(nxt["id"])
-    assert order == [i for i in RELEASE_ORDER if i != "cc-windows-smoke"] == ["os-sandbox-design", "mail-design", "office-design", "media-design"]      # alles andere ist nachweislich gemergt (done)
+    assert order == [i for i in RELEASE_ORDER if i != "cc-windows-smoke"] == ["media-design"]      # alles andere ist nachweislich gemergt (done)
     assert set(LLM_CHAIN) | {"llm-goal-planning", "agent-router", "cc-backend-binding", "coding-llm-edits", "ui-tech-evaluation", "assistant-e2e", "uia-windows-e2e"} <= set(PINNED_DONE)
     assert "cc-windows-smoke" not in PINNED_DONE                                                       # B9: die Abnahme (Issue #186) ist offen, der Schritt bleibt offen
     by_id = {i["id"]: i for i in items}
@@ -658,7 +658,7 @@ def test_dependencies_of_the_open_steps_point_only_to_earlier_steps_and_the_stra
     for step in PINNED_PLAN[12:] + ["mail-provider", "office-docs", "media-agent"]:
         assert all(ids.index(d) < ids.index(step) for d in by_id[step]["depends_on"]), step
     base = {"autonomy-invariants", "session-budget"} | set(PINNED_DONE)
-    assert ja.select_next_item(items, base, set())["id"] == "os-sandbox-design"
+    assert ja.select_next_item(items, base, set())["id"] == "media-design"
     for step in RELEASE_ORDER[1:]:                                                                           # kein Schritt ist ohne seine Vorgaenger waehlbar
         if set(by_id[step]["depends_on"]) - base:
             assert ja.select_next_item([by_id[step]], base, set()) is None, step
