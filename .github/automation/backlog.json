@@ -1226,7 +1226,7 @@
     {
       "id": "office-docs",
       "title": "Dokumente: Tabellen, Texte und Praesentationen im Workspace (vorbereitet, nicht freigegeben)",
-      "approved": false,
+      "approved": true,
       "depends_on": [
         "office-design"
       ],
