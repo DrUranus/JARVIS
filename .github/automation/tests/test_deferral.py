@@ -106,9 +106,9 @@ def test_no_retry_for_a_deferred_step_and_attempt_limits_stay_untouched(monkeypa
 
 
 # ---- die ausgelieferte Datei ----------------------------------------------------------------------------------------------------------------
-def test_the_shipped_backlog_has_no_deferral_yet_so_this_mechanism_changes_no_approval_data():
+def test_the_shipped_backlog_defers_only_b9_without_changing_approval_data():
     raw = json.loads((ROOT / ".github/automation/backlog.json").read_text(encoding="utf-8"))
-    assert not [i["id"] for i in raw["items"] if "deferred" in i]                                    # den Eintrag setzt allein der Besitzer (siehe .github/automation/README.md)
+    assert [i["id"] for i in raw["items"] if "deferred" in i] == ["cc-windows-smoke"]                                    # den Eintrag setzt allein der Besitzer (siehe .github/automation/README.md)
 
 
 def test_the_backlog_file_is_not_declarable_by_a_job_so_only_the_owner_can_defer():
