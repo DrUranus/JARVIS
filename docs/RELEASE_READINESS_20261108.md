@@ -29,10 +29,24 @@ Dieses Dokument ändert keine Freigabe, startet nichts und ersetzt keine Abnahme
 | Mail, Medien (`mail-provider`, `media-agent`) | nur Entwürfe (Doku) | – | – | – | B: nicht freigegeben |
 | Smartphone | nein | – | – | – | zurückgestellt bis nach stabiler PC-Version |
 
+## 1a. Was in dieser Sitzung tatsächlich ausgeführt wurde (Linux, nicht Windows)
+| Prüfung | Ergebnis |
+|---|---|
+| Vollständige Testsuite, Python 3.14.6 (venv, `pip install -e ".[dev]"`) | keine Fehlschläge |
+| Vollständige Testsuite, Python 3.11 | keine Fehlschläge (Skips: Tk/Display, POSIX/Windows-spezifisch) |
+| Tk-GUI-Tests (`test_gui_view/model/confirmation`) unter Xvfb, Python 3.14 | grün |
+| Echte Playwright-Browser-Tests (`test_browser_real`, `test_analysis_real`, `test_browser_basics`) mit installiertem Chromium | grün (lokaler Server; Live-Internet-Test bewusst nicht) |
+| Wiederholung der nebenläufigen Module (Agenten, Goals, Control-Center-Server, Journal, Assistent, Notaus, `/resume`) 5x unter 3.14 | 5/5 grün, keine Flakes |
+| Server-Last: 80 sequenzielle + 30 parallele SSE-Verbindungen auf/zu | Clients zurück auf 0, keine übrigen Threads, Server antwortet |
+| `jarvis-cc -c config/nexus.example.toml` als echter Prozess: Start, Token-Pflicht (401 ohne Token), SIGINT | sauberes Beenden, Port geschlossen |
+| Randeingaben im echten Assistenten (leer, sehr lang, Unicode, unbekannter Befehl) | korrekt abgelehnt bzw. beantwortet |
+
+**Windows-CI** (Runner, nicht interaktiv): `tests-windows` lief für PR #215 grün. Bei PR #214 fand sie einen **Testfehler in meinem neuen Test** (`os.utime(..., follow_symlinks=False)` ist unter Windows nicht verfügbar); behoben im selben PR.
+
 ## 2. Die zehn wichtigsten Release-Risiken (priorisiert)
 1. **R1 Keine echte interaktive Windows-GUI-Abnahme.** Runner-Tests (headless Chromium, Runner-Desktop) belegen Mechanik, nicht das Verhalten für einen Menschen (Fokus, Mehrmonitor, echte Fenster, Darstellung/Leistung). Abnahmeprotokoll: Abschnitt 5, Issue #186. *Release-Blocker.*
 2. **R2 Agenten können Datei- und Office-Aufträge nicht ausführen.** Die Tools `files` und `office` existieren, aber kein Agent (`research`, `browser`, `coding`, `computer`, `business`, `finance`) deklariert sie; über Router/NEXUS-Aufträge sind sie nicht erreichbar, nur per `/run`. Ein neuer Agent ist eine neue Fähigkeit und braucht Freigabe (Empfehlung E1).
-3. **R3 Webrecherche nie live und ohne echten Browser in der Pflicht-CI.** `test_browser_real`/`test_analysis_real` skippen in `tests-windows` (kein Playwright installiert). Brave-Schlüssel, Netz und `playwright install` unbewiesen.
+3. **R3 Webrecherche nie live; echter Browser nicht in der Windows-Pflicht-CI.** `test_browser_real`/`test_analysis_real` skippen in `tests-windows` (kein Playwright installiert); unter Linux laufen sie lokal grün (siehe 1a). Brave-Schlüssel, Netz und `playwright install` unter Windows unbewiesen.
 4. **R4 Echtes LLM ungetestet.** Standard ist `mock`. Plan-Qualität realer Modelle (Zielzerlegung, Code-Vorschläge) ist unbewiesen; ohne LLM sind nur URL-, Workspace-, Bildschirm- und Suchaufträge planbar.
 5. **R5 Sprache auf echter Hardware ungetestet** (Mikrofon, Lautsprecher, lokale Modelle/Downloads). Vom Besitzer verschoben.
 6. **R6 Python 3.14 auf Windows nicht in der Vollsuite abgesichert.** Linux 3.14.6: grün; Windows nur `uia-compat`. Tk-GUI/Windows-spezifische Pfade (winreg, winjob, pywebview) unter 3.14 ungeprüft.
