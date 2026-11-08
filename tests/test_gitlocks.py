@@ -65,7 +65,10 @@ def test_a_directory_or_symlink_named_lock_is_never_removable(tmp_path):
     except (OSError, NotImplementedError):
         pytest.skip("Symlinks nicht verfuegbar (nicht bestanden, nur uebersprungen)")
     t = time.time() - 9999
-    os.utime(link, (t, t), follow_symlinks=False)
+    try:
+        os.utime(link, (t, t), follow_symlinks=False)           # unter Windows nicht verfuegbar: das Urteil 'unsafe' haengt ohnehin nicht vom Alter ab
+    except NotImplementedError:
+        pass
     assert G.remove_orphans(git, 1, procs_fn=lambda: []) == []
     assert target.read_text() == "keep" and (git / "dir.lock").is_dir()
 
