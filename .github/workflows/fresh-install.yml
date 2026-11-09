@@ -1,0 +1,64 @@
+name: Fresh Install (Windows)
+
+# E3: frische venv, Installation aus dem Repository, Import/CLI-Rauchtest, `jarvis doctor`, kontrollierter Start/Stopp von jarvis-cc.
+# Nachweisgrenze: Windows-Runner ohne Mensch; KEINE interaktive Abnahme (#186). Keine Secrets, kein Schreibzugriff, nur Loopback.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ci/fresh-install/**'
+      - 'pyproject.toml'
+      - 'src/jarvis/interface/cli.py'
+      - 'src/jarvis/interface/doctor.py'
+      - 'src/jarvis/control_center/launcher.py'
+      - '.github/workflows/fresh-install.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fresh-install-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fresh-install:
+    name: fresh-install (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Create a fresh venv and install from the repository
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/fresh"
+          if [ "$RUNNER_OS" = "Windows" ]; then VPY="$RUNNER_TEMP/fresh/Scripts/python.exe"; else VPY="$RUNNER_TEMP/fresh/bin/python"; fi
+          echo "VPY=$VPY" >> "$GITHUB_ENV"
+          "$VPY" -m pip install --disable-pip-version-check -e ".[dev]"
+      - name: Smoke test outside the source tree
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/reports"
+          "$VPY" -I "$GITHUB_WORKSPACE/ci/fresh-install/smoke.py" 2>&1 | tee "$GITHUB_WORKSPACE/reports/fresh-install.log"
+          test "${PIPESTATUS[0]}" -eq 0
+      - name: Upload log, including failures
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fresh-install-${{ matrix.os }}-py${{ matrix.python }}
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 14
