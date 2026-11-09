@@ -108,7 +108,7 @@ Standard ist `mock`. Schlüssel **nur** als Umgebungsvariable, nie in Dateien:
 ```powershell
 $env:JARVIS_LLM_PROVIDER = "openai"          # oder "anthropic"
 $env:JARVIS_LLM_MODEL    = "<Modellname>"
-$env:OPENAI_API_KEY      = Read-Host "Schluessel" -MaskInput     # nicht im Verlauf sichtbar
+$env:OPENAI_API_KEY      = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR((Read-Host "OpenAI-Schluessel" -AsSecureString)))   # Eingabe verdeckt, Windows PowerShell 5.1 und 7
 .\.venv\Scripts\jarvis.exe doctor | Select-String -Pattern "LLM|API_KEY"
 ```
 Erwartet: Doctor zeigt den Anbieter und den Schlüssel nur als "gesetzt". Im Chat eine einfache Frage stellen; Antwort kommt vom Modell. Mit falschem Schlüssel: verständliche Fehlermeldung, kein Schlüssel im Text/Log.
@@ -122,7 +122,7 @@ Erwartet: Doctor zeigt den Anbieter und den Schlüssel nur als "gesetzt". Im Cha
 ## 8. Live-Brave-Recherche
 ```powershell
 $env:JARVIS_RESEARCH_SEARCH_ENABLED = "true"
-$env:BRAVE_SEARCH_API_KEY = Read-Host "Brave-Schluessel" -MaskInput
+$env:BRAVE_SEARCH_API_KEY = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR((Read-Host "Brave-Schluessel" -AsSecureString)))
 .\.venv\Scripts\python.exe -m pip install -e ".[browser]"
 .\.venv\Scripts\python.exe -m playwright install chromium
 ```
