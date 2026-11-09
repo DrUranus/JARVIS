@@ -124,6 +124,11 @@ Wiederaufnahme per Befehl: `tests/test_cli_resume.py` (echter Kern mit Mock-LLM,
 Datei-/Office-Agent (E1): `tests/test_agents_files.py` (echter Kern mit Mock-LLM, echte Dateien in tmp_path, echte PermissionEngine mit geskripteten Antworten: Anfrage-Erkennung, Routing, Lesen/Erstellen/Ersetzen/Kopieren, Office lesen und neu anlegen, Ablehnung und Notaus, Pfade ausserhalb der Wurzel, Geheimnisse, Capability-Grenzen, Ergebnisdarstellung). `tests/test_agents_security.py`: die gepinnte Capability-Liste enthaelt jetzt zusaetzlich files.read/files.write/office.read/office.create (kein shell/network/delete). Linux-Lauf, Windows-Nachweis liefert die CI.
 Release-Lage Windows 21.11.2026: `docs/RELEASE_READINESS_20261108.md` (Feature-Matrix mit Trennung automatisch/Linux/Windows-CI/interaktiv ausstehend, Risiken, Abnahmeprotokoll fuer Issue #186). Vollsuite unter Linux mit Python 3.14.6 und 3.11 gelaufen (keine Fehlschlaege); Tk-GUI-Tests unter Xvfb mit 3.14; Windows-CI nutzt 3.13.
 
+## Browserrecherche mit echtem Browser (Aufgabe 6)
+
+`tests/test_research_real_browser.py` laesst den ResearchAgent ueber ToolRegistry/PermissionEngine/BrowserController/PlaywrightProvider gegen eine lokale Seite (127.0.0.1) laufen:
+zwei Quellen mit Widerspruch, eingeschleuster Seitentext als reine Daten, fehlende Seite ohne erfundene Zahlen. Kein Internet, keine Schluessel. Ohne Playwright/Browser wird uebersprungen;
+der Windows-Nachweis entsteht nur im Workflow `browser-research.yml` (eigener Schutz-PR), der Ueberspringen als Fehler wertet. Keine interaktive Abnahme.
 ## Frischinstallations-Rauchtest (E3)
 
 `ci/fresh-install/smoke.py` laeuft nach `pip install -e ".[dev]"` in einer neuen venv, ausserhalb des Quellbaums: Import, `jarvis --version`, `jarvis doctor` (Exit 0/1),
