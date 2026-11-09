@@ -17,6 +17,8 @@ _RULES: dict[str, tuple[tuple[str, int], ...]] = {
                (r"\.(py|js|ts|java|c|cpp|go|rs|toml|json|md|txt)\b", 3), (r"\b(führe|run|starte)\b.*\btests?\b", 3), (r"\b(ändere|change|edit|schreibe|write|lösche|delete)\b.*\b(datei|file|code|funktion|function)\b", 3)),
     "computer": ((r"\b(klick\w*|click|tipp\w*|type|maus|mouse|tastatur|keyboard|screenshot|bildschirm\w*|screen|fenster|window|notepad|editor öffnen|taskleiste|desktop|cursor|programm starten|starte (das )?programm|drücke|press)\b", 3),
                  (r"\b(notepad|calc|rechner|paint|explorer)\b", 3)),
+    "files": ((r"\.(xlsx|docx)\b", 6), (r"\b(excel|word-?dokument|tabelle|docx|xlsx|dokument(e|en)?|ordner|verzeichnis\w*|folder|spreadsheet)\b", 4),
+              (r"\b(kopiere|verschiebe|copy|move)\b.*\b\w+\.\w{1,5}\b", 3), (r"\b(lies|lese|read)\b.*\bdatei\b", 3), (r"\b(datei|dateien)\s+(lesen|erstellen|kopieren|verschieben|auflisten)\b", 3)),
     "business": ((r"\b(marktanalyse|wettbewerbsanalyse|geschäftsmodell|businessplan|business plan|break-?even|konkurrenzanalyse|geschäftsdaten|marketingkonzept|zielgruppenanalyse|market analysis|competitor analysis|business model)\b", 4),),
     "finance": ((r"\b(finanzanalyse|aktienanalyse|unternehmensanalyse|kennzahlen\w*|bewertungskennzahlen|paper-?trad\w*|portfolio\w*|risikoanalyse|szenarioanalyse|financial analysis|stock analysis|company analysis|valuation)\b", 4),),
     "research": ((r"\b(recherchier\w*|research|finde heraus|find out|informiere dich|informationen (über|zu)|information about|quellen|sources|vergleiche|compare|zusammenfassung von|literatur)\b", 4),),
@@ -56,6 +58,12 @@ def _capabilities(agent_id: str, text: str) -> frozenset[str]:
         caps = {P.COMPUTER_SCREEN}
         if has(r"\b(klick\w*|click|tipp\w*|type|maus|mouse|tastatur|keyboard|drücke|press|starte|start|öffne|open|fenster|window)\b"):
             caps.add(P.COMPUTER_INPUT)
+        return frozenset(caps)
+    if agent_id == "files":
+        office = has(r"\.(xlsx|docx)\b|\b(excel|word|tabelle|docx|xlsx)\b")
+        caps = {P.OFFICE_READ if office else P.FILES_READ}
+        if has(r"\b(erstelle|create|schreibe|write|lege|speichere|save|kopiere|copy|verschiebe|move|ersetze|replace|ändere|change|edit)\b"):
+            caps.add(P.OFFICE_CREATE if office else P.FILES_WRITE)
         return frozenset(caps)
     if agent_id == "business":
         return frozenset({P.BUSINESS_ANALYZE})
