@@ -247,3 +247,39 @@ def test_dom_manual_choice_wins_over_auto_switch(tmp_path):
 def test_dom_no_auto_switch_without_evidence(tmp_path):
     snaps = run_scenario(tmp_path, [activity(item("t1"), item("t2"), item("t3")), ev("chat", {"sender": "jarvis", "text": "komplex komplex komplex"}), {"snap": "s"}])
     assert snaps["s"]["mode"] == "orb"
+
+
+# ---- Aufgaben-/Ergebnisansicht (Aufgabe 5) ---------------------------------------------------------------------------------------------------
+@pytestmark_node
+def test_dom_shows_status_history_german_label_result_and_a_clear_error(tmp_path):
+    snaps = run_scenario(tmp_path, [
+        activity(item("t1", title="Datei lesen", status="PENDING"), item("t2", title="Ordner anlegen")),
+        ev("task_update", {"kind": "agent_task", "id": "t1", "status": "RUNNING", "detail": ""}),
+        ev("task_update", {"kind": "agent_task", "id": "t1", "status": "RUNNING", "detail": ""}),
+        ev("task_update", {"kind": "agent_task", "id": "t1", "status": "SUCCEEDED", "detail": ""}),
+        ev("result", {"task_id": "t1", "summary": "Inhalt gelesen", "artifacts": []}),
+        {"snap": "ok"},
+        ev("task_update", {"kind": "agent_task", "id": "t2", "status": "FAILED", "detail": "Pfad liegt ausserhalb des Arbeitsbereichs"}),
+        {"click": {"id": "task-list", "text": "Ordner anlegen [FAILED]"}},
+        {"snap": "bad"},
+        ev("task_update", {"kind": "agent_task", "id": "t3", "status": "BLOCKED", "detail": ""}),
+        {"click": {"id": "task-list", "text": "t3 [BLOCKED]"}},
+        {"snap": "nogrund"},
+    ])
+    ok, bad = snaps["ok"]["text"]["task-detail"], snaps["bad"]["text"]["task-detail"]
+    assert "PENDING -> RUNNING -> SUCCEEDED" in ok and ok.count("RUNNING") == 1            # doppelte Meldungen erzeugen keine doppelte Stufe
+    assert "SUCCEEDED (erfolgreich)" in ok and "Ergebnis: Inhalt gelesen" in ok
+    assert "Fehler: Pfad liegt ausserhalb des Arbeitsbereichs" in bad and "FAILED (fehlgeschlagen)" in bad
+    assert "Fehler: das Backend nannte keinen Grund" in snaps["nogrund"]["text"]["task-detail"]
+
+
+@pytestmark_node
+def test_dom_result_links_back_to_its_task_as_a_button_not_a_hyperlink(tmp_path):
+    snaps = run_scenario(tmp_path, [
+        activity(item("t1", title="Erste"), item("t2", title="Zweite")),
+        ev("result", {"task_id": "t2", "summary": "Zwei fertig", "artifacts": []}),
+        {"click": {"id": "results-list", "text": "Zur Aufgabe"}},
+        {"snap": "x"},
+    ])
+    assert "Titel: Zweite" in snaps["x"]["text"]["task-detail"]
+    assert 'href=' not in text("app.js").split("function renderResults")[1].split("function renderDashboard")[0]
