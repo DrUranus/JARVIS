@@ -48,14 +48,14 @@ def test_disabled_by_default_jarvis_starts_and_the_old_research_placeholder_stay
         assert core.subsystems[name].status == "disabled" and name not in core.tools
         assert "deaktiviert" in run_command(core, f"/{name}") and f"JARVIS_{name.upper()}_ENABLED" in run_command(core, f"/{name}")
     reg = core.subsystems["agents"].registry
-    assert [a.id for a in reg.list()] == ["browser", "coding", "computer", "research"] and type(reg.get("research")).__module__ == "jarvis.agents.adapters.research"
+    assert [a.id for a in reg.list()] == ["browser", "coding", "computer", "files", "research"] and type(reg.get("research")).__module__ == "jarvis.agents.adapters.research"
     assert core.handle("Hallo JARVIS").text == "Hallo. Ich bin bereit."
 
 
 def test_enabled_registers_the_agents_tools_and_status(tmp_path):
     core = core_for(tmp_path)
     reg = core.subsystems["agents"].registry
-    assert {a.id for a in reg.list()} == {"browser", "coding", "computer", "research", "business", "finance"}
+    assert {a.id for a in reg.list()} == {"browser", "coding", "computer", "research", "business", "finance", "files"}
     assert type(reg.get("research")).__module__ == "jarvis.research.agent" and reg.get("business").status is AgentStatus.AVAILABLE and reg.get("finance").status is AgentStatus.AVAILABLE
     assert reg.get("research").status is AgentStatus.AVAILABLE and {"research", "business", "finance"} <= set(core.tools.names())
     r = run_command(core, "/research")
