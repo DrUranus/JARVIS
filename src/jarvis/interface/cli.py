@@ -357,9 +357,17 @@ def research_route(core: JarvisCore, text: str) -> str | None:
     opt-in web search a search is made, and without either the person gets a plain explanation of what is missing (instead of a generic plan). Otherwise None:
     the text then goes the usual way. Only the start of the sentence decides; nothing is sent anywhere by this function."""
     goals = core.subsystems.get("goals")
-    if getattr(goals, "engine", None) is None or not isinstance(text, str) or text.startswith("/") or not _RESEARCH_START.match(text):
+    if getattr(goals, "engine", None) is None or not isinstance(text, str) or text.startswith("/"):
         return None
-    return "/goal " + text.strip()
+    if _RESEARCH_START.match(text):
+        return "/goal " + text.strip()
+    try:                                                                      # a clear file/document request ("Lies die Datei x.txt", "Erstelle y.docx mit dem Inhalt: …")
+        from jarvis.goals.files_intent import FileIntentError, parse_file_goal
+        return "/goal " + text.strip() if parse_file_goal(text) is not None else None
+    except FileIntentError:
+        return "/goal " + text.strip()                                        # incomplete/ambiguous: the goal path explains what is missing
+    except Exception:                                                         # noqa: BLE001 - routing is a courtesy
+        return None
 
 
 def _resume(core: JarvisCore, arg: str) -> str:
