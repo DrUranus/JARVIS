@@ -158,7 +158,7 @@ pytestmark_node = pytest.mark.skipif(NODE is None, reason="node fehlt (ein ueber
 def run_dom(tmp_path, steps):
     f = tmp_path / "scenario.json"
     f.write_text(json.dumps(steps), encoding="utf-8")
-    out = subprocess.run([NODE, str(HARNESS), str(WEB), str(f)], capture_output=True, text=True, timeout=30)
+    out = subprocess.run([NODE, str(HARNESS), str(WEB), str(f)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout)
 
