@@ -44,7 +44,7 @@ def probe_webview2() -> str | None:
 
 def run_doctor(config_path: str | None = None, settings: Settings | None = None, env: Mapping[str, str] | None = None,
                find_spec: Callable[[str], Any] = importlib.util.find_spec, webview2_probe: Callable[[], str | None] | None = None,
-               platform: str | None = None) -> tuple[str, int]:
+               platform: str | None = None, cwd: str | None = None) -> tuple[str, int]:
     """Return (Bericht, Exit-Code). Exit-Code 0 = keine Fehler (Hinweise moeglich), 1 = mindestens ein Fehler."""
     env = os.environ if env is None else env
     lines: list[tuple[str, str]] = []
@@ -111,6 +111,7 @@ def run_doctor(config_path: str | None = None, settings: Settings | None = None,
             add(HINT, "Aktive Subsysteme, aber confirmation = deny: Aktionen mit Rückfrage werden abgelehnt.")
 
     _control_center(add, settings, sys.platform if platform is None else platform, webview2_probe or probe_webview2, find_spec)
+    _paths(add, settings, env, cwd)
 
     errors = sum(1 for lvl, _ in lines if lvl == ERROR)
     hints = sum(1 for lvl, _ in lines if lvl == HINT)
@@ -118,6 +119,29 @@ def run_doctor(config_path: str | None = None, settings: Settings | None = None,
     body.append(f"Ergebnis: {errors} Fehler, {hints} Hinweis(e). " +
                 ("Bitte die Fehler beheben." if errors else "JARVIS ist startbereit."))
     return "\n".join(body), 1 if errors else 0
+
+
+def _in_onedrive(path: str, env: Mapping[str, str]) -> bool:
+    p = path.replace("/", "\\").lower()
+    roots = [env.get(k, "").replace("/", "\\").lower() for k in ("OneDrive", "OneDriveConsumer", "OneDriveCommercial")]
+    return "\\onedrive" in p or any(r and p.startswith(r) for r in roots)
+
+
+def _paths(add: Callable[[str, str], None], settings: Settings | None, env: Mapping[str, str], cwd: str | None) -> None:
+    """Nur lesend: warnt, wenn Arbeitsordner, Protokolle oder SQLite-Dateien (Gedaechtnis, Journal) in einem OneDrive-Ordner liegen. OneDrive kann Dateien waehrend
+    des Schreibens sperren oder verzoegert synchronisieren (SQLite-Sperren, Git-Fehler `index.lock`); ein Ordner ausserhalb (z. B. C:\\dev\\JARVIS) vermeidet das."""
+    here = os.path.abspath(cwd if cwd is not None else os.getcwd())
+    spots = {"Arbeitsordner (aktueller Ordner)": here}
+    if settings is not None:
+        for label, value in (("workspace", settings.workspace), ("log_dir", settings.log_dir), ("memory.path", settings.memory.path), ("journal.path", settings.journal.path)):
+            if value:
+                spots[label] = value if os.path.isabs(value) else os.path.join(here, value)
+    bad = [label for label, value in spots.items() if _in_onedrive(value, env)]
+    if bad:
+        add(HINT, "OneDrive-Ordner erkannt bei: " + ", ".join(bad) + ". OneDrive kann Dateien beim Schreiben sperren (SQLite, Git-Fehler `index.lock`). "
+                  "Empfohlen: JARVIS außerhalb von OneDrive betreiben (z. B. C:\\dev\\JARVIS). Bei Git-Sperrdateien: `python -m jarvis.interface.gitlocks` (nur lesend, entfernt nichts ohne --remove --yes).")
+    else:
+        add(OK, "Pfade: kein OneDrive-Ordner erkannt")
 
 
 def _control_center(add: Callable[[str, str], None], settings: Settings | None, platform: str, probe: Callable[[], str | None],
