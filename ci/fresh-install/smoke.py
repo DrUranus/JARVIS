@@ -71,7 +71,7 @@ def main() -> int:
     res = run([script("jarvis"), "doctor"], env)
     print(res.stdout[-3000:], flush=True)
     step("jarvis doctor (Exit 0 oder 1, kein Absturz)", res.returncode in (0, 1) and "Traceback" not in res.stderr, f"Exit {res.returncode} {res.stderr.strip()[-300:]}")
-    cc_env = {**env, "JARVIS_AGENTS_ENABLED": "true", "JARVIS_GOALS_ENABLED": "true", "JARVIS_ASSISTANT_ENABLED": "true", "JARVIS_CONTROL_CENTER_ENABLED": "true"}
+    cc_env = {**env, "JARVIS_AGENTS_ENABLED": "true", "JARVIS_GOALS_ENABLED": "true", "JARVIS_ASSISTANT_ENABLED": "true", "JARVIS_CONTROL_CENTER_ENABLED": "true", "PYTHONUNBUFFERED": "1"}
     proc = subprocess.Popen([script("jarvis-cc")], env=cc_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
     lines: list[str] = []
     found: list[str] = []
@@ -87,7 +87,9 @@ def main() -> int:
     end = time.monotonic() + 60
     while time.monotonic() < end and not found and proc.poll() is None:
         time.sleep(0.1)
-    step("jarvis-cc startet und nennt eine Loopback-URL", bool(found), "" if found else "".join(lines)[-500:])
+    if not found:                                                                          # Diagnose: Prozessstatus und Ausgabe, bevor aufgeraeumt wird
+        print(f"jarvis-cc Exit-Status {proc.poll()}; Ausgabe bisher:\n{''.join(lines)[-1500:]}", flush=True)
+    step("jarvis-cc startet und nennt eine Loopback-URL", bool(found), "" if found else "keine URL in 60 s")
     if found:
         port = int(found[1])
         try:
