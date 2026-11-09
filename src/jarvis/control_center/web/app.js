@@ -65,12 +65,16 @@ let selected = null;
 let manualMode = false;        // wer selbst umgeschaltet hat, wird nie automatisch umgeschaltet
 
 function taskKey(kind, id) { return kind + ":" + id; }
+const STATUS_DE = { PENDING: "wartet", QUEUED: "wartet", RUNNING: "laeuft", SUCCEEDED: "erfolgreich", FAILED: "fehlgeschlagen", CANCELLED: "abgebrochen", BLOCKED: "blockiert" };
+function statusDe(status) { const k = String(status).toUpperCase(); return STATUS_DE[k] ? status + " (" + STATUS_DE[k] + ")" : String(status); }
 function isFinal(t) { return FINAL.has(String(t.status).toUpperCase()); }
 
 function upsertTask(kind, id, patch) {
   const key = taskKey(kind, id);
-  const t = tasks.get(key) || { kind: kind, id: id, title: id, status: "", note: "", detail: "", cancellable: false, listed: false };
+  const t = tasks.get(key) || { kind: kind, id: id, title: id, status: "", note: "", detail: "", cancellable: false, listed: false, history: [] };
   Object.assign(t, patch);
+  const st = String(t.status || "");
+  if (st && t.history[t.history.length - 1] !== st) { t.history.push(st); if (t.history.length > 12) t.history.shift(); }   // Statusfolge nur aus echten Meldungen
   tasks.set(key, t);
   if (!selected) selected = key;
   return t;
@@ -141,7 +145,12 @@ function renderDetail() {
   line(box, "Titel", t.title);
   line(box, "Art", t.kind);
   line(box, "Kennung", t.id);
-  line(box, "Status", t.status);
+  line(box, "Status", statusDe(t.status));
+  if (t.history.length > 1) line(box, "Verlauf", t.history.join(" -> "));
+  const bad = ["FAILED", "BLOCKED"].includes(String(t.status).toUpperCase());
+  if (bad) line(box, "Fehler", t.detail || t.note || "das Backend nannte keinen Grund");
+  const res = results.get(t.id);
+  if (res) line(box, "Ergebnis", res.summary);
   if (t.note) line(box, "Hinweis", t.note);
   if (t.detail) line(box, "Detail", t.detail);
   const r = routes.get(t.id);
@@ -171,6 +180,13 @@ function renderResults() {
     const li = document.createElement("li");
     const t = taskById(taskId);
     line(li, "Aufgabe", t ? t.title : taskId);
+    if (t) {
+      const go = document.createElement("button");
+      go.type = "button";
+      go.textContent = "Zur Aufgabe";
+      go.addEventListener("click", () => { selected = taskKey(t.kind, t.id); renderDashboard(); });
+      li.appendChild(go);
+    }
     line(li, "Zusammenfassung", r.summary);
     for (const a of r.artifacts) line(li, "Beleg (" + a.kind + ")", a.name + " - " + a.ref);  // Verweise sind reiner Text, nie ein Link
     ul.appendChild(li);
