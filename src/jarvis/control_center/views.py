@@ -28,10 +28,11 @@ class ViewError(ValueError):
 
 class ReadViews:
     def __init__(self, journal: Any = None, audit_tail: Callable[[int], list[dict[str, Any]]] | None = None, detector: SecretDetector | None = None, *,
-                 default_limit: int = DEFAULT_LIMIT, max_limit: int = MAX_LIMIT, audit_window: int = AUDIT_WINDOW) -> None:
+                 default_limit: int = DEFAULT_LIMIT, max_limit: int = MAX_LIMIT, audit_window: int = AUDIT_WINDOW,
+                 doctor: Callable[[], dict[str, Any]] | None = None) -> None:
         if not 1 <= default_limit <= max_limit:
             raise ValueError("default_limit must be within 1..max_limit")
-        self._journal, self._audit_tail = journal, audit_tail
+        self._journal, self._audit_tail, self._doctor = journal, audit_tail, doctor
         self._detector = detector or SecretDetector.from_environment()
         self._default, self._max, self._window = default_limit, max_limit, max(1, audit_window)
 
@@ -133,3 +134,29 @@ class ReadViews:
         if isinstance(extra, dict) and extra:
             item["extra"] = {self._text(k, 64): self._text(v, 300) for k, v in list(self._detector.redact_mapping(extra).items())[:MAX_ITEMS_PER_LIST]}
         return item or {"type": "unreadable_line"}
+
+
+    # ---- Einrichtung und Diagnose (nur lesend, nur Daten) -----------------------------------------------------------------------------------
+    def doctor(self, params: Mapping[str, str]) -> dict[str, Any]:
+        """Der Einrichtungsbericht (siehe setup_view): Python, Pakete, Konfiguration, Komponenten, Agenten, Schluessel nur als gesetzt/nicht gesetzt. Keine Parameter."""
+        if params:
+            raise ViewError("unknown parameter: " + ", ".join(sorted(k[:32] for k in params)))
+        out: dict[str, Any] = {"available": False, "limit": 0, "items": [], "reason": ""}
+        if self._doctor is None:
+            out["reason"] = "Kein Diagnosebericht verfügbar."
+            return out
+        try:
+            rep = self._doctor()
+        except Exception:                                                              # noqa: BLE001 - never show internals
+            log.warning("doctor view failed", exc_info=True)
+            out["reason"] = "Die Diagnose konnte nicht erstellt werden."
+            return out
+        t = self._text
+        out.update(available=True, python=t(rep.get("python"), 32), platform=t(rep.get("platform"), 32), jarvis=t(rep.get("jarvis"), 64),
+                   errors=int(rep.get("errors", 0)), hints=int(rep.get("hints", 0)), note=t(rep.get("note"), 300),
+                   items=[{"level": t(i.get("level"), 16), "text": t(i.get("text"), 600)} for i in list(rep.get("items") or [])[:60]],
+                   components=[{"name": t(c.get("name"), 60), "state": t(c.get("state"), 8), "text": t(c.get("text"), 400)} for c in list(rep.get("components") or [])[:20]],
+                   agents=[{"id": t(a.get("id"), 32), "status": t(a.get("status"), 16), "reason": t(a.get("reason"), 200)} for a in list(rep.get("agents") or [])[:20]],
+                   keys={t(k, 64): bool(v) for k, v in list((rep.get("keys") or {}).items())[:12]},
+                   security={t(k, 32): t(v, 32) for k, v in list((rep.get("security") or {}).items())[:6]})
+        return out
