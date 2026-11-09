@@ -38,10 +38,10 @@ pip install -e ".[dev]"
 
 ## Windows-Schnellstart
 
-1. **Installation** (PowerShell, Python ≥ 3.11 von python.org, damit tkinter dabei ist):
+1. **Installation** (PowerShell, Python ≥ 3.11 von python.org, damit tkinter dabei ist; Schritt-für-Schritt ohne ExecutionPolicy-Änderung und mit OneDrive-Hinweisen: `docs/WINDOWS_QUICKSTART.md`):
    ```powershell
    py -3 -m venv .venv
-   .\.venv\Scripts\Activate.ps1
+   .\.venv\Scripts\Activate.ps1      # bei ExecutionPolicy-Fehler: nicht ändern, stattdessen die .exe direkt aufrufen (docs/WINDOWS_QUICKSTART.md)
    pip install -e ".[dev,voice]"     # "voice" nur für Mikrofon/Lautsprecher; ohne geht es auch
    ```
 2. **Prüfen:** `jarvis doctor` liest nur und meldet auf Deutsch: Python, tkinter, sounddevice/numpy, playwright, ob die Konfiguration gültig ist,

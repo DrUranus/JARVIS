@@ -176,3 +176,14 @@ def test_cc_overlay_prerequisite_pywebview_reported_read_only():
     assert "pywebview: verfügbar" in ok and code == 0
     miss, code = doctor.run_doctor(settings=load_settings(env={}), env={}, find_spec=_find(("webview",)), webview2_probe=lambda: "1", platform="win32")
     assert code == 0 and "pywebview: nicht installiert" in miss and ".[ui]" in miss and "HINWEIS" in miss
+
+
+# ---- OneDrive-Pfade (nur Hinweis) ------------------------------------------------------------------------------------------------------------
+def test_onedrive_paths_are_a_hint_with_the_safe_alternative_and_other_paths_are_ok():
+    here = doctor.run_doctor(env={}, find_spec=_find(()), cwd=r"C:\Users\x\OneDrive\Dokumente\JARVIS")
+    assert "OneDrive-Ordner erkannt" in here[0] and "gitlocks" in here[0] and here[1] == 0          # Hinweis, kein Fehler
+    plain = doctor.run_doctor(env={}, find_spec=_find(()), cwd=r"C:\dev\JARVIS")
+    assert "kein OneDrive-Ordner erkannt" in plain[0]
+    via_env = doctor.run_doctor(env={"OneDrive": r"D:\Sync"}, find_spec=_find(()), cwd=r"D:\Sync\proj")
+    assert "OneDrive-Ordner erkannt" in via_env[0]
+
