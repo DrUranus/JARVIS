@@ -25,7 +25,7 @@ python -m venv .venv
 Beleg: Ausgabe des Rauchtests und von `jarvis doctor` (Text/Screenshot) ablegen.
 
 ## 3. Funktionspruefung (Mensch)
-Fuer jede Zeile: bestanden / fehlgeschlagen / nicht geprueft, plus Beleg. Nichts als bestanden eintragen, was nicht gepruefte wurde.
+Fuer jede Zeile: bestanden / fehlgeschlagen / nicht geprueft, plus Beleg. Nichts als bestanden eintragen, was nicht geprueft wurde.
 
 | # | Bereich | Pruefung | Erwartung | Maschinell belegt durch | Ergebnis | Beleg |
 |---|---|---|---|---|---|---|
