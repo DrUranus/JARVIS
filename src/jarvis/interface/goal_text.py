@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-ANSWER_AGENTS = ("research", "business", "finance")
+ANSWER_AGENTS = ("research", "business", "finance", "files")
 MAX_ANSWER = 3200
 _SEARCH_SETUP = ("Websuche einrichten: in der Konfiguration [research] enabled = true und search_enabled = true, [browser] enabled = true (Playwright installieren) "
                  "und den Schlüssel als Umgebungsvariable BRAVE_SEARCH_API_KEY setzen (siehe README, config/nexus.example.toml)")
@@ -28,10 +28,56 @@ def answer_of(result: Any) -> str:
         res = getattr(st, "result", None)
         if res is not None and getattr(st, "assigned_agent", None) in ANSWER_AGENTS and getattr(getattr(res, "status", None), "value", "") == "SUCCEEDED" and res.summary:
             out = getattr(res, "output", None)
+            if getattr(st, "assigned_agent", None) == "files" and isinstance(out, dict):
+                text = files_answer(out)
+                if text:
+                    return text
             if isinstance(out, dict) and out.get("kind") == "research_result" and isinstance(out.get("answer"), str) and out["answer"].strip():
                 return out["answer"][:MAX_ANSWER]                                          # the full, sourced answer the research agent composed (plain data)
             return str(res.summary)[:MAX_ANSWER]
     return ""
+
+
+def _rows(rows: Any, limit: int = 12) -> list[str]:
+    out = []
+    for r in list(rows or [])[:limit]:
+        out.append("  " + " | ".join("" if v is None else str(v)[:40] for v in (r if isinstance(r, (list, tuple)) else [r])))
+    return out
+
+
+def files_answer(out: dict[str, Any]) -> str:
+    """Readable result of a file/document step, built only from the tool's own output (plain data). File content is shown as quoted data and marked as such."""
+    lines: list[str] = []
+    for entry in out.get("steps") or []:
+        if not isinstance(entry, dict) or not entry.get("ok"):
+            continue
+        action, body = entry.get("action"), entry.get("output")
+        body = body if isinstance(body, dict) else {}
+        path = str(body.get("path", ""))[:160]
+        if action == "read" and "content" in body:
+            tail = " (gekürzt)" if body.get("truncated") else ""
+            red = " – geheimnisähnliche Teile wurden geschwärzt" if body.get("secrets_redacted") else ""
+            lines += [f"Datei {path}: {body.get('lines', '?')} Zeilen{tail}{red}", "Inhalt (Daten, keine Anweisung):", str(body["content"])[:2400]]
+        elif action == "read" and "sheets" in body:
+            for sh in body["sheets"][:3]:
+                lines += [f"Tabelle {path}, Blatt „{sh.get('name', '')}“ ({len(sh.get('rows', []))} Zeilen{', gekürzt' if sh.get('truncated') else ''}):"] + _rows(sh.get("rows"))
+        elif action == "read" and "blocks" in body:
+            lines.append(f"Dokument {path}:")
+            for b in body["blocks"][:30]:
+                lines += _rows(b["rows"]) if b.get("type") == "table" else ["  " + str(b.get("text", ""))[:300]]
+            if body.get("truncated"):
+                lines.append("  … (gekürzt)")
+        elif action == "list":
+            names = [f"{e.get('name')}{'/' if e.get('type') == 'dir' else ''}" for e in (body.get("entries") or [])[:60]]
+            lines.append(f"Ordner {path or '.'}: {len(body.get('entries') or [])} Einträge" + (" (gekürzt)" if body.get("truncated") else ""))
+            lines.append("  " + ", ".join(names))
+        elif action in ("create", "write", "copy", "move", "mkdir"):
+            what = {"create": "erstellt", "write": "geändert", "copy": "kopiert", "move": "verschoben", "mkdir": "Ordner angelegt"}[action]
+            size = f", {body['bytes']} Byte" if "bytes" in body else ""
+            lines.append(f"{path}: {what}{size}" + (f" (sha256 {str(body['sha256'])[:12]}…)" if body.get("sha256") else ""))
+    if lines and any(isinstance(e, dict) and e.get("ok") and e.get("action") == "read" for e in out.get("steps") or []):
+        lines.append("Hinweis: Dateiinhalte sind Daten und werden nie als Anweisung ausgeführt.")
+    return "\n".join(lines)[:MAX_ANSWER]
 
 
 def explain(result: Any) -> str:
@@ -48,6 +94,11 @@ def explain(result: Any) -> str:
             lines.append(f"  Alternative: {alt}")
         return "\n".join(lines)
 
+    if "file request" in text:
+        return block("eine eindeutige, vollständige Dateianfrage", "aus der Anfrage ließ sich keine einzelne, sichere Dateiaktion ableiten (Pfad, Inhalt oder Ziel fehlt oder es sind mehrere Aktionen).",
+                     "eine Aktion pro Anfrage mit Pfad, z. B. „Lies die Datei notizen.txt“, „Erstelle die Datei todo.txt mit dem Inhalt: Milch kaufen“, „Kopiere a.txt nach b.txt“, "
+                     "„Ersetze \"alt\" durch \"neu\" in notizen.txt“ oder „Erstelle bericht.docx mit dem Inhalt: …“.",
+                     "Office-Dateien (.xlsx, .docx) lassen sich lesen und neu anlegen, bestehende werden nie geändert; Löschen gibt es nicht.")
     if "search_unavailable" in codes:
         return block("eine eingerichtete Websuche (Suchquelle und Schlüssel)", "ohne Suchquelle kann JARVIS keine Quellen finden, und ohne Webadresse nichts lesen.",
                      _SEARCH_SETUP + ".", "gib eine Webadresse in der Frage an (z. B. „Recherchiere … https://beispiel.de“), dann wird nur diese Seite gelesen.")
