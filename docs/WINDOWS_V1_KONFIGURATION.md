@@ -62,7 +62,7 @@ Was an Brave geht: nur der Suchtext (Geheimnisse vorher geschwärzt, höchstens 
 | Suche "unavailable" | Abschnitt 4: Browser, Recherche, Suche **und** Schlüssel prüfen. |
 
 ## 6. Log-Erfassung ohne Geheimnisse
-Logs liegen standardmäßig in `logs\` (`log_dir`), das Audit in `logs\audit.jsonl`, das Journal in `data\journal.db` (Beispielkonfiguration). Das Audit und die Logs sind für Geheimnisse geschwärzt; **prüfe die Sammlung trotzdem, bevor du sie weitergibst**.
+Das Programmlog liegt standardmäßig in `logs\jarvis.log` (`log_dir`), das Audit in `logs\audit.jsonl`, das Journal in `data\journal.db` (Beispielkonfiguration). Das Audit und die Logs sind für Geheimnisse geschwärzt; **prüfe die Sammlung trotzdem, bevor du sie weitergibst**.
 ```powershell
 New-Item -ItemType Directory -Force abnahme | Out-Null
 $out = "abnahme\diagnose.txt"
@@ -70,7 +70,7 @@ $out = "abnahme\diagnose.txt"
 "== Commit: $(git rev-parse HEAD)" | Add-Content $out
 "== Python: $(.\.venv\Scripts\python.exe --version)" | Add-Content $out
 .\.venv\Scripts\jarvis.exe doctor *>&1 | Add-Content $out
-Get-ChildItem logs -Filter *.log -ErrorAction SilentlyContinue | ForEach-Object {
+Get-ChildItem logs -Filter jarvis.log -ErrorAction SilentlyContinue | ForEach-Object {
   "== $($_.Name) (letzte 200 Zeilen)" | Add-Content $out
   Get-Content $_.FullName -Tail 200 | Add-Content $out
 }
@@ -87,7 +87,7 @@ Anhängen an Issue #186 erst, wenn die letzte Zeile nur geschwärzte Treffer ode
 | Situation | Vorgehen |
 |---|---|
 | NEXUS hängt | Strg+C in der Konsole von `jarvis-cc`; wenn nötig Prozess im Task-Manager beenden; neu starten (neue URL, neues Token). |
-| Not-Aus ausgelöst | Aufhebung nur über die Rückfrage in NEXUS; ein Neustart von `jarvis-cc` setzt den Zustand ebenfalls zurück. Danach Sicherheitsmodus mit `jarvis doctor` prüfen. |
+| Not-Aus ausgelöst | Aufhebung nur über die Rückfrage in NEXUS. Der Zustand liegt nur im laufenden Prozess (es gibt keine Speicherung auf Platte); ein Neustart von `jarvis-cc` beginnt wieder im Normalzustand, die Sicherheitsabfragen gelten unverändert. Danach Sicherheitsmodus mit `jarvis doctor` prüfen. |
 | Absturz mitten in einem Ziel | Neu starten, dann `/resume` (Auflisten startet nichts). Fortsetzen nur mit `/resume <id>`; Schritte mit Wirkung fragen neu. Erledigte Schritte werden nicht wiederholt. |
 | Journal/Gedächtnis beschädigt | Datei nicht überschreiben: umbenennen (`Rename-Item data\journal.db journal.defekt.db`); JARVIS legt bei Bedarf eine neue an. Eine fremde oder beschädigte Datei wird gemeldet und nie stillschweigend überschrieben. |
 | Konfiguration ungültig | `jarvis doctor` nennt den Fehler; Kopie der Beispielkonfiguration neu anlegen. Sicherheitsrelevante Werte (`security.*`, `max_steps`, `max_attempts_per_step`) nicht lockern. |
