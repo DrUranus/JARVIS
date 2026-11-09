@@ -27,6 +27,7 @@ Kürzer: `jarvis-cc -c config\nexus.example.toml --open` (Beispielkonfiguration,
 ## Oberflaeche
 - **Orb-Modus (Start):** violett-blaue Kugel mit Tiefe (Nebel, Laengen-/Breitenkreise, Randlicht, Glanz), Ringen, Energieteilchen und Staub. Der Zustand steht als Chip und in der Kopfzeile.
 - **Dashboard:** Agenten und Systemstatus links, Kugel, Gespraech und Ereignisse in der Mitte, Aufgaben, Details, Ergebnisse, Journal, Audit und Rueckfrage rechts.
+  Aufgabenansicht: deutsches Statuswort zusaetzlich zum Rohstatus, Statusfolge ("Verlauf") nur aus echten Meldungen, bei FAILED/BLOCKED eine Zeile "Fehler" (Backend-Detail, sonst ausdruecklich "kein Grund genannt"), das Ergebnis in der Detailansicht und "Zur Aufgabe" als Knopf (nie ein Link).
   Der Systemstatus zeigt nur Werte aus echten Backend-Ereignissen (Verbindung, Zustand, Notaus, Mikrofon, Aufgaben, Agenten, Ergebnisse, Rueckfragen, Effekte, Ereignis-Nr.); ohne Meldung steht dort "unbekannt".
 - **Einrichtung und Diagnose (E2):** Im Experten-Modus zeigt ein Bereich auf Knopfdruck (`GET /view/doctor`, nur lesend) Python-Version, Diagnoseergebnis, Komponenten, Sprache/Browser/Agenten und Schluessel ausschliesslich als "gesetzt"/"nicht gesetzt" mit deutschen Hinweisen. Es wird nichts aktiviert oder veraendert; Tests: `tests/test_control_center_setup.py`, Chromium-E2E `test_setup_panel_*`.
 - **Wechsel:** manuell per Knopf; automatisch ins Dashboard nur bei belegbarer Komplexitaet (mindestens drei geplante Schritte oder zwei beteiligte Agenten), nie nach manueller Wahl.
