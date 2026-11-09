@@ -17,6 +17,7 @@ from jarvis.agents.planner import AgentPlanner
 from jarvis.goals import policy as P
 from jarvis.goals.context import GoalContext
 from jarvis.goals.errors import PlanningError
+from jarvis.goals.files_intent import FileIntentError, parse_file_goal
 from jarvis.goals.models import Goal, GoalStep
 from jarvis.goals.state import StepStatus
 
@@ -112,6 +113,13 @@ class GoalPlanner:
             matches.append("coding")
         if not matches and _SCREEN.search(objective) and "url" not in user:
             matches.append("screen")
+        if not matches:
+            try:
+                file_step = parse_file_goal(objective)
+            except FileIntentError as exc:                 # incomplete or ambiguous file request: the person gets the reason, nothing is guessed
+                raise PlanningError(f"file request: {exc}") from None
+            if file_step is not None:
+                matches.append("file")
         if not matches and self._web_search and _RESEARCH.search(objective):
             matches.append("search")
         if not matches:
@@ -120,7 +128,7 @@ class GoalPlanner:
         if len(matches) > 1:
             raise PlanningError("the objective is ambiguous: it fits more than one kind of goal")
         kind = matches[0]
-        specs = {"web": self._web, "coding": self._coding, "screen": self._screen, "search": self._search}[kind](goal, objective, user, url)
+        specs = {"web": self._web, "coding": self._coding, "screen": self._screen, "search": self._search, "file": self._file}[kind](goal, objective, user, url)
         steps = self._build(goal, specs)
         if len(steps) > max_steps:
             raise PlanningError(f"the plan needs {len(steps)} steps; the limit is {max_steps}")
@@ -236,6 +244,26 @@ class GoalPlanner:
             raise PlanningError("the url must be an http(s) address")
         return [
             {"objective": "Recherchiere und lese die Webseite " + url[:200] + " (Browser)", "caps": {"research.web"}, "input": {"url": url}},
+            {"evaluate": True},
+        ]
+
+    _FILE_CAPS = {("files", "list"): {"files.read"}, ("files", "read"): {"files.read"}, ("office", "read"): {"office.read"}, ("office", "create"): {"office.create"},
+                  ("files", "replace"): {"files.read", "files.write"}}
+
+    def _file(self, goal: Goal, objective: str, user: dict[str, Any], url: str | None) -> list[dict[str, Any]]:
+        """ONE file/document step from the request (see goals/files_intent.py). The agent works only through the files/office tools; the permission engine decides per path."""
+        try:
+            step = parse_file_goal(objective)
+        except FileIntentError as exc:
+            raise PlanningError(f"file request: {exc}") from None
+        if step is None:
+            raise PlanningError("no file request recognised")
+        tool, action = step["tool"], step["action"]
+        caps = set(self._FILE_CAPS.get((tool, action), {"files.write"}))
+        label = {"read": "Datei lesen", "list": "Ordner auflisten", "create": "Datei erstellen", "mkdir": "Ordner erstellen", "copy": "Datei kopieren", "move": "Datei verschieben",
+                 "replace": "Text in Datei ersetzen"}.get(action, "Dateiauftrag")
+        return [
+            {"objective": f"{label}: {step['path'][:160]} (Datei, Dokument, Ordner)", "caps": caps, "input": {"steps": [step]}},
             {"evaluate": True},
         ]
 
