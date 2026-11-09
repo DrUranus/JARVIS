@@ -107,6 +107,13 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: rgba(123, 100, 255, 0.35); border-radius: 8px; }
 
+#doctor-list { list-style: none; padding-left: 0; max-height: 360px; overflow: auto; overflow-wrap: anywhere; }
+#doctor-list li { padding: 4px 8px; margin-bottom: 4px; border-left: 3px solid var(--line); border-radius: 4px; background: rgba(255, 255, 255, 0.03); }
+#doctor-list li.doctor-ok { border-left-color: #2ecc71; }
+#doctor-list li.doctor-hint { border-left-color: var(--warn); }
+#doctor-list li.doctor-off { border-left-color: var(--dim); color: var(--dim); }
+#doctor-list li.error { border-left-color: var(--danger); color: #ff9c9c; }
+
 /* Mini-Overlay (?view=overlay, ca. 140x140): rechteckig, nie klickdurchlaessig; der Notaus-Knopf wird nie ausgeblendet. Rueckfragen erscheinen wie in jedem Modus (Ablehnen ist Standard). */
 body[data-mode="overlay"] { min-height: 0; height: 100vh; overflow: hidden; }
 body[data-mode="overlay"] #bar { padding: 2px 4px; gap: 4px; flex-wrap: wrap; }
