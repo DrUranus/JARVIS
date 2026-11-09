@@ -361,3 +361,36 @@ def test_page_works_without_token_only_as_unauthorized(browser):
         assert resp.status in (401, 403)
     finally:
         g.close()
+
+
+# ---- Einrichtungs- und Diagnosebereich (E2) -----------------------------------------------------------------------------------------------------
+def test_setup_panel_shows_the_real_diagnosis_read_only_with_keys_only_as_set_or_not_set(browser, tmp_path, monkeypatch):
+    from jarvis.bootstrap import build_core
+    from jarvis.config import load_settings
+    from jarvis.control_center.launcher import build_server
+    from test_control_center_binding import real_env
+    monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "sk-E2ESECRETVALUE1234567890abcdef")
+    env = real_env(tmp_path)
+    core = build_core(load_settings(env=env))
+    srv = build_server(load_settings(env=env), core)
+    srv.start()
+    ctx = browser.new_context(viewport={"width": 1440, "height": 900})
+    try:
+        page = ctx.new_page()
+        posts: list[str] = []
+        page.on("request", lambda r: posts.append(r.url) if r.method == "POST" else None)
+        page.goto(srv.url, wait_until="domcontentloaded")
+        until(page, "document.body.dataset.conn === 'open'", 10.0)
+        page.click("#mode-toggle")
+        assert page.locator("#doctor-list").inner_text() == ""                          # nichts, bevor der Mensch pruefen laesst
+        page.click("#doctor-refresh")
+        until(page, "document.getElementById('doctor-summary').textContent.includes('Python')", 10.0)
+        text = page.locator("#doctor-panel").inner_text()
+        assert "Sprachmodell" in text and "Agent browser" in text and "BRAVE_SEARCH_API_KEY" not in text.replace("BRAVE_SEARCH_API_KEY: gesetzt", "")      # Name nur mit gesetzt/nicht gesetzt
+        assert "sk-E2ESECRET" not in text and "E2ESECRETVALUE" not in page.content() and "nicht gesetzt" in text
+        assert not posts and core.permissions.emergency.engaged is False                  # nur GET: kein Befehl, keine Aenderung
+        EVIDENCE.mkdir(parents=True, exist_ok=True)
+        page.locator("#doctor-panel").screenshot(path=str(EVIDENCE / "setup_panel.png"))
+    finally:
+        ctx.close()
+        srv.stop()
