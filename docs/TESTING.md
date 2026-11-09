@@ -122,3 +122,11 @@ Das ist ausdruecklich **kein** Windows-Nachweis: Windows-Nachweis ausstehend, bi
 NEXUS Premium V2 (`docs/NEXUS_GUI.md`): `tests/test_control_center_status.py` (Systemstatus, Zustandsanzeige, 2D-Fallback im Node-DOM-Ersatz) und `tests/test_control_center_e2e_browser.py` (echtes Chromium gegen den Loopback-Server: Pixel-Farben je Zustand, Orb/Dashboard, Chat, Freigabedialog fail-closed, Notaus gegen Fake **und echte Engine**, Overlay-Seite; braucht `pip install playwright` und Chromium, sonst uebersprungen = nicht bestanden; Screenshots in `reports/gui/e2e/`). Kein Nachweis fuer das native pywebview-Fenster: dafuer `tests/test_control_center_native_windows.py` auf einem interaktiven Windows (Windows-Nachweis ausstehend).
 Wiederaufnahme per Befehl: `tests/test_cli_resume.py` (echter Kern mit Mock-LLM, echte GoalEngine, Journal in tmp_path: Auflisten startet nichts, Notaus blockiert, side_effect-Schritte brauchen neue Bestaetigung (ohne Antwort abgelehnt), erledigte Schritte laufen nicht erneut, ResumeManager nur ueber `/resume` erreichbar). Linux-Lauf; Windows-Nachweis liefert die CI.
 Release-Lage Windows 21.11.2026: `docs/RELEASE_READINESS_20261108.md` (Feature-Matrix mit Trennung automatisch/Linux/Windows-CI/interaktiv ausstehend, Risiken, Abnahmeprotokoll fuer Issue #186). Vollsuite unter Linux mit Python 3.14.6 und 3.11 gelaufen (keine Fehlschlaege); Tk-GUI-Tests unter Xvfb mit 3.14; Windows-CI nutzt 3.13.
+
+## Frischinstallations-Rauchtest (E3)
+
+`ci/fresh-install/smoke.py` laeuft nach `pip install -e ".[dev]"` in einer neuen venv, ausserhalb des Quellbaums: Import, `jarvis --version`, `jarvis doctor` (Exit 0/1),
+kontrollierter Start/Stopp von `jarvis-cc` (nur Loopback, Seite antwortet, Port danach geschlossen). Jeder Schritt meldet `[OK]`/`[FEHLER]`. Ohne Schluessel, ohne Netzwerk
+ausser 127.0.0.1. Lokal: `python -m venv v && v/bin/pip install -e ".[dev]" && cd /tmp && /pfad/v/bin/python -I ci/fresh-install/smoke.py`.
+Der Windows-Lauf (Workflow `fresh-install.yml`, eigener Schutz-PR) ist der Windows-CI-Nachweis; er ersetzt keine interaktive Abnahme (#186).
+
