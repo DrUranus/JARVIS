@@ -33,8 +33,9 @@ def test_enabled_registers_the_four_agents_and_ties_their_status_to_their_tools(
     core = core_for(tmp_path)
     sub = core.subsystems["agents"]
     assert sub.status == "enabled" and sub.available
-    assert [a.id for a in sub.registry.list()] == ["browser", "coding", "computer", "research"]
-    assert all(a.status is AgentStatus.AVAILABLE for a in sub.registry.list())
+    assert [a.id for a in sub.registry.list()] == ["browser", "coding", "computer", "files", "research"]
+    assert all(a.status is AgentStatus.AVAILABLE for a in sub.registry.list() if a.id != "files")
+    assert sub.registry.get("files").status is AgentStatus.DISABLED and "neither the files nor the office tool" in sub.registry.get("files").state.reason      # files.enabled/office.enabled are off by default
     (tmp_path / "x").mkdir()
     (tmp_path / "y").mkdir()
     off = core_for(tmp_path / "x", JARVIS_BROWSER_ENABLED="false", JARVIS_CODING_ENABLED="false")

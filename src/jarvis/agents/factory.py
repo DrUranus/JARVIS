@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from jarvis.agents.adapters import BrowserAgent, CodingAgent, ComputerAgent, ResearchAgent
+from jarvis.agents.adapters import BrowserAgent, CodingAgent, ComputerAgent, FilesAgent, ResearchAgent
 from jarvis.agents.agent import Agent
 from jarvis.agents.errors import AgentError
 from jarvis.agents.models import AgentTask
@@ -104,7 +104,7 @@ def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | 
                                  max_queue=cfg.max_queue, max_history=cfg.max_history, cancel_grace=cfg.cancel_grace_seconds,
                                  tool_call_limit=cfg.tool_call_limit, max_output_chars=cfg.max_output_chars, task_manager=task_manager,
                                  memory_lookup=lookup)
-        agents: list[Agent] = [_research_agent(settings, subsystems), BrowserAgent(), CodingAgent(interrupt=_interrupt_of(subsystems, "coding")), ComputerAgent()]
+        agents: list[Agent] = [_research_agent(settings, subsystems), BrowserAgent(), CodingAgent(interrupt=_interrupt_of(subsystems, "coding")), ComputerAgent(), FilesAgent()]
         if settings.business.enabled:
             from jarvis.business.agent import BusinessAgent
             agents.append(BusinessAgent(max_steps=settings.business.max_steps, timeout=settings.business.timeout_seconds,
@@ -120,6 +120,8 @@ def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | 
             missing = sorted(t for t in agent.tool_names - getattr(agent, "optional_tools", frozenset()) if t not in tools)   # optional tools (UI Automation) may be absent
             if missing:
                 agent.state.transition(AgentStatus.DISABLED, f"tool {', '.join(missing)} is not available (subsystem off)")
+            elif agent.id == "files" and not any(t in tools for t in agent.tool_names):          # both of its optional tools are off: nothing to work with
+                agent.state.transition(AgentStatus.DISABLED, "neither the files nor the office tool is available (files.enabled / office.enabled are off)")
         atexit.register(orch.shutdown)
     except Exception as exc:  # noqa: BLE001 - whatever happens here, JARVIS still starts
         log.warning("multi-agent layer unavailable: %s", type(exc).__name__)
