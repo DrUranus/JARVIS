@@ -39,14 +39,18 @@ def build_server(settings: Settings, core: Any, on_open_main: Callable[[], None]
     if ui is None:
         reason = getattr(assistant, "reason", "") or "kein Assistent"
         raise LauncherError(f"Kein echtes Backend: der Assistent ist nicht aktiv ({reason}). Nötig: assistant.enabled = true und agents.enabled = true.")
-    return ControlCenterServer(ui, views=build_views(core, assistant), on_open_main=on_open_main)
+    return ControlCenterServer(ui, views=build_views(core, assistant, settings), on_open_main=on_open_main)
 
 
-def build_views(core: Any, assistant: Any) -> ReadViews:
+def build_views(core: Any, assistant: Any, settings: Settings | None = None) -> ReadViews:
     """Nur lesende Ansichten: Journal-Speicher des Assistenten (falls aktiv) und die `tail`-Funktion des Audit-Protokolls. Fehlt eines, meldet die Ansicht das leer."""
     store = getattr(getattr(assistant, "journal", None), "store", None)
     audit = getattr(getattr(core, "permissions", None), "audit", None)
-    return ReadViews(journal=store, audit_tail=getattr(audit, "tail", None))
+    doctor = None
+    if settings is not None:
+        from jarvis.control_center.setup_view import build_report
+        doctor = lambda: build_report(core, settings)                                  # noqa: E731 - nur lesend, bei jedem Abruf frisch
+    return ReadViews(journal=store, audit_tail=getattr(audit, "tail", None), doctor=doctor)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
