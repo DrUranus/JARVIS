@@ -128,3 +128,10 @@ Release-Lage Windows 21.11.2026: `docs/RELEASE_READINESS_20261108.md` (Feature-M
 `tests/test_research_real_browser.py` laesst den ResearchAgent ueber ToolRegistry/PermissionEngine/BrowserController/PlaywrightProvider gegen eine lokale Seite (127.0.0.1) laufen:
 zwei Quellen mit Widerspruch, eingeschleuster Seitentext als reine Daten, fehlende Seite ohne erfundene Zahlen. Kein Internet, keine Schluessel. Ohne Playwright/Browser wird uebersprungen;
 der Windows-Nachweis entsteht nur im Workflow `browser-research.yml` (eigener Schutz-PR), der Ueberspringen als Fehler wertet. Keine interaktive Abnahme.
+## Frischinstallations-Rauchtest (E3)
+
+`ci/fresh-install/smoke.py` laeuft nach `pip install -e ".[dev]"` in einer neuen venv, ausserhalb des Quellbaums: Import, `jarvis --version`, `jarvis doctor` (Exit 0/1),
+kontrollierter Start/Stopp von `jarvis-cc` (nur Loopback, Seite antwortet, Port danach geschlossen). Jeder Schritt meldet `[OK]`/`[FEHLER]`. Ohne Schluessel, ohne Netzwerk
+ausser 127.0.0.1. Lokal: `python -m venv v && v/bin/pip install -e ".[dev]" && cd /tmp && /pfad/v/bin/python -I ci/fresh-install/smoke.py`.
+Der Windows-Lauf (Workflow `fresh-install.yml`, eigener Schutz-PR) ist der Windows-CI-Nachweis; er ersetzt keine interaktive Abnahme (#186).
+
