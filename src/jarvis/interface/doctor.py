@@ -46,8 +46,21 @@ def run_doctor(config_path: str | None = None, settings: Settings | None = None,
                find_spec: Callable[[str], Any] = importlib.util.find_spec, webview2_probe: Callable[[], str | None] | None = None,
                platform: str | None = None, cwd: str | None = None) -> tuple[str, int]:
     """Return (Bericht, Exit-Code). Exit-Code 0 = keine Fehler (Hinweise moeglich), 1 = mindestens ein Fehler."""
+    d = diagnose(config_path, settings, env, find_spec, webview2_probe, platform, cwd)
+    lines = d["lines"]
+    errors, hints = d["errors"], d["hints"]
+    body = ["JARVIS Doctor (nur lesend)"] + [f"  [{lvl}] {text}" for lvl, text in lines]
+    body.append(f"Ergebnis: {errors} Fehler, {hints} Hinweis(e). " + ("Bitte die Fehler beheben." if errors else "JARVIS ist startbereit."))
+    return "\n".join(body), 1 if errors else 0
+
+
+def diagnose(config_path: str | None = None, settings: Settings | None = None, env: Mapping[str, str] | None = None,
+             find_spec: Callable[[str], Any] = importlib.util.find_spec, webview2_probe: Callable[[], str | None] | None = None,
+             platform: str | None = None, cwd: str | None = None) -> dict[str, Any]:
+    """Die Pruefung als Daten (nur lesend, keine Geheimnisse): lines [(Stufe, Text)], errors, hints, python, modules {Name: verfuegbar}, keys {Variable: gesetzt}."""
     env = os.environ if env is None else env
     lines: list[tuple[str, str]] = []
+    modules: dict[str, bool] = {}
 
     def add(level: str, text: str) -> None:
         lines.append((level, text))
@@ -65,7 +78,8 @@ def run_doctor(config_path: str | None = None, settings: Settings | None = None,
         ("playwright", "playwright (Browser-Agent)", 'Nur für den Browser-Agenten nötig: pip install -e ".[browser]" und python -m playwright install chromium'),
     )
     for module, label, advice in optional:
-        if _module(find_spec, module):
+        modules[module] = _module(find_spec, module)
+        if modules[module]:
             add(OK, f"{label}: verfügbar")
         else:
             add(HINT, f"{label}: nicht verfügbar. {advice}")
@@ -115,10 +129,8 @@ def run_doctor(config_path: str | None = None, settings: Settings | None = None,
 
     errors = sum(1 for lvl, _ in lines if lvl == ERROR)
     hints = sum(1 for lvl, _ in lines if lvl == HINT)
-    body = ["JARVIS Doctor (nur lesend)"] + [f"  [{lvl}] {text}" for lvl, text in lines]
-    body.append(f"Ergebnis: {errors} Fehler, {hints} Hinweis(e). " +
-                ("Bitte die Fehler beheben." if errors else "JARVIS ist startbereit."))
-    return "\n".join(body), 1 if errors else 0
+    return {"lines": lines, "errors": errors, "hints": hints, "python": f"{v.major}.{v.minor}.{v.micro}", "modules": modules,
+            "keys": {var: bool(env.get(var)) for var in KEY_VARS}, "provider": settings.llm.provider if settings is not None else None}
 
 
 def _in_onedrive(path: str, env: Mapping[str, str]) -> bool:

@@ -486,6 +486,19 @@ function renderAudit(list, items) {
   }
 }
 
+const DOCTOR_STATE = { ok: "bereit", hint: "Hinweis", off: "aus" };
+
+function renderDoctor(list, items, data) {
+  el("doctor-summary").textContent = "Python " + data.python + " (" + data.platform + "), JARVIS " + data.jarvis + " | " + data.errors + " Fehler, " + data.hints + " Hinweis(e)"
+    + " | Sicherheitsmodus " + (data.security && data.security.mode) + ", Rückfragen: " + (data.security && data.security.confirmation);
+  for (const c of data.components || []) viewItem(list, (DOCTOR_STATE[c.state] || c.state) + " | " + c.name + ": " + c.text, "doctor-" + c.state);
+  for (const a of data.agents || []) viewItem(list, "Agent " + a.id + ": " + a.status + (a.reason ? " (" + a.reason + ")" : ""), a.status === "AVAILABLE" ? "doctor-ok" : "doctor-off");
+  const keys = Object.keys(data.keys || {}).map((k) => k + ": " + (data.keys[k] ? "gesetzt" : "nicht gesetzt"));
+  if (keys.length) viewItem(list, "Schlüssel (nur gesetzt/nicht gesetzt): " + keys.join("; "));
+  for (const it of items) viewItem(list, it.level + ": " + it.text, it.level === "FEHLER" ? "error" : "");
+  if (data.note) viewItem(list, data.note);
+}
+
 async function loadView(which, params) {
   const note = el(which + "-note");
   const list = el(which + "-list");
@@ -497,8 +510,8 @@ async function loadView(which, params) {
     if (!r.ok) { note.textContent = "Abgelehnt: " + (data && data.error ? data.error : r.status); return; }
     const items = Array.isArray(data.items) ? data.items : [];
     if (!data.available) { note.textContent = data.reason || "nicht verfuegbar"; return; }
-    note.textContent = items.length ? items.length + " Eintraege (hoechstens " + data.limit + ")" : "keine Eintraege";
-    (which === "history" ? renderHistory : renderAudit)(list, items);
+    note.textContent = which === "doctor" ? "Stand: jetzt geprüft (nur lesend, es wird nichts eingeschaltet)" : (items.length ? items.length + " Eintraege (hoechstens " + data.limit + ")" : "keine Eintraege");
+    if (which === "doctor") renderDoctor(list, items, data); else (which === "history" ? renderHistory : renderAudit)(list, items);
   } catch (e) {
     list.replaceChildren();
     note.textContent = "nicht abrufbar (getrennt)";
@@ -746,6 +759,7 @@ async function loadCoreTable() {
   setState(currentState);
 }
 
+el("doctor-refresh").addEventListener("click", () => loadView("doctor", {}));
 el("history-refresh").addEventListener("click", () => loadView("history", viewParams("history", ["kind", "status"])));
 el("audit-refresh").addEventListener("click", () => loadView("audit", viewParams("audit", ["type", "tool", "status", "level"])));
 el("effects").addEventListener("change", (e) => setEffects(el("effects").value));
