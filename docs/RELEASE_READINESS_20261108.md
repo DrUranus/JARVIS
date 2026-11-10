@@ -122,12 +122,12 @@ Nachweisstufen: **L** = Linux-Lauf in der Sitzung · **W** = Windows-CI (Runner 
 |---|---|---|---|---|---|
 | 1 | E1 Datei-/Office-Agent | #216 | Agent `files` über Router/NEXUS; jede Aktion `ToolRegistry.execute → PermissionEngine`; Änderungen nur hash-geschützt, kein Löschen, Geheimnisse gesperrt | L: grün; W: siehe PR | **#216 gemergt** (`tests-linux`/`tests-windows` grün) |
 | 2 | E2 NEXUS-Setup-Panel | #217 | `GET /view/doctor`, Panel im Experten-Modus, Schlüssel nur gesetzt/nicht gesetzt, keine Aktivierung | L: grün; W: siehe PR | **#217 gemergt** |
-| 3 | E3 Frischinstallation | #218 (Skript), #219 (Workflow, **Besitzer-Review nötig**) | venv, Install aus Repo, Import/CLI, `jarvis doctor`, `jarvis-cc` Start/Stopp; Matrix Windows/Linux × 3.11/3.13 | L: grün; W: erst nach Lauf von #219 | **#218 gemergt**; #219 offen (Besitzer-Review, `fresh-install` 4/4 grün) |
+| 3 | E3 Frischinstallation | #218 (Skript), #219 (Workflow, **Besitzer-Review nötig**) | venv, Install aus Repo, Import/CLI, `jarvis doctor`, `jarvis-cc` Start/Stopp; Matrix Windows/Linux × 3.11/3.13 | L: grün; W: erst nach Lauf von #219 | **#218 und #219 gemergt** |
 | 4 | Datei/Office-E2E | #220 | echter Server → Assistent → Router → Agent → Engine → Tool → Chat/Audit/Verlauf | L: grün | **#220 gemergt** |
 | 5 | NEXUS Aufgaben-/Ergebnisansicht | #221 | Statusfolge, deutsches Statuswort, Fehlerzeile, Ergebnis ↔ Aufgabe | L: grün | **#221 gemergt** |
-| 6 | Browserrecherche mit echtem Browser | #222 (Tests), #223 (Workflow, **Besitzer-Review nötig**) | lokale Seite, Widerspruch, Injektion als Daten, fehlende Seite | L: 29 Tests grün; W: erst nach Lauf von #223 (löst R3 teilweise: nur lokaler Server, kein Live-Internet) | **#222 gemergt**; #223 offen (Besitzer-Review, `real-browser` Windows/Linux grün) |
-| 7 | Sprachpipeline-Stabilität | #224 | 3 belegte Abstürze (Handler/Lautsprecher/Mikrofon werfen unerwartet) behoben | L: grün; Hardware/Mikrofon **nicht geprüft** | #224 offen, auf aktuellem `main` aktualisiert, CI läuft |
-| 8 | Agentenkoordination/Fehlerwiederherstellung | #225 (Basis jetzt main) | Koordination war bereits dicht getestet, kein Produktfehler; E2E-Belege für Fehlerweitergabe und Abbruch | L: grün | #225 offen, auf aktuellem `main` aktualisiert, CI läuft |
+| 6 | Browserrecherche mit echtem Browser | #222 (Tests), #223 (Workflow, **Besitzer-Review nötig**) | lokale Seite, Widerspruch, Injektion als Daten, fehlende Seite | L: 29 Tests grün; W: erst nach Lauf von #223 (löst R3 teilweise: nur lokaler Server, kein Live-Internet) | **#222 und #223 gemergt** |
+| 7 | Sprachpipeline-Stabilität | #224 | 3 belegte Abstürze (Handler/Lautsprecher/Mikrofon werfen unerwartet) behoben | L: grün; Hardware/Mikrofon **nicht geprüft** | **#224 gemergt** |
+| 8 | Agentenkoordination/Fehlerwiederherstellung | #225 (Basis jetzt main) | Koordination war bereits dicht getestet, kein Produktfehler; E2E-Belege für Fehlerweitergabe und Abbruch | L: grün | **#225 gemergt** |
 | 9 | Memory/Journal/Resume | #226 | hartes Prozessende, Integrität, Listing startet nichts, Neubestätigung bei Wirkung | L: grün; W: kill-Verhalten nur durch CI belegt | **#226 gemergt** |
 | 10 | Release-Integration | dieser PR | Matrix, Blocker, Checkliste, README-Korrektur | Dokumentation | dieser PR (#227) offen; zusätzlich #228 (Windows-V1-Abnahmeplan, nur Doku) offen |
 
@@ -135,31 +135,31 @@ Nachweisstufen: **L** = Linux-Lauf in der Sitzung · **W** = Windows-CI (Runner 
 
 **Blockerliste (Stand heute):**
 1. **#186 interaktive Windows-Abnahme** – ausstehend, Release-Blocker (R1).
-2. **Besitzer-Review** der geschützten Workflow-PRs #219 und #223 (Sicherheitsprüfung als PR-Kommentar dokumentiert; Diff je genau eine Workflow-Datei) (`.github/` darf nur der Besitzer freigeben).
-3. **Merge-Stand**: #216, #218, #220, #221, #222 sind gemergt (Besitzer). Offen: #219, #223 (Besitzer-Review), #224, #225, #227, #228. #218 vor #219 und #222 vor #223 sind erfüllt.
+2. ~~Besitzer-Review der Workflow-PRs #219 und #223~~ erledigt (gemergt). (`.github/` darf nur der Besitzer freigeben).
+3. **Merge-Stand**: #216 bis #226 (ohne #227, #228) sind gemergt (Besitzer). Offen sind nur die Doku-PRs #227 und #228.
 4. **Backlog**: E1–E3 sind nur mündlich/im Auftrag freigegeben; die Backlog-Datei wurde **nicht** verändert. Falls die Automatisierungskette sie kennen soll, muss der Besitzer `approved_items` selbst ergänzen.
 5. **Offen wie bisher**: echtes LLM (R4), Sprache auf Hardware (R5), Python 3.14 auf Windows (R6; der neue Workflow testet 3.11/3.13, nicht 3.14), OneDrive (R7), Live-Webrecherche (R3 Rest), Mini-Overlay-Details (R9).
 
-**Neue Checklistenpunkte:** [ ] #224/#225 nach grüner Windows-CI zum Merge freigeben (Besitzer) · [ ] #219/#223 prüfen und mergen, danach Lauf auf `main` ansehen · [ ] Schritt 11 und 12 des Abnahmeprotokolls erneut gegen die neuen Stände.
+**Neue Checklistenpunkte:** [ ] #227/#228 (nur Doku) mergen (Besitzer) · [ ] #219/#223 prüfen und mergen, danach Lauf auf `main` ansehen · [ ] Schritt 11 und 12 des Abnahmeprotokolls erneut gegen die neuen Stände.
 
-## 9. V1-Release-Checkliste (Stand 2026-11-09, Release-Freeze)
+## 9. V1-Release-Checkliste (Stand 2026-11-10, Release-Freeze; Code-Stand `ef3cdac`)
 Ergebnis je Zeile: **PASS** (tatsächlich gelaufen, Beleg genannt) · **FAIL** · **PENDING** (noch nicht gelaufen oder nicht auf dem Release-Commit). Eine Zeile steht nur dann auf PASS, wenn der Nachweis auf dem **integrierten** Stand vorliegt; PR-Läufe vor dem Merge zählen als "PASS auf PR-Stand" und stehen in der Spalte Nachweis.
 
 | # | Voraussetzung | Status | Nachweis / Blocker |
 |---|---|---|---|
 | C-1 | Datei-/Office-Agent, NEXUS-Setup, Aufgabenansicht, Real-Browser-Tests, Journal-Hard-Kill, Frischinstallations-Skript auf `main` | PASS (gemergt) | #216, #217, #218, #220, #221, #222, #226 gemergt; `tests-linux` und `tests-windows` waren auf dem jeweiligen PR-Stand grün |
-| C-2 | Sprachsitzung fängt unerwartete Fehler ab | PENDING | #224 noch nicht gemergt |
-| C-3 | Fehlerweitergabe-E2E | PENDING | #225 noch nicht gemergt |
-| C-4 | Windows-Workflows `fresh-install.yml` (#219) und `browser-research.yml` (#223) | PENDING | Besitzer-Review und Merge; Sicherheitsprüfung dokumentiert; auf PR-Stand grün (Windows und Linux) |
-| C-5 | Vollständige Pflicht-CI (`tests-linux`, `tests-windows`) auf dem integrierten Release-Commit | PENDING | erst nach dem Merge aller offenen PRs; der bestehende Workflow `tests` läuft bei Push auf `claude/**`, an Pull-Requests und manuell (`workflow_dispatch`), nicht automatisch bei Push auf `main`; für den Release-Commit wird er manuell auf `main` gestartet |
-| C-6 | Sicherheitsregression, Not-Aus, Freigabe-Tests auf dem Release-Commit | PENDING | Teil der Vollsuite; auf PR-Ständen grün |
-| C-7 | `fresh-install` (Windows, Python 3.11/3.13) auf dem Release-Commit | PENDING | Workflow #219 noch nicht auf `main` |
-| C-8 | `browser-e2e (windows-latest)`, `native-desktop`, `real-browser` | PENDING | auf PR-Ständen grün (Runner ohne Mensch) |
+| C-2 | Sprachsitzung fängt unerwartete Fehler ab | PASS | #224 gemergt; im Vollsuite-Lauf auf `main` enthalten |
+| C-3 | Fehlerweitergabe-E2E | PASS | #225 gemergt; im Vollsuite-Lauf auf `main` enthalten |
+| C-4 | Windows-Workflows `fresh-install.yml` (#219) und `browser-research.yml` (#223) | PASS | beide gemergt; Läufe auf `main` siehe C-7, C-8 |
+| C-5 | Vollständige Suite auf dem integrierten Code-Stand `ef3cdac` | PASS | `tests` mit `scope=full`, Run 42865927611: Windows Py3.13 **5248 passed, 45 skipped**; Ubuntu Py3.13 und Py3.11 je **5174 passed, 119 skipped**, 0 Fehler. Windows-Skips: plattformbedingt (POSIX-Symlinks/-Skripte, Xvfb/X11, `/proc`, Privileg für Symlinks) bzw. durch eigene Workflows abgedeckt (Playwright, nativer Desktop-Test). Spätere Commits ändern nur `docs/` |
+| C-6 | Sicherheitsregression, Not-Aus, Freigabe-Tests | PASS | Teil der Vollsuite in C-5 (0 Fehler); dazu `gui + voice + emergency stop` grün auf den PR-Ständen |
+| C-7 | `fresh-install` (Windows und Linux, Python 3.11/3.13) auf `main` | PASS | Run 42860398477, alle 4 Jobs grün (Code-Stand `ef3cdac`) |
+| C-8 | `browser-e2e (windows-latest)`, `native-desktop`, `real-browser` auf `main` | PASS | Run 42860412815 (Browser-E2E Windows/Linux, native-desktop) und Run 42860407638 (real-browser Windows/Linux), alle grün; Runner ohne Mensch |
 | C-9 | Python 3.14 auf Windows | PENDING | nur Linux 3.14 voll grün, Windows teilweise (`uia-compat`) |
 | C-10 | Echtes LLM, Live-Brave-Recherche | PENDING | nur auf dem echten PC prüfbar (Schlüssel, Netz) |
 | C-11 | Sprache auf echter Hardware | PENDING | nur auf dem echten PC prüfbar |
 | C-12 | **Interaktive Windows-Desktop-Abnahme (#186)** | PENDING | Leitfaden: `docs/WINDOWS_V1_ABNAHME.md` (#228) |
-| C-13 | `JARVIS merge gate` auf `main` | Hinweis | der Push-Lauf auf `c765eb5` scheiterte an einem vorübergehenden GitHub-API-Fehler (HTTP 500 auf `/pulls/228/files`), nicht an Code; Lauf nicht neu gestartet (Automation) |
+| C-13 | `JARVIS merge gate` (Push) auf `main` | PASS | grün auf `ef3cdac`, `2a6dd20`, `464beac`, `4e1047f`; der einmalige Fehlschlag auf `c765eb5` war ein vorübergehender GitHub-API-Fehler (HTTP 500 auf `/pulls/228/files`), kein Codefehler |
 
 ## 10. Feature-Matrix JARVIS Windows V1 (Release-Freeze)
 Nur Funktionen, die im Code vorhanden und standardmäßig sicher (aus oder mit Freigabe) sind. "PC" = nur auf dem echten Windows-PC abnehmbar.
@@ -178,9 +178,9 @@ Nur Funktionen, die im Code vorhanden und standardmäßig sicher (aus oder mit F
 | Mail, Medien, Smartphone, weitere Agenten, Autonomieausbau | **nein** | – | – | nach stabiler V1 |
 
 ## 11. Bekannte Einschränkungen und verbleibende Risiken
-Unverändert aus Abschnitt 2 und 3 und ergänzt: (1) Kein 3D-Kern (Canvas-2D). (2) Echtes LLM, Live-Brave und Hardware-Sprache sind nur am PC prüfbar. (3) Python 3.14 auf Windows nicht in der Vollsuite. (4) OneDrive-Pfade können SQLite/Git sperren; Doctor warnt. (5) Der Rauchtest und die Real-Browser-Tests laufen auf Windows erst nach dem Merge von #219 und #223 in der CI. (6) Das Gate auf `main` kann an vorübergehenden GitHub-API-Fehlern scheitern, ohne dass Code betroffen ist.
+Unverändert aus Abschnitt 2 und 3 und ergänzt: (1) Kein 3D-Kern (Canvas-2D). (2) Echtes LLM, Live-Brave und Hardware-Sprache sind nur am PC prüfbar. (3) Python 3.14 auf Windows nicht in der Vollsuite. (4) OneDrive-Pfade können SQLite/Git sperren; Doctor warnt. (5) Rauchtest und Real-Browser-Tests laufen jetzt in der CI (Workflows #219, #223 gemergt); sie belegen die Mechanik auf dem Runner, nicht das Verhalten am echten Desktop. (6) Das Gate auf `main` kann an vorübergehenden GitHub-API-Fehlern scheitern, ohne dass Code betroffen ist.
 
 ## 12. Go/No-Go für den 21.11.2026
-- **Go**, wenn: alle offenen PRs gemergt, vollständige Pflicht-CI auf dem Release-Commit grün (C-5 bis C-8 PASS), keine offenen Sicherheits-Blocker, und die interaktive Abnahme C-12 mit Belegen in #186 die Pflichtschritte aus `docs/WINDOWS_V1_ABNAHME.md` Abschnitt 16 als PASS ausweist.
+- **Go**, wenn: alle offenen PRs gemergt, vollständige CI auf dem Release-Commit grün (C-5 bis C-8 PASS; Stand: PASS für den Code-Stand `ef3cdac`), keine offenen Sicherheits-Blocker, und die interaktive Abnahme C-12 mit Belegen in #186 die Pflichtschritte aus `docs/WINDOWS_V1_ABNAHME.md` Abschnitt 16 als PASS ausweist.
 - **No-Go**, wenn: ein Sicherheitsverhalten (Freigabe, Ablehnen, Timeout, Not-Aus) abweicht, Pflicht-CI auf dem Release-Commit rot ist oder Belege fehlen.
 - Konfiguration, Diagnose, Logs, Wiederherstellung: `docs/WINDOWS_V1_KONFIGURATION.md` (#228). Installation: `docs/WINDOWS_QUICKSTART.md`.
