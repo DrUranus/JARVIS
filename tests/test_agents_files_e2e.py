@@ -90,3 +90,33 @@ def test_emergency_stop_blocks_file_requests_through_the_server(tmp_path):
         assert not (ws / "Nein").exists()
     finally:
         srv.stop()
+
+
+# ---- Fehlerweitergabe und Statusabgleich (Aufgabe 8) -------------------------------------------------------------------------------------------
+def test_a_failing_file_step_is_propagated_to_nexus_with_a_reason_and_is_not_retried_without_limit(tmp_path):
+    core, srv, ws = start(tmp_path, (ONCE,) * 40)
+    try:
+        replies = say(srv, "Lies die Datei gibtsnicht.txt", "r1")
+        assert replies and replies[-1].strip()                                                     # der Chat erklaert den Fehlschlag, kein Schweigen
+        evs = srv.backend.events_since(0, 2000)
+        updates = [e["data"] for e in evs if e["type"] == "task_update"]
+        final = [u for u in updates if str(u["status"]).upper() in {"FAILED", "BLOCKED", "SUCCEEDED", "CANCELLED"}]
+        assert final and str(final[-1]["status"]).upper() in {"FAILED", "BLOCKED"}               # Status in NEXUS stimmt mit dem Ergebnis ueberein
+        per_task: dict[str, int] = {}
+        for u in updates:
+            if str(u["status"]).upper() == "RUNNING":
+                per_task[u["id"]] = per_task.get(u["id"], 0) + 1
+        assert all(n <= 5 for n in per_task.values())                                              # harte Obergrenze der Versuche (max_attempts_per_step <= 5)
+        assert not any(p.is_file() for p in ws.glob("**/*"))                                       # ein fehlgeschlagener Lesezugriff schreibt nichts
+    finally:
+        srv.stop()
+
+
+def test_a_cancel_command_for_an_unknown_task_is_answered_not_ignored_and_changes_nothing(tmp_path):
+    core, srv, ws = start(tmp_path, (ONCE,) * 5)
+    try:
+        status, ack = post(srv, cmd("cancel", {"kind": "agent_task", "id": "gibt-es-nicht"}, cid="c9"))
+        assert status == 200 and ack["data"]["ok"] is False and ack["data"].get("code")      # echte Antwort des Backends statt stillem Erfolg
+        assert core.permissions.emergency.engaged is False
+    finally:
+        srv.stop()
