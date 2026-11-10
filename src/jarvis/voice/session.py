@@ -75,6 +75,10 @@ class VoiceSession:
             log.warning("TTS failed: %s", exc)
             self._display(f"(Sprachausgabe fehlgeschlagen: {exc})")
             self._state("error", f"Sprachausgabe fehlgeschlagen: {exc}")
+        except Exception as exc:                            # unexpected driver error: never crash the conversation
+            log.exception("unexpected TTS error")
+            self._display(f"(Sprachausgabe fehlgeschlagen: {type(exc).__name__})")
+            self._state("error", "Sprachausgabe fehlgeschlagen")
         finally:
             self._state("idle")
 
@@ -113,6 +117,11 @@ class VoiceSession:
         self._state("processing")
         try:
             response = self._handler.handle(text)
+        except Exception as exc:                            # a failing command must not end the voice session; details go to the log, not into the speech
+            log.exception("voice command failed")
+            self._display(f"JARVIS: Fehler bei der Verarbeitung ({type(exc).__name__}). Der Sprachmodus läuft weiter.")
+            self._state("error", "Verarbeitung fehlgeschlagen")
+            return True
         finally:
             self._state("idle")
         self._reply(response.text, speech_text(response))
@@ -148,6 +157,11 @@ class VoiceSession:
                 except VoiceError as exc:
                     self._display(f"Sprachfehler: {exc}")
                     self._state("error", f"Sprachfehler: {exc}")
+                    break
+                except Exception as exc:                        # unexpected device/driver error: end the voice mode cleanly (no retry loop on a dead device)
+                    log.exception("unexpected listener error")
+                    self._display(f"Audio nicht verfügbar: {type(exc).__name__}")
+                    self._state("error", "Audio nicht verfügbar")
                     break
                 failures = 0
                 if stop is not None and stop.is_set():
