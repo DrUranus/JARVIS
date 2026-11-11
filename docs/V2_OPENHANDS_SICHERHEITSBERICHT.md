@@ -122,3 +122,21 @@ Ohne konfigurierte Sitzungsschlüssel wird **keine** Prüfung durchgeführt (`AS
 - `docker.sock`: Suche in den vier Paketen ohne Treffer (Nachweis, dass der Code das Socket nicht einhängt; kein Nachweis für Konfigurationen anderer Nutzer).
 - Windows-Verhalten (Pfade, Docker Desktop, WSL-Mounts) – gesamter Prototyp.
 - MCP-, Browser- und Tool-Module (`openhands-tools`) nur über Treffer, nicht vollständig gelesen.
+
+## 10. Fortsetzung der statischen Prüfung (Abhängigkeiten, Browser, Lizenzen)
+Stand weiterhin `software-agent-sdk` `06b358764bb7`; gelesen wurden `uv.lock`, die `pyproject.toml`-Dateien und Teile von `openhands-tools`. Weiter nichts installiert oder ausgeführt.
+
+| Befund | Status | Fundstelle |
+|---|---|---|
+| Abhängigkeitsbaum: **415 Pakete** in `uv.lock` (u. a. `litellm 1.105.1`, `browser-use 0.11.9`, `mcp 2.3.0`, `fastmcp 4.1.4`, `docker 7.2.0`, `opentelemetry-sdk 1.39.1`, `lmnr 0.7.60`, `posthog 7.82.2`, `cryptography 48.0.1`) | nachgewiesen | `uv.lock` |
+| `browser-use` (harte Abhängigkeit von `openhands-tools`, `>=0.8.0`) **zieht `posthog` selbst als Abhängigkeit** | nachgewiesen | `uv.lock` (Abschnitt `browser-use`), `openhands-tools/pyproject.toml:18` |
+| Der OpenHands-Code setzt **kein** `ANONYMIZED_TELEMETRY` o. ä. (Suche in den drei Paketen ohne Treffer) | nachgewiesen | Suche über `openhands-tools`, `-sdk`, `-agent-server` |
+| **Ob `browser-use` selbst standardmäßig Telemetrie sendet**, ist im geprüften Code **nicht** belegt (Quelltext der Bibliothek nicht gelesen) | **Vermutung/ungeprüft**: aus der Abhängigkeit auf `posthog` und dem fehlenden Abschalten ist ein Standard-Sendeweg der Bibliothek möglich; nach unserem Kenntnisstand kennt `browser-use` eine Umgebungsvariable `ANONYMIZED_TELEMETRY`, das ist hier **nicht verifiziert** | – |
+| `lmnr` (Laminar) ist **harte** Abhängigkeit des SDK (`>=0.7.60,<0.8.0`), startet aber nach Code nur bei gesetzten Variablen | nachgewiesen (Abhängigkeit), Verhalten wie in Abschnitt 2.1 | `openhands-sdk/pyproject.toml:26`, `laminar.py:345` |
+| `sentry-sdk` kommt im Lock **nicht** vor | nachgewiesen | `uv.lock` |
+| `openhands-tools` enthält u. a. `terminal`, `file_editor`, `browser_use`, `delegate`, `child_conversation`, `gemini`, `ask_oracle`; ein ausgehender HTTP-Client findet sich nur in `child_conversation/impl.py:112` (`httpx.Client`, Gespräch mit dem Kindserver) | nachgewiesen für `httpx`; andere Netzwege (Browser, Terminal-Befehle, `gemini`, `ask_oracle`) nicht im Einzelnen gelesen | `openhands-tools/openhands/tools/` |
+| Browser-Werkzeug sucht Chromium/Playwright-Caches lokal; ob es Browser **herunterlädt**, wurde nicht abschließend geprüft | ungeprüft | `browser_use/impl.py:129-168` |
+| Lizenzen: `OpenHands/LICENSE` **MIT** (2025), `software-agent-sdk/LICENSE` **MIT** (2026), zusätzlich `clients/typescript/LICENSE` (Inhalt nicht gelesen); kein Verzeichnis `enterprise/`/`commercial/` im geklonten Haupt-Repository; keine Treffer auf AGPL/GPL/BUSL/SSPL/Commons Clause/Elastic/Polyform in `LICENSE*`, `*.toml`, `package.json`, `*.md` der beiden Repositories | nachgewiesen (für diese Dateien) | `LICENSE`-Dateien |
+| Lizenzen der 415 Abhängigkeiten, von Chromium im Image und von `litellm` (das laut Selbstauskunft auch ein `enterprise`-Verzeichnis führen kann) | **nicht geprüft** | – |
+
+**Folgerungen:** (1) Die Server-Telemetrie von OpenHands ist aus; **die Abhängigkeitskette enthält aber mindestens zwei Pakete mit Telemetriebezug (`posthog` über `browser-use`, `lmnr`)**. Deshalb gilt weiter: Browser-Werkzeug aus, `DO_NOT_TRACK=1`, `ANONYMIZED_TELEMETRY=false` (Wirksamkeit unbelegt), Netz zu, Laufzeitmitschnitt (OH-12) vor jeder Aussage. (2) Für eine spätere Übernahme wäre die Lizenzprüfung der Abhängigkeiten (415) Pflicht nach `docs/INTEGRATIONS.md`; sie ist ein größerer Aufwand als die des Kernprojekts.
