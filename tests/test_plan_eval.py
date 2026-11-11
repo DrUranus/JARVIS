@@ -177,3 +177,51 @@ def test_production_code_does_not_import_the_harness():
     for path in SRC.rglob("*.py"):
         text = path.read_text(encoding="utf-8")
         assert "plan_eval" not in text, path
+
+
+# ---- echter LLM-Planungspfad mit MockProvider (anbieterunabhaengig, ohne Netzwerk) -----------------------------------------------------------
+import json as _json
+
+
+def mock_reply(payload):
+    return lambda request: payload if isinstance(payload, str) else _json.dumps(payload)
+
+
+def test_the_real_llm_path_with_a_mock_provider_accepts_a_valid_plan_and_sends_one_request(tmp_path):
+    planner, available, provider = pe.make_mock_llm_planner(tmp_path, mock_reply({"steps": GOOD, "rationale": "x"}))
+    case = pe.Case("mock-good", GOAL, expect=pe.Expect(kind="research", agents=("research",), capabilities=frozenset({"research.web"})))
+    assert pe.evaluate_case(case, planner.plan, available).passed
+    assert len(provider.calls) == 1
+    user = provider.calls[0].messages[-1].content
+    assert "baseline_plan" in user and "allowed_capabilities" in user
+
+
+@pytest.mark.parametrize("reply", [
+    "kein JSON",
+    {"steps": [{"objective": "x", "capabilities": ["shell.exec"], "input": {"cmd": "x"}}, {"evaluate": True}]},
+    {"steps": [{"objective": "Seite lesen", "capabilities": ["research.web"], "input_from": "s1", "agent": "computer"}, {"evaluate": True}]},
+    {"steps": []},
+])
+def test_hostile_mock_replies_fall_back_to_the_template_plan(tmp_path, reply):
+    base, available = pe.make_template_planner(tmp_path / "base")
+    planner, available2, provider = pe.make_mock_llm_planner(tmp_path / "mock", mock_reply(reply))
+    case = pe.Case("mock-bad", GOAL, expect=pe.Expect(kind="research", agents=("research",)))
+    assert pe.evaluate_case(case, planner.plan, available2).fingerprint == pe.evaluate_case(case, base.plan, available).fingerprint
+    assert len(provider.calls) == 1
+
+
+def test_a_failing_provider_falls_back_to_the_template_plan(tmp_path):
+    def boom(request):
+        raise RuntimeError("Anbieter nicht erreichbar")
+    base, available = pe.make_template_planner(tmp_path / "base")
+    planner, available2, _ = pe.make_mock_llm_planner(tmp_path / "mock", boom)
+    case = pe.Case("mock-boom", GOAL, expect=pe.Expect(kind="research", agents=("research",)))
+    assert pe.evaluate_case(case, planner.plan, available2).fingerprint == pe.evaluate_case(case, base.plan, available).fingerprint
+
+
+def test_mock_llm_runs_are_reproducible(tmp_path):
+    prints = []
+    for i in range(2):
+        planner, available, _ = pe.make_mock_llm_planner(tmp_path / str(i), mock_reply({"steps": GOOD}))
+        prints.append(pe.evaluate_case(pe.Case("r", GOAL, expect=pe.Expect(kind="research")), planner.plan, available).fingerprint)
+    assert prints[0] == prints[1]

@@ -218,6 +218,16 @@ def make_template_planner(workdir: Path | str, decomposer: Callable | None = Non
     return GoalPlanner(agents.planner, max_attempts=2, decomposer=decomposer, web_search=web_search), frozenset(agents.planner.available_capabilities())
 
 
+def make_mock_llm_planner(workdir: Path | str, responder: Callable, *, web_search: bool = False) -> tuple[Any, frozenset, Any]:
+    """Wie make_template_planner, aber mit dem ECHTEN LLMDecomposer ueber den lokalen MockProvider (kein Netzwerk, kein Anbieter).
+    `responder(request) -> str` liefert die Modellantwort; -> (GoalPlanner, Faehigkeiten, MockProvider mit `calls`)."""
+    from jarvis.goals.llm_planner import LLMDecomposer
+    from jarvis.llm.mock import MockProvider
+    provider = MockProvider(responder)
+    planner, available = make_template_planner(workdir, decomposer=LLMDecomposer(provider), web_search=web_search)
+    return planner, available, provider
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     import argparse
     from plan_eval_cases import CASES
