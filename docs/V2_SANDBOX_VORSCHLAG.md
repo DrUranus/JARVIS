@@ -30,6 +30,13 @@
 - **Folge:** Für den Privatgebrauch plausibel kostenlos, für Gewerbliches Klärung mit Docker nötig. Das ist eine **juristische Frage des Besitzers**, keine technische.
 - **Alternative ohne Desktop:** Docker Engine selbst steht laut Installationsseite unter **Apache License 2.0** (Zuordnung der Zeile zur Engine nicht ausdrücklich bestätigt), die Desktop-Bedingungen scheinen nicht zu gelten, **ausdrücklich bestätigt wird das nirgends**. Engine in einer eigenen WSL-Distribution (`apt install docker-ce`) wäre eine Option, aber eine Koexistenz mit Docker Desktop in derselben Distribution verursacht laut Doku Konflikte.
 
+### 3a. Weitere Klärung der Lizenzfrage (2026-11-11, nur Dokumentation)
+- `docs.docker.com/subscription/desktop-license/` (Seite ohne Datum) nennt als kostenlos: „Small businesses (fewer than 250 employees AND less than $10 million …)“, „Personal use“, „Education“, „Non-commercial open source projects“. **„Personal use“ wird nicht definiert.** Freiberufler, Einzelunternehmer, Nebeneinkünfte und ein privates, nicht quelloffenes Hobbyprojekt sind auf beiden Seiten (Lizenzseite, Preis-FAQ) **nicht dokumentiert**. Der Vertragstext (Abschnitt 3.2 „Developer Use“) verlangt nichtkommerzielle Nutzung und bezieht sich auf quelloffene bzw. „free applications“.
+- Kontaktweg: nur der Vertriebskontakt `docker.com/pricing/contact-sales/`; eine spezielle Lizenz-Mailadresse ist **nicht dokumentiert**. **Empfehlung:** schriftliche Anfrage des Besitzers an Docker mit der konkreten Nutzung (privat, nicht quelloffen, später evtl. gewerblich) und Aufbewahrung der Antwort. Das kann ich nicht für den Besitzer klären.
+- **Docker Engine ohne Desktop:** `docs.docker.com/engine/install/` nennt „Apache License, Version 2.0“ und knüpft die Abonnementpflicht an „Engine obtained via Docker Desktop“. Eine ausdrückliche Aussage, dass `docker-ce` direkt in WSL 2 installiert nicht unter die Desktop-Bedingungen fällt, ist **nicht dokumentiert** (es ist nur die naheliegende Lesart). Docker leistet für die Engine keinen Support.
+- **Alternativen mit Open-Source-Lizenz (Lizenz aus den `LICENSE`-Dateien gelesen, Eignung nicht getestet):** Podman Desktop und Rancher Desktop, beide **Apache-2.0**. Rancher Desktop nennt Windows 11 **einschließlich Home** ausdrücklich („Windows 11 (including Home edition)“) und benötigt WSL; Podman Desktop nutzt WSL 2 standardmäßig, nennt Home nicht ausdrücklich. Beide wären nach `docs/INTEGRATIONS.md` zu prüfen (Pflege, Abhängigkeiten, Sicherheitsstatus, Hash, Windows-CI) und sind **nicht freigegeben**. Sie könnten die Lizenzfrage umgehen, ersetzen aber nicht die Isolationsbewertung (gleiche WSL-2-Grenze).
+- **Stand:** Lizenz bleibt **offen**; keine Installation vor Klärung.
+
 ## 4. Hardware- und Virtualisierungsanforderungen
 | Variante | Dokumentierte Anforderungen | Nicht dokumentiert |
 |---|---|---|
@@ -99,6 +106,8 @@
 - **Risiko:** Container im WSL-2-Kernel sind keine VM-Grenze; WSL-Netzwerk- und Ressourcengrenzen sind global. Der Agent handelt im Worker ohne unsere Einzelprüfung; Sicherheit hängt an Isolation, Bestätigung pro Lauf und Diff-Prüfung.
 - **Risiko:** VirtualBox/VMware neben WSL 2 kann Leistung und Stabilität mindern; Lizenzfragen (VirtualBox Extension Pack, VMware-Lizenzseite ungeprüft).
 - **Risiko:** `latest`-Tag, Skills-Sync und Image-Pull als Lieferkettenwege.
+
+Die statische Quellcode-Prüfung von OpenHands steht in `docs/V2_OPENHANDS_SICHERHEITSBERICHT.md` (eigener PR).
 
 ## 10. Entscheidungen des Besitzers
 1. Hardware- und Nutzungsangaben (Abschnitt 9) liefern.
