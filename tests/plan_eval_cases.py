@@ -16,7 +16,7 @@ CASES: tuple[Case, ...] = (
     Case("files-office-read", "Zeige mir bericht.docx", expect=Expect(kind="files", agents=("files",), capabilities=frozenset({"office.read"}))),
     # ---- Recherche (Browser-Tool, nur ueber URL)
     Case("research-url", f"Fasse {URL} zusammen", expect=Expect(kind="research", agents=("research",), capabilities=frozenset({"research.web"}), forbidden_capabilities=FILES_ONLY)),
-    Case("research-two-urls", f"Vergleiche {URL} mit https://example.net/angebot", expect=Expect(kind="research", agents=("research",), capabilities=frozenset({"research.web"}))),
+    Case("research-two-urls", f"Vergleiche {URL} mit https://example.net/angebot", expect=Expect(kind="research", agents=("research", "research"), capabilities=frozenset({"research.web"}))),
     # ---- Ablehnungen: nichts wird geraten
     Case("refusal-vague", "Mach alles besser", expect=Expect(outcome="refusal", kind="refusal", reason="no plan")),
     Case("refusal-no-search", "Recherchiere Preise fuer Innenreinigung", expect=Expect(outcome="refusal", kind="refusal", reason="no plan")),
@@ -39,10 +39,10 @@ CASES: tuple[Case, ...] = (
     Case("refusal-workspace-context-only", "Lies a.txt", context={"workspace": "ws"},                # Dateiabsicht entsteht nie aus dem Workspace-Kontext, der Workspace ersetzt sie nicht
          expect=Expect(outcome="refusal", kind="refusal", reason="ambiguous")),
     # ---- bekannte Luecken (aktuelles Verhalten festgehalten, nicht gutgeheissen)
-    Case("gap-two-urls-second-ignored", f"Vergleiche {URL} mit https://example.net/angebot",
-         expect=Expect(kind="gap", agents=("research",), capabilities=frozenset({"research.web"}),
-                       known_gap="Nur die erste URL wird geplant; die zweite wird still ignoriert (Mehrfach-URL-Plaene sind nicht Teil von WP03).")),
-    Case("gap-web-then-save-file", f"Speichere die Zusammenfassung von {URL} in zusammenfassung.txt",
-         expect=Expect(kind="gap", agents=("research",), capabilities=frozenset({"research.web"}), forbidden_capabilities=frozenset({"files.write"}),
-                       known_gap="Der Wunsch, das Ergebnis in eine Datei zu speichern, wird nicht erkannt: es wird nur die URL gelesen (Datei-Parser kennt kein 'speichere Ergebnis').")),
+    Case("research-urls-all-planned", f"Vergleiche {URL}, https://example.net/angebot, example.com und noch einmal {URL}",      # WP03b M1: jede URL ein Zweig, Duplikate entfallen
+         expect=Expect(kind="research", agents=("research", "research", "research"), capabilities=frozenset({"research.web"}))),
+    Case("gap-web-then-save-file", f"Speichere die Zusammenfassung von {URL} in zusammenfassung.txt",                          # WP03b M2a: abgelehnt statt still verworfen
+         expect=Expect(outcome="refusal", kind="gap", reason="incomplete", forbidden_capabilities=frozenset({"files.write"}),
+                       known_gap="Verbleibende Einschraenkung: Rechercheergebnisse koennen nicht in Dateien gespeichert werden (kein sicherer Datenfluss Ergebnis -> Dateiinhalt, "
+                                 "eigenes Arbeitspaket M2b); der ganze Auftrag wird abgelehnt.")),
 )
