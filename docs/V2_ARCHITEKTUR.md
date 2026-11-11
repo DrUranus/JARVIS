@@ -11,6 +11,8 @@ Dieses Dokument ändert keine Berechtigung, keinen Standardwert und keine Backlo
 5. **CI-fähig vor Hardware-fähig.** Jedes Feature braucht einen Fake/Mock-Pfad, der in der GitHub-CI läuft. Windows-Hardware bleibt für das Nötigste.
 6. **Obergrenzen bleiben hart.** `max_steps` ≤ 50, `max_attempts_per_step` ≤ 5, Agent-Recovery ≤ 3, `MAX_REPLANS` = 2, Sitzungsbudget, Notaus. V2 verlängert keine Leine.
 
+7. **Open-Source-First.** Vor jeder Eigenentwicklung wird geprüft, ob ein geprüftes Open-Source-Projekt die Lücke schließt (Option A weiterverwenden, B integrieren, C Konzept/Code gezielt übernehmen, D selbst entwickeln). Ergebnis: `docs/V2_OPEN_SOURCE_BEWERTUNG.md`. Fremde Agenten dürfen nur hinter unserer Kontrollstelle laufen und erhalten keine eigenen Berechtigungen.
+
 ## 2. Bestandsaufnahme: V1 gegenüber dem V2-Ziel
 Legende: **OK** = vorhanden und getestet · **TEIL** = teilweise · **FEHLT** = nicht vorhanden. Umfang aus dem Code gemessen (Zeilen je Paket in `src/jarvis`), Tests: 155 Testdateien, rund 39 000 Zeilen.
 

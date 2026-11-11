@@ -30,6 +30,16 @@ Aufwand = realistische Schätzung in Arbeitstagen (AT) für Entwurf, Umsetzung, 
 | V2-12 | **NEXUS-Agentenüberwachung**: lesende Sichten `GET /view/agents` (Zeitleiste) und `GET /view/trace` (Werkzeugaufrufe aus Audit/Verlauf), Budgetanzeige; **kein neues X0-Ereignis** | V2-08 optional | niedrig bis mittel | nur GET mit Token, geschwärzt, begrenzt | Node-DOM- und Chromium-E2E, `tests/test_control_center_*` | 4 bis 6 AT |
 | V2-13 | **Skill-Bibliothek für GUI-Abläufe**: verifizierte Abläufe als Daten, App-Profile, Prüfung per Screenshot/UIA-Baum | Besitzerentscheidung | **hoch** | jede Eingabe weiter einzeln freigegeben; Notaus wirkt sofort | Fake-Provider, aufgezeichnete UIA-Bäume, Notepad-E2E auf dem Runner | 8 bis 12 AT |
 
+## Open-Source-First (Ergänzung, Entwurf zur Freigabe)
+Bewertung der Fremdprojekte und Integrationsarchitektur: `docs/V2_OPEN_SOURCE_BEWERTUNG.md`. Daraus folgen zwei weitere **Entwürfe** (nicht freigegeben, nichts installiert):
+
+| ID | Titel und Umfang | Abhängigkeiten | Risiko | Abnahmekriterien | Automatisierte Tests / CI | Aufwand |
+|---|---|---|---|---|---|---|
+| V2-14 | **MCP-Gateway (External Agent Gateway)**: erst `docs/MCP_SECURITY.md` und `docs/integrations/mcp.md`; danach Adapter, der externe Werkzeuge als `ProtectedTool` (YELLOW) hinter `ToolRegistry`/`PermissionEngine` registriert; Allowlist, Version+Hash, gepinnte Schemata, Prozessisolierung | V2-06, Besitzerfreigabe, Sandbox-Entscheidung | **hoch** | externe Werkzeuge nie ohne Freigabe; Not-Aus beendet alle Kindprozesse; vergiftete Beschreibung wird abgelehnt | Fake-MCP-Server in CI (feindliche Fälle), Windows-Prozessbaum-Tests | 2 AT Dokumente, danach 8 bis 12 AT |
+| V2-15 | **Coding-Worker (OpenHands, isoliert)**: Auftrag und Kopie rein, Diff raus, Freigabe durch den Menschen; Alternative mini-swe-agent | V2-09, V2-14, Sandbox-Entscheidung | **hoch** | Ergebnis nur als Diff; nie Änderung an Sicherheitsgrenzen; Abbruch/Not-Aus wirken | Fake-Worker in CI, Worker-Contract-Tests | 10 bis 15 AT |
+
+V2-11 (Office-Ausbau) nutzt für das PDF-Lesen die Bibliothek **pypdf** (BSD-3, eine harte Abhängigkeit) nach Prüfdatei `docs/integrations/pypdf.md`; kein Eigenbau.
+
 ## Abhängigkeiten (Kurzform)
 `V2-07 → V2-03 → V2-05` · `V2-06 → V2-08 → V2-12` · `V2-01 + V2-06 → V2-10` · `V2-06 → V2-11` · `V2-06 + Sandbox-Entscheidung → V2-09` · `V2-13` nach V1-Abnahme und Besitzerentscheidung.
 
