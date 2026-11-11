@@ -55,4 +55,4 @@ V2-11 (Office-Ausbau) nutzt für das PDF-Lesen die Bibliothek **pypdf** (BSD-3, 
 Echte Mikrofon-/Lautsprecher-Ausgabe, Overlay-Fokus und Mehrmonitor, echte Eingaben in Fremdfenstern (V2-13), Live-Brave mit Schlüssel, echtes LLM, OneDrive-Pfade. Alles andere ist über die GitHub-CI (Windows- und Linux-Runner) abdeckbar. Abnahmeplan V1: `docs/WINDOWS_V1_ABNAHME.md`.
 
 ## Empfehlung für die nächste Phase
-Phase A in dieser Reihenfolge: **V2-01** (Entwurfs-PR liegt vor) → **V2-02** (Testharness, macht jede spätere Planänderung messbar) → **V2-03** (Projektkontext, lesend) → **V2-04** (nächtliche Voll-CI, Besitzer-PR). Erst danach Phase B. Phase E erst nach V1-Abnahme, Sandbox-Entscheidung und ausdrücklicher Freigabe.
+Die überarbeitete Reihenfolge (Stufen 0 bis 5, Freigabetor G1) steht in `docs/V2_PHASE_A.md`, Abschnitt 5, zusammen mit der Entscheidung A/B/C/D je Schritt (Abschnitt 4). Kurz: V2-01 und V2-02 liegen als Drafts vor; danach nach Freigabe V2-11a (PDF lesen mit pypdf), V2-03 (Projektkontext, nur lesend) und V2-06 (typisierte Artefakte); V2-04 (nächtliche CI) bleibt Plan; Coding-Worker und GUI-Skills erst nach der V1-Abnahme und der Sandbox-Entscheidung.
