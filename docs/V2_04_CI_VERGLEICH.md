@@ -38,3 +38,20 @@ Die bestehende `tests.yml` unterscheidet bereits `scope` (gui, phase15, full, al
 
 ## 5. Offene Entscheidungen
 Variante (siehe 3), Uhrzeit (außerhalb der Arbeitszeit), ob Windows-Minuten ein Budget haben, und ob Ergebnismeldungen an einen bestimmten Ort gehen sollen. Solange nichts entschieden ist, bleibt es ungeplant.
+
+## 6. Übersprungene Tests (Linux-Vollsuite lokal, 2026-11-11)
+Lokal (Linux, `python -m pytest -rs tests`): **0 Fehlschläge, 93 übersprungen**; die CI-Ubuntu-Läufe melden 119 Skips (Abweichung durch andere installierte Zusatzpakete, hier **nicht itemisiert**). Gründe der lokalen 93:
+| Anzahl | Grund |
+|---|---|
+| 23 | NTFS-Junctions/Reparse Points nur unter Windows (`tests/test_security_paths_windows.py`; POSIX-Symlink-Tests decken Linux ab) |
+| 13 + 1 + 1 + 1 | Windows-Pfadsemantik bzw. Windows-Prozesssemantik |
+| 11 | optionale Bibliotheken fehlen (`pip install -e '.[computer]'`) |
+| 8 | echte Windows-ACL-Mechanik (PowerShell/icacls) |
+| 8 + 5 | Windows Job Objects / `taskkill` |
+| 6 | echte Windows-Desktopaufnahme (mss/GDI) |
+| 6 | UI Automation nur unter Windows |
+| 4 | echte Win32-API |
+| 2 | natives pywebview-Fenster nur Windows |
+| 2 | `tkinter` nicht importierbar (Umgebung) |
+| 1 + 1 | öffentliche Web-Prüfung braucht `JARVIS_TEST_PUBLIC_WEB=1` und Internet; `trafilatura` fehlt |
+Die Windows-spezifischen Skips sind **auf Linux kein Nachweis** und werden nur vom Windows-CI-Lauf belegt (dort 45 Skips auf der Vollsuite; ihre Gründe wurden hier **nicht itemisiert**). Ein übersprungener Test gilt nie als bestanden.
