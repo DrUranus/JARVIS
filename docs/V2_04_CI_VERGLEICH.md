@@ -55,3 +55,22 @@ Lokal (Linux, `python -m pytest -rs tests`): **0 Fehlschläge, 93 übersprungen*
 | 2 | `tkinter` nicht importierbar (Umgebung) |
 | 1 + 1 | öffentliche Web-Prüfung braucht `JARVIS_TEST_PUBLIC_WEB=1` und Internet; `trafilatura` fehlt |
 Die Windows-spezifischen Skips sind **auf Linux kein Nachweis** und werden nur vom Windows-CI-Lauf belegt (dort 45 Skips auf der Vollsuite; ihre Gründe wurden hier **nicht itemisiert**). Ein übersprungener Test gilt nie als bestanden.
+
+## 7. Windows-Skips (Job `tests-windows`, PR #229, Lauf 42987707150, 2026-11-11)
+Ergebnis laut Log: **5270 bestanden, 46 übersprungen, 0 Fehlschläge** (21:18 Min.). Die V1-Referenz auf `main` meldete 45 Skips; **der eine Unterschied ist nicht belegt**. Vermutung (ungeprüft): der Test `test_computer_uia_tools.py:384` („kein origin/main in diesem Checkout“) überspringt im PR-Checkout, weil dort `origin/main` fehlt. Gründe aller 46 (aus der Zusammenfassung des Logs):
+| Anzahl | Grund | Bedeutung für den Nachweis |
+|---|---|---|
+| 13 | POSIX-Symlinks bzw. -Semantik (`test_security_paths.py` 7, `test_security_engine.py` 3, `test_computer_controller.py` 1, `test_computer_tools.py` 1, `test_security_tools.py` 1) | Windows-Entsprechung: NTFS-Junctions/Reparse Points in `test_security_paths_windows.py` (laufen unter Windows) |
+| 11 | echtes X11/Xvfb nur unter Linux (`test_computer_x11_real.py`) | Linux-CI deckt ab; Windows nicht zutreffend |
+| 7 | `playwright` fehlt im Job `tests-windows` (`test_analysis_real`, `test_browser_real`, `test_control_center_e2e_browser` 2, `test_research_real_browser`, `test_browser_basics` 2) | wird im eigenen Job `real-browser (windows-latest)` belegt (in #229 grün) |
+| 5 | POSIX-Shellskripte (`test_computer_providers.py` 4, `test_computer_security.py` 1) | nicht zutreffend unter Windows |
+| 2 | `JARVIS_NATIVE_GUI=1` fehlt (`test_control_center_native_windows.py`) | **nur auf einem interaktiven Windows-Desktop belegbar, gehört zur Abnahme #186; nicht bestanden, nur übersprungen** |
+| 1 | `trafilatura` nicht installiert (`test_research_extract_backend.py`) | optionale Bibliothek; Backend-Test läuft nicht |
+| 1 | Symlink-Erzeugung braucht unter Windows ein Recht (`test_office.py:411`); „der Windows-CI-Lauf ist der Plattformnachweis“ | Lücke: Symlink-Fall dort nicht ausgeführt |
+| 1 | kein `origin/main` im Checkout (`test_computer_uia_tools.py:384`) | Umgebungseffekt des Checkouts |
+| 1 | `no X11 on Windows` (`test_computer_integration.py:151`) | nicht zutreffend |
+| 1 | `git` und POSIX-Shellskript nötig (`test_coding_real.py:282`) | nicht zutreffend |
+| 1 | POSIX-Dateimodus-Bits (`test_self_improvement_keyfile.py:239`); Windows-Entsprechung sind die ACL-Tests | Ersatztests laufen |
+| 1 | Prozessbaum: unter Windows wird die echte Win32-Schicht genutzt (`test_self_improvement_process_tree.py:136`) | Ersatztests `win_*` laufen |
+| 1 | Nachfahrenerkennung über `/proc` nur Linux; „Windows is untested“ (`test_self_improvement_workspace.py:451`) | **echte Lücke**: Windows-Fall dieser Funktion ungetestet |
+Zwei Skips sind **echte Windows-Lücken** (Symlink-Recht in `test_office.py`, `/proc`-Nachfahrenerkennung im Workspace-Test) und zwei hängen an der interaktiven Abnahme (#186). Alle übrigen sind plattformbedingt oder durch Ersatztests/andere Jobs abgedeckt. Ein übersprungener Test gilt nie als bestanden.
