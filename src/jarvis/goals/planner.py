@@ -37,10 +37,43 @@ _RESEARCH = re.compile(r"\b(recherchier\w*|research|finde\s+\w*\s*heraus|find\s+
 _SCREEN_STRONG = re.compile(r"\b(screenshot|bildschirm\w*)\b", re.IGNORECASE)
 _CODING_CONTEXT_KEYS = ("edits", "runner", "test_args", "read_paths")
 _PART_ORDER = ("web", "file", "coding", "screen")
+MAX_URLS = 5                                            # distinct URLs one objective may name (WP03b); more is refused, never truncated
+# A wish to write a RESULT that does not exist yet into a file ("speichere das Ergebnis in x.txt"). Narrow on purpose: save verb, then (later in the sentence) a file target
+# (a file name with an extension, or the word Datei/file). Bookmarks, favourites, memory and reading lists have no file target and are not matched.
+_SAVE_VERB = r"(?:speicher\w*|abspeicher\w*|schreib\w*|exportier\w*|ablege\w*|save|store|write|export)"
+_SAVE_TARGET = (r"\b(?:in|als|nach|unter|into|to|as|under)\s+(?:(?:der|die|das|eine|einer|einem|eine\s+neue|a|an|the|new)\s+)*"
+                r"(?:datei|file|[\w./\\-]+\.(?:txt|md|csv|json|docx|xlsx|pdf|html?|log|xml|ya?ml)\b)")
+_SAVE_WISH = re.compile(r"\b" + _SAVE_VERB + r"\b[^\n]{0,160}?" + _SAVE_TARGET, re.IGNORECASE)
+_LITERAL_CONTENT = re.compile(r"\b(?:mit\s+dem\s+inhalt|inhalt\s*:|den\s+inhalt|with\s+the\s+content|content\s*:|den\s+text\s*:)", re.IGNORECASE)
 _RUNNERS = ("pytest", "python -m pytest", "python -m unittest", "npm test")
 _EDIT_KEYS = frozenset({"path", "content", "mode", "old_text", "new_text", "expected_sha256"})
 MAX_EDITS = 10
 MAX_READS = 5
+
+
+def find_urls(objective: str, ctx: dict[str, Any]) -> list[str]:
+    """Every distinct URL or bare domain the request names, in order of first appearance (context url first). Duplicates (also 'example.org' vs 'https://example.org')
+    are removed. The caller refuses more than MAX_URLS."""
+    found: list[tuple[int, str]] = []
+    u = ctx.get("url")
+    if isinstance(u, str) and u.strip():
+        found.append((-1, u.strip()))
+    covered: list[tuple[int, int]] = []
+    for m in _URL.finditer(objective):
+        covered.append(m.span())
+        found.append((m.start(), m.group(0).rstrip(".,;:!?)")))
+    for m in _DOMAIN.finditer(objective):
+        if any(a <= m.start() < b for a, b in covered):
+            continue                                    # a domain inside a URL is part of that URL
+        found.append((m.start(), "https://" + m.group(1) + ((m.group(2) or "").rstrip(".,;:!?)") or "/")))
+    out: list[str] = []
+    seen: set[str] = set()
+    for _, url in sorted(found, key=lambda t: t[0]):
+        key = re.sub(r"^https?://", "", url, flags=re.IGNORECASE).rstrip("/").lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(url)
+    return out
 
 
 class Planner(Protocol):
@@ -114,6 +147,10 @@ class GoalPlanner:
             return steps
         objective = goal.objective
         parts, file_step_text = self._parts(goal, user)
+        urls = find_urls(objective, user)
+        if ("web" in parts or "screen" in parts) and self._save_wish(file_step_text):
+            raise PlanningError("incomplete: the objective asks to save a research result to a file, but there is no safe data flow from a result to file content yet; "
+                                "nothing is planned (name the file content explicitly, or ask for the research only)")
         workspace = isinstance(user.get("workspace"), str) and bool(user["workspace"].strip())
         url = find_url(objective, user)
         builders = {"web": self._web, "file": self._file, "coding": self._coding, "screen": self._screen}
@@ -131,12 +168,12 @@ class GoalPlanner:
         elif workspace and "coding" not in parts:
             raise PlanningError("the objective is ambiguous: it fits more than one kind of goal "
                                 "(the workspace in the context is not mentioned in the objective: name the coding task or leave the workspace out)")
-        if len(parts) == 1:
+        if len(parts) == 1 and not (parts == ["web"] and len(urls) > 1):
             specs = builders[parts[0]](goal, objective, user, url)
             return self._finish(goal, specs, max_steps)
         specs = self._combine(goal, parts, objective, file_step_text, user, url)
         steps = self._finish(goal, specs, max_steps)
-        self._check_coverage(parts, steps, url, file_step_text, user)
+        self._check_coverage(parts, steps, urls, file_step_text, user)
         return steps
 
     def _finish(self, goal: Goal, specs: list[dict[str, Any]], max_steps: int) -> tuple[GoalStep, ...]:
@@ -151,11 +188,20 @@ class GoalPlanner:
         """The objective without URLs and bare domains: the file parser would otherwise read 'https://example.org/x' or 'example.com' as a file path."""
         return _DOMAIN.sub(" ", _URL.sub(" ", text))
 
+    @staticmethod
+    def _save_wish(text: str) -> bool:
+        """True when the text asks to write a not-yet-existing result into a file (and gives no literal content for it). `text` has no URLs/domains."""
+        return bool(_SAVE_WISH.search(text)) and not _LITERAL_CONTENT.search(text)
+
     def _parts(self, goal: Goal, user: dict[str, Any]) -> tuple[list[str], str]:
         """The parts the objective TEXT evidences, in a fixed order. Returns (parts, objective text for the file parser). A workspace in the context alone is not a part."""
         objective = goal.objective
         parts: list[str] = []
-        if find_url(objective, user) is not None:
+        urls = find_urls(objective, user)
+        if len(urls) > MAX_URLS:
+            raise PlanningError(f"incomplete: the objective names {len(urls)} different web addresses; at most {MAX_URLS} are planned, nothing is planned "
+                                f"(split the objective)")
+        if urls:
             parts.append("web")
         text = self._without_locations(objective)
         try:
@@ -181,7 +227,7 @@ class GoalPlanner:
         for kind in parts:
             text = file_text if kind == "file" else objective
             try:
-                specs = builders[kind](goal, text, user, url)
+                specs = self._web_many(goal, find_urls(objective, user)) if kind == "web" and len(find_urls(objective, user)) > 1 else builders[kind](goal, text, user, url)
             except PlanningError as exc:
                 raise PlanningError(f"incomplete: the {kind} part of the objective cannot be planned, so nothing is planned ({exc})") from None
             index: dict[int, int] = {}
@@ -204,7 +250,7 @@ class GoalPlanner:
             del eval_pos
         return work + [{"evaluate": True, "after": sorted(set(tails))}] + cleanups
 
-    def _check_coverage(self, parts: list[str], steps: tuple[GoalStep, ...], url: str | None, file_text: str, user: dict[str, Any]) -> None:
+    def _check_coverage(self, parts: list[str], steps: tuple[GoalStep, ...], urls: list[str], file_text: str, user: dict[str, Any]) -> None:
         """Every evidenced part must appear in the built plan (capability family and its own entity: url, path, workspace); otherwise nothing is returned."""
         families = {"web": {"research.web"}, "file": {"files.read", "files.write", "office.read", "office.create"}, "coding": {"coding.read", "coding.write", "coding.test"},
                     "screen": {"computer.screen"}}
@@ -213,7 +259,7 @@ class GoalPlanner:
         for kind in parts:
             if not any(s.required_capabilities & families[kind] for s in steps):
                 missing.append(kind)
-        if "web" in parts and url is not None and url not in blob:
+        if "web" in parts and any(u not in blob for u in urls):
             missing.append("web:url")
         if "coding" in parts and str(user.get("workspace", "")).strip() not in blob:
             missing.append("coding:workspace")
@@ -332,6 +378,14 @@ class GoalPlanner:
             {"objective": "Recherchiere und lese die Webseite " + url[:200] + " (Browser)", "caps": {"research.web"}, "input": {"url": url}},
             {"evaluate": True},
         ]
+
+    def _web_many(self, goal: Goal, urls: list[str]) -> list[dict[str, Any]]:
+        """One independent research branch per distinct URL, then ONE evaluation over all of them."""
+        if not 1 < len(urls) <= MAX_URLS or not all(P.valid_url(u) for u in urls):
+            raise PlanningError("every url must be an http(s) address (at most five different ones)")
+        specs = [{"objective": "Recherchiere und lese die Webseite " + u[:200] + " (Browser)", "caps": {"research.web"}, "input": {"url": u}, "after": []} for u in urls]
+        specs.append({"evaluate": True, "after": list(range(len(urls)))})
+        return specs
 
     _FILE_CAPS = {("files", "list"): {"files.read"}, ("files", "read"): {"files.read"}, ("office", "read"): {"office.read"}, ("office", "create"): {"office.create"},
                   ("files", "replace"): {"files.read", "files.write"}}
