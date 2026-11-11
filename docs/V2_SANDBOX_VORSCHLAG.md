@@ -1,129 +1,115 @@
-# Sandbox-Entscheidungsvorschlag: isolierter Coding-Worker (OpenHands vorgemerkt)
+# Sandbox-Entscheidungsvorlage: isolierter Coding-Worker (OpenHands) – Windows 11 Home
 
-**Status: Vorschlag zur Besitzerentscheidung. Nichts davon ist umgesetzt, installiert oder freigegeben.** OpenHands ist als bevorzugter Kandidat **vorgemerkt**, ohne Integrations- oder Ausführungsfreigabe. **Coding bleibt vorerst bei der vorhandenen JARVIS-Implementierung** (`coding/`, `self_repair/`, `self_improvement/`). Stand der Recherche: 2026-11-11. Baut auf `docs/SANDBOX_DESIGN.md` (Anforderungen R1–R9, Abnahmetests T1–T13, Optionen A–C) auf und ergänzt sie für diesen Fall. Gehört zu `docs/V2_OPEN_SOURCE_BEWERTUNG.md` (Kandidat 2) und `docs/V2_BACKLOG.md` (V2-15). Release-Freeze für Windows V1 bleibt bestehen; V1-Abnahme #186 steht aus. PermissionEngine, Not-Aus, X0, Audit und Sicherheitsdefaults bleiben unverändert.
+**Status: Vorlage zur Besitzerentscheidung. Nichts ist installiert, ausgeführt, verdrahtet oder freigegeben.** OpenHands bleibt Integrationskandidat ohne Installations- oder Ausführungsfreigabe; **Coding bleibt vorerst bei der vorhandenen JARVIS-Implementierung** (`coding/`, `self_repair/`, `self_improvement/`). Stand: 2026-11-11 (zweite Fassung, ersetzt die erste). Besitzerbestätigung: **der JARVIS-PC läuft mit Windows 11 Home.** Grundlage bleiben `docs/SANDBOX_DESIGN.md` (R1–R9, T1–T13) und `docs/INTEGRATIONS.md`. Release-Freeze und V1-Abnahme #186 haben Vorrang; PermissionEngine, X0, Not-Aus und Audit bleiben unverändert.
 
-## 1. Ausgangslage
-**Bestehende Vorgaben** (`docs/SANDBOX_DESIGN.md`): ein fremder Coding-Agent ist nicht vertrauenswürdig; Job-Objekte (`winjob.py`) sind **Eindämmung, keine Isolation**; `ExecutionGuard` bleibt gesperrt; ohne belegte Isolation startet nichts (R8, fail-closed); Start, Dateiübergabe und Rücknahme nur über `ToolRegistry.execute` → `PermissionEngine` mit Bestätigung pro Lauf (R6); Ergebnisse sind Daten und werden nie automatisch übernommen (R7).
+**Kennzeichnung:** *dokumentiert* = auf der genannten Herstellerseite gelesen; *nicht dokumentiert* = auf den gelesenen Seiten nicht gefunden (kein Beleg für „sicher“); *Einschätzung* = meine Bewertung, kein Herstellersatz. Quellen in Abschnitt 11. Teile der Docker-Referenz wurden nur als Zusammenfassung gelesen und sind markiert.
 
-**OpenHands, belegt aus den offiziellen Projektseiten** (Quellen in Abschnitt 10):
-| Aussage | Beleg |
-|---|---|
-| Lizenz MIT (OpenHands und `software-agent-sdk`) | LICENSE-Dateien |
-| SDK 1.61.0 vom 2026-11-09, `requires_python >=3.12`; App 1.11.0 (2026-07-09) | PyPI |
-| Offizieller Windows-Weg: WSL + Docker Desktop (Windows 10/11, WSL 2, „Use the WSL 2 based engine“); die Seite ist die als **veraltet („deprecated legacy local GUI“)** gekennzeichnete Anleitung | Doku Local Setup |
-| „Local Runtime“ führt Aktionen **ohne Sandbox** direkt auf dem Rechner aus; unter Windows nur CLI/Headless, Browser-Werkzeug dort nicht unterstützt | Doku Local Runtime / Windows ohne WSL |
-| Docker-Sandbox: Agent-Server im Container, „complete isolation from the host system“; Mounts über `SANDBOX_VOLUMES` (`host:container[:mode]`, Standard **read-write**, „Anything mounted read-write into /workspace can be modified by the agent“); optional Host-Netzwerk | Doku Docker-Sandbox |
-| Ein LLM-Schlüssel ist für die meisten Modelle nötig; lokale Modelle (LM Studio, llama.cpp, Ollama) möglich | Doku Local Setup |
+## 1. Kurzfassung der Empfehlung für Windows 11 Home
+1. **Hyper-V entfällt** als Standardlösung (Microsoft: Windows 11 Pro, Enterprise, Education; Home nicht aufgeführt).
+2. **Docker Desktop mit WSL 2** ist als Prototypkandidat zulässig, aber mit zwei Vorbehalten: (a) die aktuelle Docker-Systemanforderungsseite führt **Windows 11 Home nicht auf** (Pro/Enterprise/Education); ob Installation auf Home funktioniert, ist praktisch zu prüfen, nicht zu unterstellen; (b) die WSL-Grenze ist **schwächer als eine VM-Grenze** (siehe 5).
+3. **Stärkere Isolation auf Home** bietet eine **eigene Linux-VM** über VMware Workstation (kostenlos seit 2024-11), VirtualBox oder QEMU/WHPX; sie ist aber aufwendiger, die Zusammenarbeit mit WSL 2 ist teils eingeschränkt, und die Automatisierung ist nicht belegt (Abschnitt 5).
+4. **Ja, OpenHands kann nach heutigem Wissensstand nur dann „vollständig isoliert mit Rückgabe kontrollierter Diffs“ laufen, wenn JARVIS den Rahmen selbst baut** (Kopie hinein, Diff aus der Kopie heraus, kein Netz außer LLM-Relay). OpenHands dokumentiert diesen Betriebsmodus **nicht** (Abschnitt 7).
+5. **Vorläufige Empfehlung:** Stufenplan. Zuerst weitere reine Dokumentationsklärung und Besitzerprüfung der Hardware (Abschnitt 9). Dann (mit eigener Freigabe) ein **Wegwerf-Prototyp in einem Container** (Docker, gehärtet) ohne JARVIS-Anbindung, nur mit Kopie-hinein/Diff-heraus und ohne Geheimnisse. **Ein VM-Prototyp (VMware oder VirtualBox) ist die stärkere Zielvariante**, wenn die Container-Variante die Tests nicht besteht oder sensiblere Repositories bearbeitet werden sollen. Produktive Nutzung erst nach bestandenen Abnahmetests und Windows-Nachweis.
 
-**Die Dokumentation schweigt zu:** Container-Benutzer, Standard-Mounts, Internetzugang des Containers, CPU-/Speicher-/Prozesslimits, Docker-Socket in der Sandbox, an den Container übergebene Umgebungsvariablen, Aufräumdetails, **Telemetrie**. Das sind keine Befunde „sicher“, sondern **ungeprüft**; jeder dieser Punkte wird zum Test (Abschnitt 7).
-
-## 2. Zusätzliche Anforderungen für OpenHands (Ergänzung zu R1–R9)
-| # | Bereich | Anforderung |
+## 2. Befunde zu OpenHands (Q1–Q4, nur Dokumentation)
+| Frage | Befund | Beleg |
 |---|---|---|
-| R10 | LLM-Zugang | Der Schlüssel bleibt **auf dem Host** und gelangt nie in den Worker (R4). Zugang über ein **host-seitiges LLM-Relay** (nur konfigurierter Endpunkt und Modell, Budget, Protokoll, Notaus) oder über ein lokales Modell. Ohne Relay/lokales Modell hat der Worker keine Netzverbindung und kann nicht arbeiten (fail-closed). |
-| R11 | Image-Herkunft | Nur ein per **Digest** gepinntes Image (`name@sha256:…`) aus geprüfter Quelle; kein `latest`, kein Bau und keine Installation zur Laufzeit; Prüfdatei nach `docs/INTEGRATIONS.md` für Image und Basis. |
-| R12 | Keine Durchgriffe | Kein Docker-Socket im Worker, kein `--privileged`, kein Host-Netzwerk, kein Host-PID/IPC-Namensraum, keine Geräte. |
-| R13 | Telemetrie | Da nicht dokumentiert: Abgang wird durch Netzblockade verhindert und durch Test belegt, nicht angenommen. |
+| **Q1 Wo läuft die Modellschleife?** | Im **Agent-Server innerhalb von Container/Pod**: „it runs the agent loop and its own tools inside the container“ (Docker-Modus je Konversation). Ohne Container laufen „Agent Server and tools … directly on the backend host without container isolation“. Kommunikation REST + WebSocket, Sitzungsschlüssel im Header, Standard-Bindung an 127.0.0.1. Die Docker-Sandbox des SDK nutzt `RemoteConversation` über WebSocket (Standardport 8010). | Doku Agent-Server, Docker-Ausführung, SDK Docker-Sandbox |
+| Betrieb ohne Internet, LLM über Host-Endpunkt | `base_url` des LLM ist konfigurierbar (Beispiele lesen `LLM_BASE_URL`). **Ein Offline-Betrieb ist nicht dokumentiert**; Netzwerkmodus/Egress-Filter ebenfalls **nicht dokumentiert**. Der Container bekommt `host.docker.internal` auf das Host-Gateway. | Doku Docker-Ausführung, SDK |
+| **Q2 Datenabfluss** | LLM-Anbindung über **LiteLLM** („any LLM supported by LiteLLM“). Datenschutzerklärung (Stand 2025-09-03) betrifft die gehosteten Dienste: Eingaben/Code können an KI-Drittanbieter gehen. Ob sie für Selbstbetrieb gilt, **nicht dokumentiert**. Weitere Abrufe: Skills-Sync aus GitHub (`OpenHands/extensions`), Abruf von `ghcr.io/openhands/agent-server:latest-python`, Browser-Werkzeug (reale Webseiten). Suche, MCP, GitHub-Integration, Paketinstallation: **nicht gelesen/nicht dokumentiert**. | Datenschutz, SDK-README, Doku |
+| **Q3 Telemetrie** | Datenschutzerklärung nennt Drittanbieter-Analyse („Posthog, Google Analytics or similar“) für Website/Dienste; „Do Not Track“ wird nicht beachtet. **Abschalt-Variablen und Startverbindungen des Selbstbetriebs: nicht dokumentiert.** Quellcode nicht geprüft (nur mit lokalem Klon und Suche belegbar, braucht Download, daher hier nicht erfolgt). | Datenschutz, Doku |
+| **Q4 Begrenzung** | Docker-Modus **dokumentiert:** läuft als Host-UID/GID statt root; `--cap-drop ALL`; `no-new-privileges`; Standardgrenzen 4 GB RAM, 2 CPUs, 512 Prozesse, Leerlauf-Ende 1200 s (Hinweis der Doku: Grenzen vom Client angeforderte Werte werden nicht gedeckelt). Mounts: Konversationsordner, `.openhands`, **`/workspace` mit Lese- und Schreibzugriff auf das Host-Verzeichnis**; ein Nur-Lesen-Modus, Egress-Begrenzung, Umgebungsdurchreichung und Docker-Socket-Verhalten sind **nicht dokumentiert**. Geheimnisse: Secret Registry maskiert Werte in Ausgaben; gespeichert verschlüsselt mit `OH_SECRET_KEY`. Die Beschreibung der Docker-Sandbox als „complete isolation from the host system“ widerspricht dem eigenen Hinweis „the agent will be able to access any project under PROJECTS_PATH“ bzw. dem Schreibzugriff auf `/workspace`. | Doku Docker-Ausführung, Secrets, Sicherheit |
+| Ergebnisrückgabe | Es gibt Endpunkte für Git-Diff (`modified`/`original` je Datei). **Ein Betriebsmodus, der den Host-Arbeitsordner unberührt lässt und nur einen Patch liefert, ist nicht dokumentiert.** | SDK API-Referenz |
+| Eigene Risikoaussagen | Standard-Bestätigungsrichtlinie „ConfirmRisky“; das Risiko einer Aktion stammt vom LLM selbst, nicht von einer unabhängigen Prüfung. | Doku Sicherheit |
 
-**Grundsätzliche Einordnung:** Innerhalb des Workers handelt der Agent selbständig (Dateien ändern, Befehle ausführen, Tests starten); diese Einzelaktionen laufen **nicht** über unsere `PermissionEngine`. Die Sicherheitsgrenze ist deshalb **die Sandbox selbst plus Bestätigung pro Lauf und Prüfung des Ergebnisses** (R6, R7). Das ist ein bewusster Unterschied zu allen heutigen JARVIS-Werkzeugen und der Grund, warum die Isolation belegt sein muss, bevor irgendetwas startet.
+**Folgerungen (Einschätzung):** (1) Die Schleife sitzt im Worker, deshalb braucht der Worker einen Weg zum Modell; ohne Relay/lokales Modell kann er keine Netzsperre haben. (2) Die Standard-Mounts sind für uns ungeeignet (Host-Verzeichnis lesbar/schreibbar); die Isolation muss JARVIS durch **eigene feste Startvorlage** erzwingen, nicht durch OpenHands-Einstellungen. (3) Der Standard-Image-Tag `latest-python` verstößt gegen R11 (Digest-Pinning). (4) Ausgehende Abrufe (Skills-Sync, Image-Pull) müssen durch Netzsperre verhindert werden; wie sie sich in OpenHands abschalten lassen, ist nicht dokumentiert. (5) Die Telemetriefrage ist **nicht beantwortbar ohne Quellcode-Prüfung**; bis dahin gilt „Netz zu“ als einzige belastbare Gegenmaßnahme.
 
-## 3. Optionen für den OpenHands-Worker unter Windows
-Beleg der Herstellerangaben: Microsoft Learn (WSL-Konfiguration, Windows Sandbox), Docker-Referenz und -Lizenzvertrag (Abschnitt 10).
+## 3. Lizenz Docker Desktop (Docker Subscription Service Agreement, „Last updated on August 26, 2026“)
+- **Private, nichtkommerzielle Nutzung:** „Developer Use“ ist auf einen einzelnen Entwickler in persönlicher, nichtkommerzieller Eigenschaft beschränkt und bezieht sich auf „Open Source Software or free applications“ (dokumentiert). Ein **privates, nicht quelloffenes Hobbyprojekt** ist damit **nicht eindeutig** abgedeckt (Auslegungsfrage).
+- **Gewerbliche Nutzung:** kostenlos nur für Unternehmen mit **weniger als 250 Beschäftigten und weniger als 10 Mio. US-$ Umsatz** (Vertragstext verlangt beide Schwellen; die Docker-Installationsseite formuliert „OR“ – Abweichung), Behörden immer kostenpflichtig. **Nutzung im Zusammenhang mit einer Anstellung/Beauftragung durch ein Unternehmen ist nicht „Developer Use“.** Was als „commercial use“ gilt, ist **nicht definiert**; ein freiberuflicher Einzelner ist nicht ausdrücklich geregelt.
+- **Folge:** Für den Privatgebrauch plausibel kostenlos, für Gewerbliches Klärung mit Docker nötig. Das ist eine **juristische Frage des Besitzers**, keine technische.
+- **Alternative ohne Desktop:** Docker Engine selbst steht laut Installationsseite unter **Apache License 2.0** (Zuordnung der Zeile zur Engine nicht ausdrücklich bestätigt), die Desktop-Bedingungen scheinen nicht zu gelten, **ausdrücklich bestätigt wird das nirgends**. Engine in einer eigenen WSL-Distribution (`apt install docker-ce`) wäre eine Option, aber eine Koexistenz mit Docker Desktop in derselben Distribution verursacht laut Doku Konflikte.
 
-| Eigenschaft | O1 Docker Desktop (WSL 2) mit gehärtetem Container | O2 Dedizierte Hyper-V-Linux-VM („jarvis-worker“) | O3 Gehärtete WSL-2-Distribution (ohne Container) | O4 Windows Sandbox | O5 AppContainer |
+## 4. Hardware- und Virtualisierungsanforderungen
+| Variante | Dokumentierte Anforderungen | Nicht dokumentiert |
+|---|---|---|
+| Docker Desktop (WSL 2) | 64-Bit-CPU mit SLAT, **8 GB RAM**, Virtualisierung im BIOS/UEFI, WSL ≥ 2.1.5 (für Enhanced Container Isolation ≥ 2.6), Windows 11 „Enterprise, Pro oder Education 23H2 (22631) oder höher“ – **Home nicht aufgeführt**; Hinweis: „Windows Home or Education editions only allow you to run Linux containers“ | Plattenbedarf; Home-Unterstützung der WSL-2-Variante |
+| WSL 2 | Virtual Machine Platform (auf Home verfügbar, Microsoft-FAQ), Virtualisierung im BIOS; Standard: **50 % des RAM**, alle Prozessoren, Swap 25 % des Speichers | BIOS-Bezeichnung, Mindest-RAM/-Platte |
+| OpenHands-Container | Standardgrenzen 4 GB RAM, 2 CPUs, 512 Prozesse | tatsächlicher Bedarf, Plattenbedarf |
+| VirtualBox | SSE2 für den Host; bis 32 vCPUs je VM | RAM/Platte-Empfehlungen; **Home ausdrücklich genannt: nicht dokumentiert** |
+| VMware Workstation | kostenlos für alle Nutzer seit 2024-11-11 (kommerziell, privat, Bildung; kein Support) | Systemanforderungen, Home-Unterstützung, **aktuelle Lizenzseite nicht abrufbar (404)** |
+| QEMU (WHPX) | Windows Hypervisor Platform; x86_64 getestet ab Windows 10 2004 | Home ausdrücklich; Automatisierung im gelesenen Text |
+
+**Einschätzung (nicht belegt):** Für Docker/WSL 2 plus Agentenlauf sind **mindestens 16 GB RAM** und mehrere zehn GB freier Platz sinnvoll; das ist zu messen. Der Besitzer sollte Prozessor, RAM, freien Speicher und den Status von Virtualisierung (Task-Manager → Leistung → CPU) mitteilen.
+
+## 5. Vergleich der Optionen für Windows 11 Home
+| Kriterium | **O1 Docker Desktop (WSL 2), gehärteter Container** | **O1b Docker Engine in eigener WSL-Distribution** | **O2 Linux-VM (VMware Workstation oder VirtualBox)** | O3 QEMU/WHPX-VM | Ausgeschlossen |
 |---|---|---|---|---|---|
-| Von OpenHands offiziell unterstützt | ja (WSL + Docker Desktop) | Linux-Gast: Weg gleich wie Linux; nicht gesondert dokumentiert | Local Runtime ohne Sandbox | nur Windows-CLI/Headless, kein Browser | nein |
-| Dateisystem (R1) | Container: `--read-only`, gezielte Mounts; WSL-Laufwerke des Docker-Gastsystems nicht von uns steuerbar (ungeprüft) | VM, **kein** geteilter Ordner; Übergabe per Archiv | `automount.enabled=false` je Distribution (dokumentiert) | ja, Mapped Folder `ReadOnly` | per ACL, Eigenbau |
-| Netzwerk (R2) | `--network none` (dokumentiert: nur Loopback); LLM-Weg über Relay ungeklärt (Q2) | privater virtueller Switch ohne Außenadapter, Relay am Host | `networkingMode` ist **global** für alle WSL-2-Distributionen (dokumentiert), nicht je Distribution | `Networking=Disable` (dokumentiert) | Capabilities |
-| Zugangsdaten (R4) | Container-Umgebung leer; Relay hält Schlüssel | frische VM, kein Host-SSO | `interop`/`appendWindowsPath` aus (dokumentiert) | frische VM, Zwischenablage aus | eigene Identität |
-| Prozesse beenden (R3) | `docker kill`/`rm -f` plus Job Object um die CLI | `Stop-VM`/Checkpoint-Rücksetzen (nicht geprüft) | `wsl --terminate`/`--shutdown` | Fenster/VM schließen verwirft Zustand | Job Object |
-| Ressourcen (R5) | `--memory`, `--memory-swap`, `--cpus`, `--pids-limit` (alle in der Referenz) | VM-Speicher/CPU (nicht geprüft) | `.wslconfig` `memory`, `processors`, `swap` **global** | `MemoryInMB` | Job Object |
-| Als Sicherheitsgrenze beschrieben | Container teilen den Kernel der WSL-2-VM; keine Herstelleraussage zu „WSL = Grenze“ gelesen | VM-Grenze (laut `SANDBOX_DESIGN.md`/MSRC) | nicht gelesen | VM mit eigenem Kernel | ja (MSRC) |
-| Windows-Edition | auch Home (WSL 2) | **Pro/Enterprise** (Hyper-V) | auch Home | **nicht Home** | alle |
-| Automatisierbar durch JARVIS | ja (CLI) | ja (PowerShell, Aufwand hoch) | ja | **nicht dokumentiert** (nur Start per `.wsb`-Datei, keine Automatisierung genannt), nur eine Instanz | Eigenbau |
-| Zusätzliche Abhängigkeit | **Docker Desktop** (Prüfdatei, Lizenz) | Hyper-V, Linux-Image | – | – | – |
-| Aufwand | mittel | hoch | niedrig, aber nicht belastbar | mittel | sehr hoch |
-| Bewertung für OpenHands | **geeignet als Fallback** | **geeignet als bevorzugte Variante** | **nein** (R2 nicht je Distribution, Local Runtime ohne Sandbox) | **nein** (kein Linux/Docker, keine Automatisierung, Netz für LLM) | **nein** |
+| Isolationsgrenze | Container im Kernel der WSL-2-VM; WSL-Distributionen teilen einen Kernel (aus der Architektur ableitbar); Docker selbst: Home-Unterstützung unklar, ECI nur mit WSL ≥ 2.6, Doku: „Use Hyper-V backend for maximum security“ | wie O1, ohne Desktop-Verwaltung | **eigener Kernel, eigene Platte, eigenes Netz**; stärkste auf Home belegbare Grenze (Einschätzung) | wie O2, GPL, kein Komfort | **Hyper-V** (Home nicht aufgeführt), **Windows Sandbox** (laut früherer Prüfung nicht auf Home), **Windows AppContainer** (hoher Eigenbau), **WSL ohne Container** (Netz global, Interop/Mounts standardmäßig an) |
+| Windows-Home-Eignung | **ungeklärt** (Docker-Seite) | WSL 2 auf Home dokumentiert | VMware/VirtualBox: Home nicht ausdrücklich bestätigt | WHP-Verfügbarkeit nur indirekt belegt | |
+| Zusammenarbeit mit WSL 2 | gleich | gleich | VirtualBox: laut Handbuch **schlechte Leistung**, wenn Hyper-V-Plattform aktiv; Abschalten würde WSL 2 behindern; VMware: laut Microsoft-FAQ ab 15.5.5 mit WSL 2 nutzbar | WHPX nutzt dieselbe Plattform | |
+| Host-Dateien | Bind-Mount nur gezielt (eigene Startvorlage); `\\wsl$` erlaubt Windows den Zugriff auf WSL-Dateien; Standard-Automount bei Desktop nicht dokumentiert | `automount.enabled=false` je Distribution dokumentiert | **keine** gemeinsamen Ordner (VirtualBox: standardmäßig keine, Lese-/Schreibmodus wählbar) | keine | |
+| Netzwerk | `--network none` (dokumentiert), Relay offen (Q2); `.wslconfig` Netzwerk **global** | wie O1 | VirtualBox: internes Netz oder Host-only; NAT-Standard erreicht Host-Loopback (10.0.2.2) | `-netdev user` | |
+| Ressourcen | Container: `--memory`, `--cpus`, `--pids-limit` (dokumentiert); WSL-Grenzen **global** | wie O1 | feste VM-Größe (vCPU bis 32), Platte als Datei | | |
+| Prozess beenden / Not-Aus | `docker kill`/`rm` über Label + Job Object um die CLI | wie O1 | `VBoxManage controlvm poweroff` bzw. vmrun (dokumentiert: VBoxManage-Steuerung); Zustand per Snapshot rücksetzbar | QMP (nicht gelesen) | |
+| Wartbarkeit | gut (Desktop aktualisiert sich; Image per Digest pinnen) | mittel (Engine selbst pflegen) | **aufwendig** (Gastsystem, Updates, Image) | hoch | |
+| Bedienbarkeit | gut | mittel | mittel bis schwer | schwer | |
+| Lizenz | Docker-Desktop-Bedingungen (Abschnitt 3) | Apache-2.0 (Engine), Docker Desktop entfällt | VirtualBox: GPLv3; **Extension Pack nur privat/Bildung kostenlos**; VMware: kostenlos, aber Lizenztext ungeprüft | GPLv2 | |
 
-**Docker Desktop, Lizenz (Docker Subscription Service Agreement, Stand 2026-08-26):** kostenlos nur für nichtkommerzielle Open-Source-Projekte oder Unternehmen mit weniger als 250 Beschäftigten **und** weniger als 10 Mio. US-$ Jahresumsatz; Behörden brauchen immer ein Abonnement. Ob **rein persönliche, nichtkommerzielle** Nutzung ohne Open-Source-Bezug frei ist, sagt der Text **nicht eindeutig**. Das muss der Besitzer mit Docker klären, bevor O1 weiterverfolgt wird.
+**Einschätzung zur Sicherheit:** Eine eigene VM trennt am besten; der Preis sind Betrieb und Kopplung. Container in WSL 2 sind einfacher, aber die Doku von Docker selbst warnt, dass unter WSL „users can access Docker Engine directly or bypass Docker Desktop security settings“. Für **nicht vertrauenswürdigen Agentencode** ist die VM auf Home die stärkere Wahl, sofern der Aufwand tragbar ist; für den ersten Prototyp mit **Kopie ohne Geheimnisse** genügt die Container-Variante, **wenn** die Tests OH-01 bis OH-12 (Abschnitt 8) bestanden sind.
 
-## 4. Konkreter Vorschlag
-**Vorschlag A (bevorzugt, falls Windows Pro/Enterprise/Education): O2 dedizierte Hyper-V-Linux-VM**, darin der OpenHands-Agent-Server (bei Bedarf zusätzlich als gehärteter Container, also zwei Grenzen).
-- Begründung: stärkste belegbare Grenze (eigener Kernel, privater Switch), keine Docker-Desktop-Abhängigkeit oder -Lizenzfrage, Zustand per Checkpoint rücksetzbar, deckt sich mit der Empfehlung des bestehenden Entwurfs („C oder B für den ersten Prototyp“).
-- Nachteil: Aufwand (Image, Aktualisierung, Steuerung per PowerShell, Dateiübergabe); nicht auf Windows Home.
+## 6. Schutzmaßnahmen (gelten für O1/O1b und, sinngemäß, O2)
+**Host-Dateien.** Nie das echte Arbeitsverzeichnis einhängen. JARVIS exportiert eine **Kopie** (ohne `.git`, ohne Geheimnisse, ohne Zugangsdaten, nur Dateien, die der Auftrag braucht), die der Worker als eigenes Arbeitsverzeichnis erhält. Alles andere im Container: `--read-only`, `--tmpfs`, `--user` ≠ root. Kein Docker-Socket, kein `--privileged`, keine Geräte, kein Host-Netz. WSL: `automount.enabled=false`, `interop.enabled=false` für eine dedizierte Distribution (dokumentiert; Übertragbarkeit auf die von Docker Desktop verwaltete Distribution **ungeprüft**).
+**Netzwerk.** Standard `--network none`. Die Modellschleife im Worker braucht einen einzigen erlaubten Weg zu einem **host-seitigen LLM-Relay** (hält den Schlüssel, Endpunkt-/Modell-Allowlist, Budget, Protokoll, Notaus). Wie dieser eine Weg technisch ohne weitere Ausgänge hergestellt wird, ist **offen (Q-A)**; ohne Lösung kein Start. Skills-Sync, Image-Pull und Browserwerkzeug bleiben dadurch blockiert; das Image wird vorab per Digest geholt und geprüft.
+**Zugangsdaten.** Kein API-Schlüssel, kein Token, kein SSO im Worker (R4); der Relay hält den Schlüssel. `OH_SECRET_KEY` und Secret Registry nicht verwenden. Testschlüssel-Suche im Worker nach dem Lauf (OH-03).
+**Container-Privilegien.** `--cap-drop ALL`, `no-new-privileges` (Wortlaut der Docker-Referenz nur aus Zusammenfassung, **ungeprüft**), Standard-seccomp unverändert, Benutzer-UID ≠ 0, `--pids-limit`, `--memory` = `--memory-swap`, `--cpus`, `--init`, `--rm`, feste Startvorlage mit Label `jarvis-worker-<Lauf-ID>`; **keine vom Agenten wählbaren Docker-Argumente**. Docker-Desktop-Erweiterungen aus, ECI wenn verfügbar einschalten (Abonnementstufe **nicht dokumentiert**).
+**Not-Aus.** Alle Host-Steuerprozesse unter einem Job Object (`self_improvement/winjob.py`, Verdrahtung nur in `bootstrap.py`); Not-Aus und Abbruch: Job beenden, danach Container **namentlich** stoppen/entfernen, Gegenprobe; bei unsauberem Ende „unvollständiger Abbruch“ melden; beim nächsten Start nur lesende Suche nach verwaisten Workern und Rückfrage vor Aufräumen. Der Relay endet zugleich.
 
-**Vorschlag B (Fallback, auch Windows Home): O1 Docker Desktop mit WSL 2 und gehärtetem Container.**
-- Voraussetzungen vor jedem Prototyp: Lizenzklärung (oben), Prüfdatei `docs/integrations/docker-desktop.md`, Härtung und Nachweis durch T1–T13 und die Zusatztests OH-01 bis OH-10.
-- Nachteil: Container teilen den Kernel der WSL-2-VM; Docker-Engine-Steuerung ist ein mächtiges Werkzeug (nur feste Befehlsvorlagen, nie vom Agenten gewählte Argumente).
+## 7. Kann OpenHands „vollständig isoliert“ arbeiten und nur kontrollierte Diffs zurückgeben?
+**Antwort (Einschätzung auf Basis der Doku):** *Ja, aber nur durch unseren Rahmen, nicht durch eine OpenHands-Funktion.*
+1. JARVIS bestätigt den Lauf (pro Lauf), prüft Isolation (fail-closed) und exportiert die Kopie in ein **eigenes** Verzeichnis.
+2. Worker mit fester Vorlage starten (Abschnitt 6); der Agent arbeitet nur in dieser Kopie.
+3. Nach Ende/Abbruch hält JARVIS die Kopie an und **berechnet den Diff selbst auf dem Host** (Original gegen Kopie), nicht aus Angaben des Agenten. Der Diff wird als **nicht vertrauenswürdige Daten** behandelt: `PathGuard`, keine Pfade außerhalb, keine Änderungen an Sicherheitsgrenzen, `.github/`, `.claude/`, Konfigurationsstandards; Größen-/Dateianzahlgrenzen; Anzeige im Freigabedialog.
+4. Übernahme nur nach Bestätigung, nie automatisch; kein Commit, kein Push.
+**Offene Voraussetzungen:** (Q-A) Netzwerkweg nur zum Relay; (Q-B) läuft der Agent-Server ohne Internet; (Q-C) Verhalten bei Telemetrie/Skills-Sync ohne Netz; (Q-D) Kann die SDK-Docker-Sandbox mit unserer festen Startvorlage genutzt werden, oder muss der Agent-Server im Image direkt gestartet werden; (Q-E) Container-Dateisystem bei `--read-only` (Schreibpfade des Agent-Servers). Keines davon ist ohne Ausprobieren belegbar. **Eine „Rückgabe nur von Diffs“ ist daher erst nach Prototyp und bestandenen Tests behauptbar.**
 
-**Nicht empfohlen:** O3 (WSL ohne Container), O4 (Windows Sandbox), O5 (AppContainer) für diesen Zweck (Begründung in der Tabelle).
-
-**Entscheidungsbaum:** Windows-Edition Pro oder höher? → Vorschlag A. Home, oder A zu aufwendig? → Lizenz klären → Vorschlag B. Keins davon gewünscht → Coding bleibt bei der vorhandenen Implementierung (Option A der Open-Source-Bewertung); das ist ausdrücklich eine zulässige Entscheidung.
-
-## 5. Isolationsspezifikation (für A und B)
-Jede Einstellung ist als **dokumentiert** (Herstellerseite gelesen) oder **ungeprüft** markiert; ungeprüfte Punkte werden vor einem Prototyp geklärt.
-
-**Dateisystem (R1, R7).** Der Worker erhält eine **schreibgeschützte Kopie** des Arbeitsstands (Export ohne `.git`, ohne Geheimnisse) und ein **leeres** Arbeits-/Ausgabeverzeichnis; nichts anderes vom Host. Rückgabe nur als Diff plus Dateiliste, durch `PathGuard` und Bestätigung, nie automatisch angewendet.
-- Container: `--read-only` (dokumentiert: Wurzel schreibgeschützt), `--tmpfs /tmp:rw,noexec,nosuid,size=…` (dokumentiert), `--user <UID>:<GID>` (dokumentiert, kein Root), Bind-Mount der Kopie nur lesend (Syntax `--mount … readonly` bzw. `-v …:ro` im gelesenen Referenztext **nicht wörtlich bestätigt**), kein Docker-Socket, kein `--privileged` (die Referenz warnt ausdrücklich: „A container with `--privileged` is not a securely sandboxed process“).
-- WSL: `[automount] enabled=false`, `[interop] enabled=false`, `appendWindowsPath=false` (dokumentiert, je Distribution; ob sie sich für das von Docker Desktop verwaltete System ändern lassen, ist **ungeprüft**).
-- VM: kein geteilter Ordner; Übergabe als Archiv (Mechanismus **ungeprüft**, im Prototyp zu klären).
-
-**Netzwerk (R2, R10, R13).** Standard: keins. Container: `--network none` (dokumentiert: nur Loopback). Für den LLM-Zugang ist ein **host-seitiges Relay** vorgesehen (Endpunkt-/Modell-Allowlist, Budget, Protokoll, Notaus, hält den Schlüssel); wie der Worker **ausschließlich** das Relay erreicht (z. B. internes Netz, ein einziger erlaubter Weg), ist **offen** (Q2). Alternative ohne Relay: lokales Modell auf dem Host mit ebenfalls nur diesem Weg. Windows-Firewall-/Hyper-V-Firewall-Regeln (WSL: `[wsl2] firewall=true` filtert laut Doku den WSL-Verkehr) sind eine zusätzliche, **keine alleinige** Schicht.
-
-**Prozessbeendigung (R3, R6).** Alle Host-seitigen Steuerprozesse (`docker`-CLI bzw. PowerShell) laufen als Kindprozesse unter einem **Job Object** (`self_improvement/winjob.py`, über `bootstrap.py` eingebunden). Notaus und Abbruch: (1) Job beenden, (2) Container/VM **namentlich** (Präfix `jarvis-worker-<Lauf-ID>`, Label) hart stoppen und entfernen (`docker kill`/`rm -f` bzw. `Stop-VM`), (3) Gegenprobe, dass nichts Gelabeltes mehr läuft; ist die Gegenprobe nicht sauber, meldet JARVIS **unvollständigen Abbruch** (wie im Entwurf gefordert). Container mit `--rm`, `--init` und `--stop-timeout` (alle in der Referenz). Nach hartem JARVIS-Ende: beim nächsten Start nur **lesende** Suche nach verwaisten Workern und Rückfrage vor dem Aufräumen.
-
-**Ressourcen (R5).** Container: `--memory` und `--memory-swap` gleich (dokumentiert: dann **kein** Swap), `--cpus`, `--pids-limit`, `--ulimit`, tmpfs-Größe; Wanduhrzeit, Ausgabemenge und Gesamtbudget zusätzlich auf JARVIS-Seite. WSL: `memory`, `processors`, `swap` in `.wslconfig` sind **global** für alle WSL-2-Distributionen (dokumentiert) und verändern die übrige WSL-Nutzung. Plattenquota je Container und Hyper-V-Limits: **ungeprüft**. Richtwerte für einen Prototyp (zu messen, nicht zu glauben): 4 GB RAM, 2 CPUs, 256 Prozesse, 10 Minuten je Lauf.
-
-**Audit (R6, R9).** Je Lauf ein geschwärzter Eintrag: Lauf-ID, Image-Digest, Hash der tatsächlich wirksamen Isolationskonfiguration (Grundlage der `IsolationAttestation`), Auftragshash, Relay-Statistik (Aufrufe, Tokens, Modell), Dauer, Ressourcenspitzen, Abbruchgrund, Hash des Ergebnis-Diffs, Entscheidung der Übernahme. **Grenze:** Einzelaktionen des Agenten im Worker sind nicht einzeln auditierbar; nur Container-/VM-Log und Ergebnis.
-
-## 6. Ablauf eines Laufs (Sollbild, nicht implementiert)
-1. Nutzer beauftragt einen Coding-Lauf; Assistent plant; `ToolRegistry.execute` → `PermissionEngine` mit **Bestätigung pro Lauf** (Auftrag, Quelle, Image-Digest, Limits sichtbar).
-2. Vorprüfung fail-closed: Isolationsfunktion vorhanden, Attestation aktuell (Tests im selben Stand grün), Image-Digest passt, Relay bereit; sonst **kein Start**.
-3. Export der schreibgeschützten Kopie, Anlegen des leeren Ausgabeverzeichnisses.
-4. Start des Workers mit festen Befehlsvorlagen unter Job Object; nur Relay-Netz.
-5. Agent arbeitet im Worker innerhalb der Limits.
-6. Ende, Zeitlimit, Abbruch oder Notaus → harter Stopp und Entfernen (Abschnitt 5).
-7. Ergebnis (Diff) wird als **nicht vertrauenswürdige Daten** zurückgegeben: `PathGuard`, Anzeige im Freigabedialog.
-8. Übernahme **nur nach Bestätigung**; kein automatisches Anwenden, kein Commit, kein Push.
-9. Audit-Eintrag; Worker und Ausgabeverzeichnis aufgeräumt.
-
-## 7. Abnahmetests
-Alle Tests aus `docs/SANDBOX_DESIGN.md` (T1–T13) gelten unverändert. Zusätzlich:
-
+## 8. Abnahmetests
+`docs/SANDBOX_DESIGN.md` T1–T13 gelten. Zusätzlich:
 | ID | Prüft | Bestanden, wenn |
 |---|---|---|
-| OH-01 | R11 | abweichender oder fehlender Image-Digest → Start verweigert; kein `latest`; kein Bau/Pull zur Laufzeit |
-| OH-02 | R12 | kein Docker-Socket, kein `--privileged`, kein Host-Netz/PID im tatsächlich wirksamen Start (Konfiguration wird gelesen, nicht angenommen) |
-| OH-03 | R4/R10 | Umgebung und Dateisystem des Workers enthalten keinen Schlüssel, kein SSO-Token; Suche nach Testschlüssel negativ |
-| OH-04 | R10 | Relay erlaubt nur konfigurierten Endpunkt/Modell, zählt Budget, bricht bei Überschreitung ab, endet bei Notaus |
-| OH-05 | R2/R13 | Verbindungsversuche des Workers zu einem lokalen Testlistener und zu beliebigen Zielen schlagen fehl; einziger Weg ist das Relay |
-| OH-06 | R7 | Diff mit `..`, absoluten Pfaden, Reparse Points, Änderungen an Sicherheitsgrenzen → verworfen bzw. BLOCKED |
-| OH-07 | R3 | harter Abbruch von JARVIS: Worker ist danach nicht mehr aktiv oder wird beim nächsten Start gemeldet; Aufräumen nur nach Rückfrage |
-| OH-08 | R8 | fehlt Docker/VM/Funktion → kein Start, keine Ausweichausführung auf dem Host |
-| OH-09 | R5 | feindliches Testskript (Fork-Bombe, Speicher, Platte, Ausgabeflut, Endlosschleife) wird vom Limit beendet mit klarem Grund |
-| OH-10 | R6 | Notaus beendet laufenden Worker vollständig; Bericht benennt Unvollständigkeit; `tests/test_*security*.py`, `tests/test_emergency_stop.py` bleiben grün |
+| OH-01 | R11 | falscher/fehlender Image-Digest → Start verweigert; kein `latest`; kein Bau/Pull zur Laufzeit |
+| OH-02 | R12 | im tatsächlich wirksamen Start: kein Socket, kein `--privileged`, kein Host-Netz/-PID, Caps leer (Konfiguration wird gelesen) |
+| OH-03 | R4 | kein Schlüssel, kein Token in Umgebung/Dateisystem (Testschlüssel-Suche negativ) |
+| OH-04 | R10 | Relay erlaubt nur konfigurierten Endpunkt/Modell, zählt Budget, endet bei Notaus |
+| OH-05 | R2 | Verbindungen des Workers zu Testlistener/beliebigen Zielen schlagen fehl; einziger Weg ist das Relay |
+| OH-06 | R7 | Diff mit `..`, absoluten Pfaden, Reparse Points, Sicherheitsdateien → verworfen/BLOCKED |
+| OH-07 | R3 | harter JARVIS-Abbruch: Worker beendet oder beim nächsten Start gemeldet; Aufräumen nur nach Rückfrage |
+| OH-08 | R8 | fehlt Docker/WSL/VM → kein Start, keine Ausführung auf dem Host |
+| OH-09 | R5 | feindliches Skript (Fork-Bombe, Speicher, Platte, Ausgabeflut, Endlosschleife) wird begrenzt, klarer Grund |
+| OH-10 | R6 | Notaus beendet Worker vollständig; `tests/test_*security*.py`, `tests/test_emergency_stop.py` grün |
+| OH-11 | R1 | Host-Datei außerhalb der Kopie (Testdatei) ist im Worker nicht sichtbar; Schreibversuch auf Original unmöglich |
+| OH-12 | R2/R13 | mitgeschnittener Netzverkehr (Testlistener) zeigt keinen Telemetrie-/Skills-Abruf |
+**Nachweisgrenze:** Ob GitHub-Windows-Runner Linux-Container/VMs ausführen können, ist **nicht verifiziert**. Wenn nicht, laufen diese Tests nur manuell am echten PC und sind als „manuell, nicht automatisiert“ zu kennzeichnen. Linux-Ergebnisse sind kein Windows-Nachweis.
 
-**Nachweisgrenze:** Ob die GitHub-Windows-Runner Linux-Container oder Hyper-V ausführen können, ist **nicht verifiziert**. Falls nicht, sind diese Tests nicht in der CI belegbar und müssen am echten PC laufen. Dann sind sie **klar als „manuell, nicht automatisiert“ zu kennzeichnen** und ersetzen nie die CI-Belege der übrigen Tests.
+## 9. Offene Fragen, Risiken, Blocker
+- **Besitzerangaben nötig:** CPU/RAM/freier Speicher; ist Virtualisierung im BIOS aktiv; Nutzung privat oder gewerblich (Docker-Lizenz).
+- **Blocker B1:** Docker-Systemanforderungen listen Home nicht; Installierbarkeit/Support auf Home ist offen.
+- **Blocker B2:** Q-A bis Q-E (Abschnitt 7) – nur per Prototyp klärbar.
+- **Blocker B3:** Telemetrie nicht dokumentiert; Quellcode-Prüfung braucht Download (eigene Freigabe).
+- **Risiko:** Container im WSL-2-Kernel sind keine VM-Grenze; WSL-Netzwerk- und Ressourcengrenzen sind global. Der Agent handelt im Worker ohne unsere Einzelprüfung; Sicherheit hängt an Isolation, Bestätigung pro Lauf und Diff-Prüfung.
+- **Risiko:** VirtualBox/VMware neben WSL 2 kann Leistung und Stabilität mindern; Lizenzfragen (VirtualBox Extension Pack, VMware-Lizenzseite ungeprüft).
+- **Risiko:** `latest`-Tag, Skills-Sync und Image-Pull als Lieferkettenwege.
 
-## 8. Risiken, offene Fragen, Blocker
-- **Q1** Wo läuft die LLM-Schleife des SDK (im Worker oder im Aufrufer)? Davon hängt ab, ob der Worker mit `--network none` arbeiten kann. In der gelesenen Doku nicht beantwortet.
-- **Q2** Wie erreicht der Worker ausschließlich das Relay (internes Netz, ein Weg)?
-- **Q3** Was sendet OpenHands standardmäßig nach außen (Telemetrie, Paketabrufe)? Nicht dokumentiert.
-- **Q4** Dateiübergabe in eine VM ohne geteilten Ordner; Container-Benutzer und Standard-Mounts des offiziellen Images.
-- **Q5** Docker-Desktop-Lizenz für private Nutzung; Windows-Edition des Besitzers.
-- **Q6** Ressourcenbedarf (RAM/CPU/Platte) und Laufzeit in der Praxis.
-- **B1** Netzwerkisolation eines Kindprozesses unter Windows ohne Sandbox bleibt ungelöst (Entwurf `SANDBOX_DESIGN.md`).
-- **B2** CI-Belegbarkeit der Sandbox-Tests (Abschnitt 7).
-- **Risiko:** Ein Agent mit eigener Schleife und Werkzeugen im Worker ist nur so sicher wie die Grenze; deshalb **kein** Start ohne gültige Attestation und ohne Bestätigung pro Lauf.
+## 10. Entscheidungen des Besitzers
+1. Hardware- und Nutzungsangaben (Abschnitt 9) liefern.
+2. Stufenplan bestätigen oder ändern: Container-Prototyp zuerst, VM als Zielvariante bei Bedarf.
+3. Docker-Desktop-Lizenz: privat vs. gewerblich klären (mit Docker); oder Engine-Variante O1b prüfen.
+4. Freigabe weiterer **reiner Dokumentationsschritte** (Quellcode-Telemetrieprüfung braucht Download und eine eigene Freigabe).
+5. Erst danach: Prototyp in Wegwerfumgebung ohne JARVIS-Anbindung (eigene Freigabe, mit Installation). **Jede Übernahme fremden Codes** braucht zuvor Lizenz-, Sicherheits- und Kompatibilitätsprüfung und eine separate Freigabe (Besitzerentscheidung).
 
-## 9. Entscheidungen des Besitzers
-1. Windows-Edition (Home/Pro/…): bestimmt Vorschlag A oder B.
-2. Vorschlag A, Vorschlag B oder Coding bei der vorhandenen Implementierung belassen?
-3. Bei B: Docker-Desktop-Lizenz klären und Prüfdatei `docs/integrations/docker-desktop.md` freigeben?
-4. Soll als nächster reiner Dokumentationsschritt die Klärung von Q1 bis Q4 anhand der Projektdokumentation erfolgen (ohne Installation)?
-5. Erst danach: Prototyp in einer Wegwerfumgebung ohne JARVIS-Anbindung (eigene Freigabe, mit Installation).
-
-## 10. Quellen
-OpenHands: [Local Setup (veraltete GUI-Anleitung)](https://docs.openhands.dev/openhands/usage/run-openhands/local-setup) · [Docker-Sandbox](https://docs.openhands.dev/openhands/usage/sandboxes/docker.md) · [SDK DockerWorkspace](https://docs.openhands.dev/sdk/guides/agent-server/docker-sandbox.md) · LICENSE von [OpenHands](https://github.com/OpenHands/OpenHands) und [software-agent-sdk](https://github.com/OpenHands/software-agent-sdk) · PyPI `openhands-sdk`, `openhands-ai`.
-Windows und Docker: [WSL-Konfiguration](https://learn.microsoft.com/en-us/windows/wsl/wsl-config) (Stand der Seite 2026-10-16) · [Windows Sandbox](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/windows-sandbox-overview) · [.wsb-Konfiguration](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/windows-sandbox-configure-using-wsb-file) · [Docker: Ressourcenlimits](https://docs.docker.com/engine/containers/resource_constraints/) · [Docker: Netzwerk none](https://docs.docker.com/engine/network/drivers/none/) · [docker run](https://docs.docker.com/reference/cli/docker/container/run/) (Teile der Seite nur als Zusammenfassung gelesen) · [Docker Subscription Service Agreement](https://www.docker.com/legal/docker-subscription-service-agreement/).
-Alles Weitere: siehe `docs/SANDBOX_DESIGN.md` Abschnitt 8.
+## 11. Quellen (gelesen am 2026-11-11)
+OpenHands: docs.openhands.dev (`sdk/arch/agent-server`, `openhands/usage/agent-canvas/architecture`, `…/backend-setup/docker-execution`, `sdk/guides/agent-server/docker-sandbox`, `sdk/arch/workspace`, `sdk/arch/security`, `sdk/guides/secrets`, `…/api-reference/git/git-diff`, `sdk/faq`), github.com/OpenHands/OpenHands und /software-agent-sdk (READMEs), openhands.dev/privacy (2025-09-03). PyPI-Seite war nicht lesbar (Challenge).
+Docker: docker.com/legal/docker-subscription-service-agreement (2026-08-26), docker.com/pricing/faq, docs.docker.com (`desktop/setup/install/windows-install`, `…/enhanced-container-isolation` und `…/limitations`, `…/settings-management`, `desktop/features/wsl`, `reference/cli/docker/container/run`, `engine/security`, `…/rootless`, `…/seccomp`, `engine/install/ubuntu`).
+Microsoft Learn: `windows/wsl/wsl-config` (2026-10-16), `compare-versions`, `faq`, `install-manual`, `networking`, `windows-server/virtualization/hyper-v/overview` und `system-requirements-for-hyper-v-on-windows`, `virtualization/api`.
+VM-Anbieter: virtualbox.org (Downloads, Licensing_FAQ, Changelog, Handbuch ch01/04/06/14), qemu.org (download, whpx, net, license), blogs.vmware.com (2024-11-11, 2025-03-10). Nicht abrufbar: Broadcom-Workstation-Seite (404), Multipass-Dokumentation (404).
+Intern: `docs/SANDBOX_DESIGN.md`, `docs/INTEGRATIONS.md`, `docs/V2_OPEN_SOURCE_BEWERTUNG.md`, `docs/V2_BACKLOG.md` (V2-15).
