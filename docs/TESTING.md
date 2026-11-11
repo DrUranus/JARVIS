@@ -136,3 +136,8 @@ kontrollierter Start/Stopp von `jarvis-cc` (nur Loopback, Seite antwortet, Port 
 ausser 127.0.0.1. Lokal: `python -m venv v && v/bin/pip install -e ".[dev]" && cd /tmp && /pfad/v/bin/python -I ci/fresh-install/smoke.py`.
 Der Windows-Lauf (Workflow `fresh-install.yml`, eigener Schutz-PR) ist der Windows-CI-Nachweis; er ersetzt keine interaktive Abnahme (#186).
 
+
+## V2-01 Quellenbewertung (Entwurf, nicht verdrahtet)
+
+`tests/test_research_credibility.py` prueft `src/jarvis/research/credibility.py`: reine, deterministische, erklaerbare Heuristik ohne Netzwerk/Datei/Prozess/Persistenz. Geprueft werden Wertebereich, Gruende je Signal,
+Robustheit gegen Fremdeingaben (wirft nie), Begrenzung, JSON-Tauglichkeit und dass kein Modul das Ergebnis aufruft. Das Ergebnis ist eine Heuristik und kein Wahrheitsbeweis. Plan: `docs/V2_ARCHITEKTUR.md`, `docs/V2_BACKLOG.md`.
