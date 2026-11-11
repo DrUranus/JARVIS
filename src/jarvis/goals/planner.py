@@ -6,6 +6,11 @@ Templates (driven by what the user explicitly gave in the context or wrote in th
   web page     url (context or objective)              -> research agent reads the page -> evaluate
   coding       workspace (+ optional edits/test)       -> analyse project [-> write edits] [-> run tests] -> evaluate [-> stop session]
   screen       screenshot / window list wording        -> computer agent (screen capability only) -> evaluate
+  file         file / folder wording in the objective  -> files / office agent -> evaluate
+
+Mixed objectives (WP03): every part that the objective TEXT evidences (a URL/domain, a file request, coding words together with a workspace, strong screen wording) is planned as an
+independent branch with ONE shared evaluation; if a part cannot be planned safely the WHOLE goal is refused as `incomplete` - never a partial plan, never a silently dropped part.
+A file request is read from the objective only (never inferred from the workspace context), and URLs/domains are removed before the file parser looks at the text.
 """
 from __future__ import annotations
 
@@ -29,6 +34,9 @@ _TEST = re.compile(r"\b(tests?|testlauf|pytest|unittest|prüf\w*|teste)\b", re.I
 _SCREEN = re.compile(r"\b(screenshot|bildschirm\w*|fenster|windows?)\b", re.IGNORECASE)
 _INPUT = re.compile(r"\b(klick\w*|click|tipp\w*|type|maus|mouse|tastatur|keyboard|drücke|press|öffne|open|starte|start)\b", re.IGNORECASE)
 _RESEARCH = re.compile(r"\b(recherchier\w*|research|finde\s+\w*\s*heraus|find\s+out|informier\w*\s+dich|informationen\s+(?:über|ueber|zu)|information\s+about|quellen|sources)\b", re.IGNORECASE)
+_SCREEN_STRONG = re.compile(r"\b(screenshot|bildschirm\w*)\b", re.IGNORECASE)
+_CODING_CONTEXT_KEYS = ("edits", "runner", "test_args", "read_paths")
+_PART_ORDER = ("web", "file", "coding", "screen")
 _RUNNERS = ("pytest", "python -m pytest", "python -m unittest", "npm test")
 _EDIT_KEYS = frozenset({"path", "content", "mode", "old_text", "new_text", "expected_sha256"})
 MAX_EDITS = 10
@@ -105,34 +113,112 @@ class GoalPlanner:
                 raise PlanningError(f"the plan needs {len(steps)} steps; the limit is {max_steps}")
             return steps
         objective = goal.objective
-        matches = []
+        parts, file_step_text = self._parts(goal, user)
+        workspace = isinstance(user.get("workspace"), str) and bool(user["workspace"].strip())
         url = find_url(objective, user)
-        if url is not None:
-            matches.append("web")
-        if isinstance(user.get("workspace"), str) and user["workspace"].strip():
-            matches.append("coding")
-        if not matches and _SCREEN.search(objective) and "url" not in user:
-            matches.append("screen")
-        if not matches:
-            try:
-                file_step = parse_file_goal(objective)
-            except FileIntentError as exc:                 # incomplete or ambiguous file request: the person gets the reason, nothing is guessed
-                raise PlanningError(f"file request: {exc}") from None
-            if file_step is not None:
-                matches.append("file")
-        if not matches and self._web_search and _RESEARCH.search(objective):
-            matches.append("search")
-        if not matches:
-            raise PlanningError("no plan: the objective names no web page (url), no coding workspace and no screen question; "
-                                "give a url or a workspace explicitly")
-        if len(matches) > 1:
-            raise PlanningError("the objective is ambiguous: it fits more than one kind of goal")
-        kind = matches[0]
-        specs = {"web": self._web, "coding": self._coding, "screen": self._screen, "search": self._search, "file": self._file}[kind](goal, objective, user, url)
+        builders = {"web": self._web, "file": self._file, "coding": self._coding, "screen": self._screen}
+        if not parts:
+            if workspace:                                   # a workspace alone (no coding words, no other part) is a coding goal, as before
+                parts = ["coding"]
+            elif _SCREEN.search(objective) and "url" not in user:
+                parts = ["screen"]
+            elif self._web_search and _RESEARCH.search(objective):
+                specs = self._search(goal, objective, user, url)
+                return self._finish(goal, specs, max_steps)
+            else:
+                raise PlanningError("no plan: the objective names no web page (url), no coding workspace and no screen question; "
+                                    "give a url or a workspace explicitly")
+        elif workspace and "coding" not in parts:
+            raise PlanningError("the objective is ambiguous: it fits more than one kind of goal "
+                                "(the workspace in the context is not mentioned in the objective: name the coding task or leave the workspace out)")
+        if len(parts) == 1:
+            specs = builders[parts[0]](goal, objective, user, url)
+            return self._finish(goal, specs, max_steps)
+        specs = self._combine(goal, parts, objective, file_step_text, user, url)
+        steps = self._finish(goal, specs, max_steps)
+        self._check_coverage(parts, steps, url, file_step_text, user)
+        return steps
+
+    def _finish(self, goal: Goal, specs: list[dict[str, Any]], max_steps: int) -> tuple[GoalStep, ...]:
         steps = self._build(goal, specs)
         if len(steps) > max_steps:
             raise PlanningError(f"the plan needs {len(steps)} steps; the limit is {max_steps}")
         return steps
+
+    # ---- mixed objectives (WP03) -------------------------------------------------------------------------------------------------------------
+    @staticmethod
+    def _without_locations(text: str) -> str:
+        """The objective without URLs and bare domains: the file parser would otherwise read 'https://example.org/x' or 'example.com' as a file path."""
+        return _DOMAIN.sub(" ", _URL.sub(" ", text))
+
+    def _parts(self, goal: Goal, user: dict[str, Any]) -> tuple[list[str], str]:
+        """The parts the objective TEXT evidences, in a fixed order. Returns (parts, objective text for the file parser). A workspace in the context alone is not a part."""
+        objective = goal.objective
+        parts: list[str] = []
+        if find_url(objective, user) is not None:
+            parts.append("web")
+        text = self._without_locations(objective)
+        try:
+            file_found = parse_file_goal(text) is not None
+        except FileIntentError:
+            file_found = True                               # an unclear file request IS a file part: planning it will refuse with the reason
+        if file_found:
+            parts.append("file")
+        workspace = isinstance(user.get("workspace"), str) and bool(user["workspace"].strip())
+        if workspace and (_WRITE.search(objective) or _TEST.search(objective) or any(user.get(k) for k in _CODING_CONTEXT_KEYS)):
+            parts.append("coding")
+        if _SCREEN_STRONG.search(objective):
+            parts.append("screen")
+        return [p for p in _PART_ORDER if p in parts], text
+
+    def _combine(self, goal: Goal, parts: list[str], objective: str, file_text: str, user: dict[str, Any], url: str | None) -> list[dict[str, Any]]:
+        """One independent branch per part, then ONE evaluation that depends on every branch tail, then the clean-up steps (coding session close). Any part that cannot be planned
+        refuses the whole goal."""
+        builders = {"web": self._web, "file": self._file, "coding": self._coding, "screen": self._screen}
+        work: list[dict[str, Any]] = []
+        tails: list[int] = []
+        cleanups: list[dict[str, Any]] = []
+        for kind in parts:
+            text = file_text if kind == "file" else objective
+            try:
+                specs = builders[kind](goal, text, user, url)
+            except PlanningError as exc:
+                raise PlanningError(f"incomplete: the {kind} part of the objective cannot be planned, so nothing is planned ({exc})") from None
+            index: dict[int, int] = {}
+            evaluation = next((sp for sp in specs if sp.get("evaluate")), {})
+            local_work = [i for i, sp in enumerate(specs) if not sp.get("evaluate") and "cleanup_of" not in sp]
+            for pos, i in enumerate(local_work):
+                sp = dict(specs[i])
+                after_local = sp.get("after", [local_work[pos - 1]] if pos > 0 else [])
+                sp["after"] = [index[j] for j in after_local]
+                index[i] = len(work)
+                work.append(sp)
+            eval_pos = next((i for i, sp in enumerate(specs) if sp.get("evaluate")), None)
+            tail_local = evaluation.get("after", [local_work[-1]] if local_work else [])
+            tails.extend(index[j] for j in tail_local if j in index)
+            for sp in specs:
+                if "cleanup_of" in sp:
+                    cl = dict(sp)
+                    cl["cleanup_of"] = index[sp["cleanup_of"]]
+                    cleanups.append(cl)
+            del eval_pos
+        return work + [{"evaluate": True, "after": sorted(set(tails))}] + cleanups
+
+    def _check_coverage(self, parts: list[str], steps: tuple[GoalStep, ...], url: str | None, file_text: str, user: dict[str, Any]) -> None:
+        """Every evidenced part must appear in the built plan (capability family and its own entity: url, path, workspace); otherwise nothing is returned."""
+        families = {"web": {"research.web"}, "file": {"files.read", "files.write", "office.read", "office.create"}, "coding": {"coding.read", "coding.write", "coding.test"},
+                    "screen": {"computer.screen"}}
+        blob = repr([dict(s.input) for s in steps])
+        missing: list[str] = []
+        for kind in parts:
+            if not any(s.required_capabilities & families[kind] for s in steps):
+                missing.append(kind)
+        if "web" in parts and url is not None and url not in blob:
+            missing.append("web:url")
+        if "coding" in parts and str(user.get("workspace", "")).strip() not in blob:
+            missing.append("coding:workspace")
+        if missing:
+            raise PlanningError(f"incomplete: the plan does not cover {', '.join(dict.fromkeys(missing))}; nothing is planned")
 
     # ---- replanning (Phase 14) ---------------------------------------------------------------------------------------------------------------
     @property
