@@ -7,21 +7,26 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
-from jarvis.agents.errors import TaskCancelled, ToolAccessError
+from jarvis.agents.errors import AgentBudgetExceeded, TaskCancelled, ToolAccessError
 from jarvis.agents.policy import RESERVED_TOOL_ARGS
 from jarvis.agents.state import TaskStatus
 from jarvis.tools import ToolRegistry, ToolResult
 
 
 class ToolGateway:
-    def __init__(self, registry: ToolRegistry | None, allowed: frozenset[str], cancel: threading.Event, max_calls: int = 200) -> None:
+    def __init__(self, registry: ToolRegistry | None, allowed: frozenset[str], cancel: threading.Event, max_calls: int = 200, *, budget_calls: int | None = None,
+                 reserve: Callable[[], bool] | None = None) -> None:
         self._registry = registry
         self._allowed = frozenset(allowed)
         self._cancel = cancel
         self._max = max_calls
         self._calls = 0
+        self._lock = threading.Lock()
+        self._budget_calls = budget_calls        # WP02b: the agent's own per-task cap (already known to be stricter than max_calls, or None)
+        self._reserve = reserve                  # WP02b: atomic booking against the agent's session total (False = used up)
+        self.budget_hit: str | None = None       # "tool_calls" | "session_calls" once the agent budget refused a call
 
     @property
     def allowed_tools(self) -> frozenset[str]:
@@ -41,9 +46,16 @@ class ToolGateway:
             raise ToolAccessError(f"arguments {sorted(bad)} are not accepted: permissions cannot be pre-confirmed or bypassed")
         if self._registry is None or tool not in self._registry:
             return ToolResult.fail(f"tool {tool!r} is not available (its subsystem is not enabled)")
-        if self._calls >= self._max:
-            raise ToolAccessError(f"this task used its budget of {self._max} tool calls")
-        self._calls += 1
+        with self._lock:                         # check and count together: parallel callers of one task cannot jointly pass the cap
+            if self._budget_calls is not None and self._calls >= self._budget_calls:
+                self.budget_hit = "tool_calls"
+                raise AgentBudgetExceeded(f"agent_budget_exceeded: this task used its agent budget of {self._budget_calls} tool calls")
+            if self._calls >= self._max:
+                raise ToolAccessError(f"this task used its budget of {self._max} tool calls")
+            if self._reserve is not None and not self._reserve():
+                self.budget_hit = "session_calls"
+                raise AgentBudgetExceeded("agent_budget_exceeded: the agent used up its tool calls for this session")
+            self._calls += 1
         return self._registry.execute(tool, **kwargs)
 
     @property
