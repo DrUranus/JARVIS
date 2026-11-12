@@ -3,6 +3,7 @@ Node-DOM (web/app.js unveraendert), Asset-Struktur (CSP: kein Inline-Code, kein 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import re
 import time
 from pathlib import Path
@@ -221,3 +222,62 @@ def test_e2e_timeline_colours_update_after_an_event_and_render_time_is_logged(tm
             browser.close()
     finally:
         srv.stop()
+
+
+# ---- E10: Leistung (Zielwert: 100 Eintraege, erste Darstellung unter 500 ms) ------------------------------------------------------------------------
+PERF_BUDGET_MS = 500.0
+PERF_ENTRIES = 100
+PERF_RUNS = 3
+
+
+def test_e2e_first_display_of_100_entries_stays_under_the_e10_target_and_is_recorded(tmp_path):
+    pytest.importorskip("playwright.sync_api", reason="playwright fehlt: Browser-E2E nicht moeglich (ein uebersprungener Test gilt nicht als bestanden)")
+    import os
+    import platform
+    from playwright import sync_api as pw_api
+    from jarvis.control_center.server import ControlCenterServer
+    from jarvis.control_center.views import ReadViews
+    from jarvis.ui_contract import FakeUiBackend
+
+    tasks = [task(i, STATES[i % len(STATES)], objective=f"Aufgabe {i} " + "x" * 120, started_at=f"2026-11-12T10:{i // 60:02d}:{i % 60:02d}+00:00", dependencies=[f"at-{i - 1:04d}"] if i else []) for i in range(PERF_ENTRIES)]
+    views = ReadViews(agents_source=lambda limit: {"agents": [], "tasks": list(tasks)})
+    srv = ControlCenterServer(FakeUiBackend(), poll_interval=0.02, views=views)
+    srv.start()
+    runs: list[dict[str, float]] = []
+    try:
+        with pw_api.sync_playwright() as pw:
+            exe = os.environ.get("JARVIS_CHROMIUM_PATH")
+            try:
+                browser = pw.chromium.launch(headless=True, executable_path=exe) if exe else pw.chromium.launch(headless=True)
+            except pw_api.Error as exc:
+                if "Executable doesn't exist" in str(exc):
+                    pytest.skip("Chromium fehlt: nicht ausgefuehrt, ein uebersprungener Test gilt nicht als bestanden")
+                raise
+            version = browser.version
+            for _ in range(PERF_RUNS):
+                page = browser.new_page(viewport={"width": 1440, "height": 900})        # every run is a cold page: first display, not a warm update
+                page.goto(f"http://127.0.0.1:{srv.port}/?t={srv.token}")
+                if page.evaluate("document.body.dataset.mode") == "orb":
+                    page.click("#mode-toggle")
+                measured = page.evaluate("""async (want) => {
+                  const ul = document.getElementById('timeline-list'); const t0 = performance.now();
+                  document.getElementById('timeline-refresh').click();
+                  await new Promise((res) => { const check = () => (ul.children.length >= want ? res() : requestAnimationFrame(check)); check(); });
+                  const first = performance.now() - t0;
+                  const data = await (await fetch(url('view/agents', 0, { limit: '100' }), { method: 'GET' })).json();
+                  const r0 = performance.now(); renderTimeline(data); const render = performance.now() - r0;
+                  return { first_display_ms: first, render_only_ms: render, rows: ul.children.length };
+                }""", PERF_ENTRIES)
+                assert measured["rows"] == PERF_ENTRIES
+                runs.append(measured)
+                page.close()
+            browser.close()
+    finally:
+        srv.stop()
+    evidence = {"entries": PERF_ENTRIES, "target_ms": PERF_BUDGET_MS, "runs": runs, "chromium": version, "platform": platform.platform(), "python": platform.python_version(), "cpus": os.cpu_count(),
+                "note": "cold page, headless Chromium against the real loopback server with a fake agents source; click -> 100 rows in the DOM. Not a native-window or real-hardware measurement."}
+    out = Path(os.environ.get("JARVIS_GUI_EVIDENCE", Path(__file__).resolve().parents[1] / "reports" / "gui")) / "e2e"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "wp07b_timeline_perf.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")
+    print("E10 timeline perf:", json.dumps(evidence))
+    assert runs[0]["first_display_ms"] < PERF_BUDGET_MS, evidence                  # the FIRST (coldest) run decides; all runs are recorded
