@@ -265,7 +265,7 @@ def test_launcher_and_server_expose_no_write_view(srv):
 def test_js_views_use_get_only_and_no_commands():
     js = text("app.js")
     targets = re.findall(r"fetch\(([^,]*),", js)
-    assert targets == ["url(\"view/agents\"", "url(\"command\")", "url(\"view/\" + which", "url(\"core_states.json\")", "url(\"/overlay/open\")"]  # view/agents: Zeitleiste (WP07b, GET); overlay/open: nur Mini-Overlay, Token+Origin, oeffnet das Hauptfenster
+    assert targets == ["url(\"view/agents\"", "url(\"view/audit\"", "url(\"command\")", "url(\"view/\" + which", "url(\"core_states.json\")", "url(\"/overlay/open\")"]  # view/agents: Zeitleiste (WP07b, GET); view/audit: Freigabe-Verlauf (WP07c, GET); overlay/open: nur Mini-Overlay, Token+Origin, oeffnet das Hauptfenster
     m = re.search(r"async function loadView\(.*?\n\}", js, re.S)
     assert m, "loadView fehlt"
     body = m.group(0)
