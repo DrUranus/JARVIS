@@ -236,9 +236,10 @@ def test_module_is_pure_and_money_never_uses_float_arithmetic():
     assert "float" not in calls and not (calls & {"open", "exec", "eval"})
 
 
-def test_no_production_module_imports_it_until_enforcement_is_approved():
+def test_only_the_approved_e6_modules_import_it():
+    allowed = {MODULE, SRC / "llm" / "budgeted.py", SRC / "config.py", SRC / "bootstrap.py"}          # E6: wrapper, its settings conversion, the composition root
     for path in SRC.rglob("*.py"):
-        if path == MODULE:
+        if path in allowed:
             continue
         text = path.read_text(encoding="utf-8")
         assert "llm.cost_budget" not in text and "from jarvis.llm import cost_budget" not in text, path
