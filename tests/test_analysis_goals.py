@@ -132,7 +132,7 @@ def test_templates_are_explicit_never_guessed_from_the_objective(tmp_path):
 
 def test_every_template_is_registered_and_known():
     assert set(GP.ANALYSIS_TEMPLATES) == {"research_web", "market_analysis", "competitor_analysis", "business_analysis", "business_plan", "financial_analysis", "company_analysis",
-                                          "paper_trade_analysis"}
+                                          "paper_trade_analysis", "business_finder"}
     assert set(GP.ANALYSIS_TEMPLATES) <= GP.ANALYSIS_KINDS
 
 
