@@ -37,13 +37,27 @@ Zahlenwerte für G5 und G7 legt der Owner fest; ohne Zahl gilt das Gate als **of
 | **G10** | Owner-Freigabe zum Release (kein automatischer Release/Tag) | ausdrückliche Owner-Entscheidung |
 
 ## 3. Skip-Bericht (`tests/support/skip_report.py`)
-- Eingabe: Ausgabe von `pytest -rs`. Gruppiert die Gründe in Kategorien (interaktiv, bekannte Lücke, optionale Bibliothek, Umgebung, extern, plattformbedingt) und vergleicht mit `tests/support/skip_baseline.json` (Windows **46**, Linux **119** als Obergrenze; Quellen in der Datei).
+- Eingabe: Ausgabe von `pytest -rs`. Gruppiert die Gründe in Kategorien (interaktiv, bekannte Lücke, optionale Bibliothek, Umgebung, extern, plattformbedingt) und vergleicht mit `tests/support/skip_baseline.json` (Windows **45**, Linux **119** als Obergrenze für die *gezählten* Skips; Quellen in der Datei; dazu höchstens **1** Checkout-abhängiger Skip, siehe unten).
 - Exit-Codes: `0` in Ordnung · `1` mehr Skips als die Baseline · `2` (nur `--strict`) unbekannter Grund · `3` Baseline fehlt/ungültig (kein stilles Grün).
 - **Interaktive Skips** (`JARVIS_NATIVE_GUI=1 fehlt`) und **bekannte Lücken** (Symlink-Recht in `test_office.py`, `/proc`-Nachfahrenerkennung im Workspace-Test) werden gesondert ausgewiesen; sie sind **nicht bestanden**.
 - Baseline-Änderungen sind bewusst und mit Begründung im PR vorzunehmen (Absenken ist erwünscht, Anheben braucht Owner-Zustimmung).
-- Grenze: Die 119 Linux-Skips der V1-Referenz sind nicht einzeln aufgeschlüsselt; ein lokaler Linux-Lauf zeigte 93 Skips (78 plattformbedingt, 12 optionale Bibliothek, 2 Umgebung, 1 extern) – der Unterschied zu 119 ist nicht erklärt.
+- **Checkout-abhängiger Skip (geklärt, WP08b):** `tests/test_computer_uia_tools.py::test_the_ui_tool_only_touches_computer_and_documentation_files` vergleicht `git diff origin/main...HEAD` und wird mit „kein origin/main in diesem Checkout“ übersprungen, wenn `origin/main` fehlt. PR-Läufe (Merge-Checkout, flach) haben kein `origin/main` → dieser Skip erscheint dort (Linux **120**, Windows **46** gesamt), der Referenzlauf auf `main` hatte `origin/main` (Linux 119, Windows 45). Belegt durch Läufe 43074487872 (PR #245), 43085493928, 43178237580 und einen Gegenversuch (flacher Klon → Skip, Worktree mit `origin/main` → Test läuft). Der Skip ist deshalb in `skip_baseline.json` als `checkout_dependent` (höchstens 1) markiert und wird **getrennt** ausgewiesen; die Obergrenzen 45/119 gelten für alle übrigen Skips (**keine Lockerung**: jeder weitere Skip bleibt ein Fehler).
+- **Wichtig:** Läuft der Test (Checkout mit `origin/main`), schlägt er an, sobald ein Branch `bootstrap.py`, `config/`, `src/jarvis/permissions/`, `.github/`, `.claude/`, `CLAUDE.md` oder `pyproject.toml` ändert – ein historischer Bereichswächter des UIA-Werkzeug-Schritts, der V2-Änderungen an diesen Dateien (z. B. WP05b/N1, E5/E6) lokal rot färbt, in der PR-CI aber übersprungen ist. Der Test wird nicht verändert; Entscheidung des Owners nötig (Eintrag N3 in der Roadmap).
+- Lokale Läufe zeigen weniger Skips als die CI (z. B. 93): kein `tkinter` (GUI-Tests als Modul übersprungen), Playwright installiert, `origin/main` vorhanden – das sind Umgebungsunterschiede, keine geänderten Tests.
 
 ## 4. Betrieb
 - **Nächtliche/zeitgesteuerte Läufe:** nur als Entwurf (`docs/V2_04_CI_VERGLEICH.md`, Variante „Lauf nur bei Änderung“); Einführung ist ein **Owner-PR** an `.github/`.
 - **Flaky-Regel:** ein Wiederholungslauf nur mit Begründung; wiederkehrende Fehler sind Fehler. Tests werden nie abgeschwächt oder auf `skip` gesetzt, um grün zu werden; neue Skips brauchen Plattformgrund und Ersatznachweis.
 - **Commit-Hinweis:** die Stichwörter für `ci-phase15`/`ci-full` in eckigen Klammern lösen zusätzliche Windows-Läufe aus (siehe `docs/TESTING.md`); nur bewusst verwenden.
+
+## 5. Stand der V2-Pakete (2026-11-12, aus CI-Läufen belegt; Linux ≠ Windows-Abnahme)
+| Paket | PR | Nachweis | Verdrahtet / offen |
+|---|---|---|---|
+| WP01 Artefakte | #242 | CI Linux+Windows grün | nicht verdrahtet (E5 offen) |
+| WP02a Kostenmodell | #243 | CI Linux+Windows grün | nicht verdrahtet (E6 offen) |
+| WP03 gemischte Aufträge | #246 | Lauf 43083136227: Linux grün; Windows im ersten Versuch rot durch einen unbeteiligten Server-Test (`WinError 10053`), Wiederholung grün | Planer |
+| WP03b mehrere URLs, Speicherwunsch | #247 | Lauf 43085493928: Linux+Windows grün | Planer |
+| WP04 Business-Finder | #248 | Lauf 43178237580: Linux+Windows grün | Goal-Vorlage `business_finder` |
+| WP05a Windows-TTS-Prüfdatei | #244 | nur Dokument | Teil B (Provider) in Arbeit |
+| WP08 QA-Dokumente | #245 | CI grün | – |
+Offen für G5/G7/G9: Messzahlen des Owners, interaktive Abnahme am Windows-PC (#186 bleibt Release-Blocker; CI ersetzt sie nicht).

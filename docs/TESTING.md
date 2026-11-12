@@ -136,3 +136,12 @@ kontrollierter Start/Stopp von `jarvis-cc` (nur Loopback, Seite antwortet, Port 
 ausser 127.0.0.1. Lokal: `python -m venv v && v/bin/pip install -e ".[dev]" && cd /tmp && /pfad/v/bin/python -I ci/fresh-install/smoke.py`.
 Der Windows-Lauf (Workflow `fresh-install.yml`, eigener Schutz-PR) ist der Windows-CI-Nachweis; er ersetzt keine interaktive Abnahme (#186).
 
+
+## V2-Qualitätssicherung (WP08/WP08b)
+Matrix, Gates G0–G10 und Befehle: `docs/V2_TESTPLAN.md`; Abnahme am Windows-PC: `docs/WINDOWS_V2_ABNAHME.md`. Kurzbefehle (aus dem Repository-Stamm):
+```
+python -m pytest -rfEs tests/test_<modul>_*.py                                                   # 1. direkt betroffene Tests
+python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py tests/test_autonomy_invariants.py   # 2. Sicherheitsregression
+python -m pytest -rs > pytest.txt ; python tests/support/skip_report.py pytest.txt --platform linux --strict    # 3. Skip-Bericht gegen die Baseline
+```
+**Skip-Zahlen verstehen:** Die CI-PR-Läufe melden Linux 120 / Windows 46 Skips, die Baseline zählt Linux 119 / Windows 45 **plus höchstens einen Checkout-abhängigen Skip** (`kein origin/main in diesem Checkout`: PR-Checkouts sind flach und haben kein `origin/main`; dort wird `test_the_ui_tool_only_touches_computer_and_documentation_files` übersprungen). Lokale Läufe zeigen oft weniger (z. B. 93 auf Linux ohne `tkinter`, mit Playwright und mit `origin/main`) – Umgebungsunterschiede, keine geänderten Tests. Ein Skip gilt nie als bestanden.
