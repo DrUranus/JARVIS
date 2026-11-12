@@ -85,6 +85,9 @@ Die 38 Windows-Skips (Stand dc2d3d6, vor Phase 11): POSIX-Symlinks/-Skripte/-Mod
 
 Das ist ausdruecklich **kein** Windows-Nachweis: Windows-Nachweis ausstehend, bis `tests-windows` bzw. `tests.yml` fuer den Merge-Commit gruen ist. Eine volle Suite lief in dieser Sitzung nicht; die Zahlen der Tabelle oben stammen aus frueheren Laeufen auf den genannten Commits und wurden hier nicht neu erhoben (die Phase-11-Zeilen sind aelter als die Phasen History/Doctor/Memory-Suche/Barge-in).
 
+## Business-Finder (WP04)
+`tests/test_business_finder_units.py` (Aufgabenart `business_finder` des BusinessAgent: Rahmen/Kandidaten, Matrix, P1–P7, Risiko-Checkliste, Folgeaufgaben, Ergebnisgröße) und `tests/test_business_finder_goals.py` (Vorlage, Kette Research → Business → Auswertung, Planungsfehler, Berechtigung, Not-Aus/Abbruch). Fake-Browser/Fake-Daten, kein Netz, kein LLM. Regression: `tests/test_business_units.py`, `test_finance_units.py`, `test_analysis_*.py`, `test_goals_*.py`, `test_plan_eval.py` (Fingerabdrücke unverändert). Die Vorlagenmenge in `test_analysis_goals.py::test_every_template_is_registered_and_known` enthält jetzt `business_finder`.
+
 ## Umgebungsbefunde (nicht mit Codefehlern verwechseln)
 
 - Der Runner-Prozess laeuft selbst in einem Job Object (`LimitFlags 0x0`); die verschachtelte Zuweisung (Suspended-Start -> Job -> Resume) funktioniert dort.

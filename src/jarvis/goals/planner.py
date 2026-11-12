@@ -460,13 +460,36 @@ class GoalPlanner:
     _BUSINESS_OBJECTIVE = {"market_analysis": "Erstelle die Marktanalyse (Geschäftsmodell, Wettbewerber, Preise)",
                            "competitor_analysis": "Erstelle die Wettbewerbsanalyse (Konkurrenzanalyse, Positionierung)",
                            "business_analysis": "Analysiere die Geschäftsdaten (Schwachstellen, Marge)",
-                           "business_plan": "Erstelle den Businessplan (Geschäftsmodell, Break-even, Szenarien)"}
+                           "business_plan": "Erstelle den Businessplan (Geschäftsmodell, Break-even, Szenarien)",
+                           "business_finder": "Vergleiche die Geschäftskandidaten (Geschäftsmodell, Break-even, Szenarien, Plausibilität, Bewertung) als Entwurf"}
     _FINANCE_OBJECTIVE = {"financial_analysis": "Erstelle die Finanzanalyse (Kennzahlen, Bewertungskennzahlen)",
                           "company_analysis": "Erstelle die Unternehmensanalyse (Kennzahlen, Vergleich)",
                           "paper_trade_analysis": "Analysiere die Paper-Trading Szenarien (Risikoanalyse, Portfolio)"}
     _DEFAULT_FINANCE_KIND = {"financial_analysis": "financial_analysis", "company_analysis": "company_analysis", "paper_trade_analysis": "paper_trade_analysis"}
     _NEEDS = {"business_analysis": ("business", "rows"), "business_plan": ("business", "plan"), "financial_analysis": ("finance", "company"),
-              "company_analysis": ("finance", "companies"), "paper_trade_analysis": ("finance", "ideas")}
+              "company_analysis": ("finance", "companies"), "paper_trade_analysis": ("finance", "ideas"), "business_finder": ("business", "candidates")}
+
+    @staticmethod
+    def _check_finder(blocks: dict[str, dict[str, Any]]) -> None:
+        """business_finder: the owner's frame and 1..5 candidates are required; a candidate may only name pages the research block already lists (no URL is added here).
+        Everything else (numbers, ratings, limits) is validated by the BusinessAgent, which refuses invalid input before anything is computed."""
+        biz = blocks["business"]
+        extra = sorted(set(biz) - {"frame", "candidates"})
+        if extra:
+            raise PlanningError(f"business_finder: unknown business keys {extra[:3]}; allowed: frame, candidates")
+        if not isinstance(biz.get("frame"), dict) or not biz["frame"]:
+            raise PlanningError("business_finder needs business.frame (the owner's interests, skills, time, budget limit ...); no data is invented")
+        cands = biz.get("candidates")
+        if not isinstance(cands, list) or not 1 <= len(cands) <= 5 or not all(isinstance(c, dict) for c in cands):
+            raise PlanningError("business_finder needs business.candidates: 1..5 candidates named by the owner (no ideas are invented)")
+        urls_raw = blocks["research"].get("urls", [])
+        if not isinstance(urls_raw, list):
+            raise PlanningError("business_finder: research.urls must be a list of addresses")
+        listed = {str(u).rstrip("/").lower() for u in urls_raw if isinstance(u, str)}
+        for c in cands:
+            urls = c.get("source_urls") or []
+            if not isinstance(urls, list) or any(not isinstance(u, str) or str(u).rstrip("/").lower() not in listed for u in urls):
+                raise PlanningError("business_finder: a candidate's source_urls must be listed in research.urls (no page is added by the planner)")
 
     def _analysis(self, goal: Goal, user: dict[str, Any]) -> list[dict[str, Any]]:
         t = user.get("template")
@@ -478,6 +501,8 @@ class GoalPlanner:
             if v is not None and (not isinstance(v, dict) or len(v) > 30):
                 raise PlanningError(f"{key} must be an object with up to 30 entries")
             blocks[key] = dict(v or {})
+        if t == "business_finder":
+            self._check_finder(blocks)
         need = self._NEEDS.get(t)
         if need and not blocks[need[0]].get(need[1]):
             raise PlanningError(f"the template {t} needs {need[0]}.{need[1]} in the context (no data is invented)")
