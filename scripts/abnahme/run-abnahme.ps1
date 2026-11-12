@@ -7,7 +7,6 @@
 param([string]$Config = "config\nexus.example.toml", [string[]]$Only = @(), [switch]$NoManual, [switch]$Execute, [string]$Out = "abnahme-v2")
 $ErrorActionPreference = "Continue"
 $py = ".\.venv\Scripts\python.exe"
-New-Item -ItemType Directory -Force $Out | Out-Null
 $results = [ordered]@{}
 function Cmd([string]$what, [scriptblock]$block) {
     if (-not $Execute) { Write-Host "TROCKENLAUF: $what" -ForegroundColor DarkGray; return }
@@ -38,10 +37,21 @@ function Ask($id, $text) {
 }
 
 # --- S0 Vorbereitung ------------------------------------------------------------------------------------------------------------------
-$env0 = [ordered]@{ commit = (git rev-parse HEAD); dirty = [bool](git status --short); windows = (Get-ComputerInfo).OsName + " " + (Get-ComputerInfo).OsVersion;
-    python = (& $py --version 2>&1) -join ""; date = (Get-Date -Format s); is_admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) }
-if ($env0.is_admin) { Write-Host "ABBRUCH: Die Abnahme muss in einer NICHT erhoehten PowerShell laufen (S6 prueft genau das)." -ForegroundColor Red; exit 2 }
-$env0 | ConvertTo-Json | Set-Content (Join-Path $Out "00-umgebung.json")
+if ($Execute -and -not (Test-Path $py)) { Write-Host "ABBRUCH: $py fehlt. Zuerst die virtuelle Umgebung wie in docs\WINDOWS_V1_ABNAHME.md Abschnitt 1 einrichten (dieses Skript installiert nichts)." -ForegroundColor Red; exit 3 }
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($Execute -and $isAdmin) { Write-Host "ABBRUCH: Die Abnahme muss in einer NICHT erhoehten PowerShell laufen (S6 prueft genau das)." -ForegroundColor Red; exit 2 }
+if (-not $Execute) {
+    Write-Host "TROCKENLAUF: es wird nichts gestartet, nichts geschrieben und nichts veraendert." -ForegroundColor Cyan
+    if ($isAdmin) { Write-Host "Hinweis: diese PowerShell ist erhoeht; ein echter Lauf (-Execute) wuerde abbrechen." -ForegroundColor Yellow }
+    if (-not (Test-Path $py)) { Write-Host "Hinweis: $py fehlt; ein echter Lauf wuerde abbrechen (Umgebung einrichten wie in docs\WINDOWS_V1_ABNAHME.md)." -ForegroundColor Yellow }
+}
+else {
+    New-Item -ItemType Directory -Force $Out | Out-Null
+    Start-Transcript -Path (Join-Path $Out "run.log") -Append | Out-Null
+    $env0 = [ordered]@{ commit = (git rev-parse HEAD); dirty = [bool](git status --short); windows = (Get-ComputerInfo).OsName + " " + (Get-ComputerInfo).OsVersion;
+        python = (& $py --version 2>&1) -join ""; date = (Get-Date -Format s); is_admin = $isAdmin }
+    $env0 | ConvertTo-Json | Set-Content (Join-Path $Out "00-umgebung.json")
+}
 
 # --- S1 NEXUS starten -----------------------------------------------------------------------------------------------------------------
 if (Want "S1") {
@@ -62,7 +72,7 @@ if (Want "S3") {
     $results.S3 = [ordered]@{ pytest = $p; manual = (Ask "S3" "voice.tts_provider=windows: deutschen Satz anhoeren (verstaendlich, Umlaute); befehlsaehnlicher Text (Semikolon, Backticks, Anfuehrungszeichen) wird nur gesprochen") }
 }
 if (Want "S4") {
-    Cmd "tts_first_sound.py --mode wav (+ --mode audible)" { & $py scripts\abnahme\tts_first_sound.py --mode wav --out (Join-Path $Out "04-tts-latenz-wav.json") 2>&1 | Out-Host; if (-not $NoManual) { & $py scripts\abnahme\tts_first_sound.py --mode audible --out (Join-Path $Out "04-tts-latenz-hoerbar.json") } }
+    Cmd "[S4] tts_first_sound.py --mode wav (+ --mode audible)" { & $py scripts\abnahme\tts_first_sound.py --mode wav --out (Join-Path $Out "04-tts-latenz-wav.json") 2>&1 | Out-Host; if (-not $NoManual) { & $py scripts\abnahme\tts_first_sound.py --mode audible --out (Join-Path $Out "04-tts-latenz-hoerbar.json") } }
     $results.S4 = [ordered]@{ verdict = "MEASURED"; note = "kein Zielwert (G5/G7 offen)" }
 }
 # --- S5/S6 UIA und UAC ---------------------------------------------------------------------------------------------------------------------
@@ -106,8 +116,9 @@ if (Want "S9") {
     $results.S9 = [ordered]@{ pytest = $p; manual = (Ask "S9" "Auftrag starten, Prozess hart beenden, neu starten: '/resume' listet nur; '/resume <id>' fragt neu; Audit-Datei ohne Schluessel (Select-String -Pattern 'sk-|Bearer ' leer)") }
 }
 
-$results | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $Out "ergebnis.json")
-$fail = ($results.GetEnumerator() | Where-Object { ($_.Value | ConvertTo-Json -Depth 6) -match '"FAIL' -or ($_.Value | ConvertTo-Json -Depth 6) -match '"manual":\s*"FAIL"' }).Count
 if (-not $Execute) { Write-Host "`nTROCKENLAUF beendet: nichts wurde gestartet oder veraendert. Echter Lauf: -Execute" -ForegroundColor Cyan; exit 0 }
+$results | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $Out "ergebnis.json")
+Stop-Transcript | Out-Null
+$fail = ($results.GetEnumerator() | Where-Object { ($_.Value | ConvertTo-Json -Depth 6) -match '"FAIL' -or ($_.Value | ConvertTo-Json -Depth 6) -match '"manual":\s*"FAIL"' }).Count
 Write-Host "`nErgebnis: $Out\ergebnis.json  (FAIL-Schritte: $fail). PENDING/NA zaehlen nicht als bestanden." -ForegroundColor Cyan
 exit ([int]($fail -gt 0))
