@@ -189,9 +189,10 @@ def test_a13_artifacts_are_immutable():
     assert a.content == "Ergebnis"                                             # to_dict gibt eine Kopie
 
 
-def test_a14_no_production_module_imports_the_artifacts_until_the_wiring_is_approved():
+def test_a14_only_the_e5_modules_import_the_artifacts():
+    allowed = {MODULE, SRC / "agents" / "orchestrator.py", SRC / "research" / "agent.py", SRC / "research" / "handoff.py"}          # E5: orchestrator + research hand-over only
     for path in SRC.rglob("*.py"):
-        if path == MODULE:
+        if path in allowed:
             continue
         text = path.read_text(encoding="utf-8")
         assert "agents.artifacts" not in text and "from jarvis.agents import artifacts" not in text, path
