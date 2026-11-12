@@ -466,3 +466,36 @@ def test_e10_timeline_first_display_of_100_entries_is_under_500_ms_and_is_record
     (EVIDENCE / "wp07b_timeline_perf.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")
     print("E10 timeline perf:", json.dumps(evidence))
     assert runs[0]["first_display_ms"] < budget_ms, evidence                                # the FIRST (coldest) run decides; all runs are recorded
+
+
+# ---- WP07c: Freigabe-Panel (reine Anzeige) ----------------------------------------------------------------------------------------------------------
+def test_approvals_panel_lists_the_open_request_shows_history_and_keeps_the_emergency_button_working(browser):
+    audit = [{"id": "a1", "timestamp": "2026-11-12T10:01:01+00:00", "type": "confirmation_requested", "request_id": "r1", "tool": "keyboard", "action": "type", "level": "yellow", "status": "pending",
+              "detail": "GEHEIMES-DETAIL-NIE-ANZEIGEN", "resource": "GEHEIME-RESSOURCE"}]
+    g = Gui(browser, views=ReadViews(audit_tail=lambda n: list(audit)[-n:]))
+    try:
+        p = g.page
+        if p.locator("body").get_attribute("data-mode") == "orb":
+            p.click("#mode-toggle")
+        p.fill("#input", "!confirm")
+        p.press("#input", "Enter")
+        p.wait_for_selector("#approvals-list li")
+        assert p.evaluate("document.querySelectorAll('#approvals-list li').length") == 1
+        assert p.evaluate("document.querySelectorAll('#approvals-list li button').length") == 0          # reine Anzeige: keine Knoepfe
+        assert "angeboten: Ablehnen" in p.locator("#approvals-list li").inner_text()
+        p.click("#dlg-choices button[data-choice=deny]")                                                   # beantwortet wird nur im Dialog
+        p.wait_for_selector("#approvals-list li", state="detached")
+        assert p.locator("#approvals-note").inner_text().startswith("keine offenen")
+        p.click("#approvals-refresh")
+        until(p, "document.querySelectorAll('#approvals-history li').length >= 1")
+        body = p.locator("#approvals-history").inner_text()
+        assert "keyboard" in body and "GEHEIM" not in body                                              # nie Detail oder Ressource
+        p.fill("#input", "!confirm")
+        p.press("#input", "Enter")
+        p.wait_for_selector("#approvals-list li")
+        p.click("#emergency")                                                                             # Not-Aus bei offenem Panel und offenem Dialog
+        until(p, "document.body.dataset.state === 'emergency'")
+        g.shot("wp07c_approvals")
+        assert not g.errors, g.errors
+    finally:
+        g.close()

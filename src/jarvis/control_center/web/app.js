@@ -324,6 +324,7 @@ function answer(id, choice) {
 }
 
 function renderConfirmation() {
+  renderApprovals();
   const q = currentRequest();
   const dlg = el("confirm-dialog");
   el("confirmation").textContent = q ? q.tool + " / " + q.action + " (" + q.level + "): " + q.reason + (pending.size > 1 ? " [+" + (pending.size - 1) + " weitere]" : "") : "keine";
@@ -360,6 +361,7 @@ function renderConfirmation() {
 }
 
 function updateRemaining() {
+  updateApprovalRemaining();
   const q = currentRequest();
   if (!q) return;
   const left = Math.max(0, Math.ceil((q.deadline - Date.now()) / 1000));
@@ -376,6 +378,7 @@ function openConfirmation(d) {
 function closeConfirmation(d) {
   pending.delete(d.request_id);
   renderConfirmation();
+  scheduleApprovalHistory();
 }
 
 // Verbindungsverlust: der Server lehnt ab (detach); die Oberflaeche zeigt nichts Beantwortbares mehr an.
@@ -384,6 +387,109 @@ function clearConfirmations() {
   renderConfirmation();
 }
 
+// ---- Freigaben (WP07c): ALLE offenen Rueckfragen (aelteste zuerst) mit Frist und der angebotenen Auswahl, dazu der Verlauf aus dem Audit (nur Zeit, Art, Werkzeug, Aktion, Stufe, Status, Regel).
+// Reine Anzeige, KEIN Schreibweg und keine Knoepfe: beantwortet wird allein im Rueckfrage-Dialog (answer() -> `confirm`, nur Angebotenes, "Ablehnen" zuerst); nichts wird je automatisch gesendet.
+const APPROVAL_HISTORY_MAX = 100;
+const APPROVAL_KINDS = { confirmation_requested: "angefragt", confirmation_accepted: "erlaubt", confirmation_rejected: "abgelehnt" };
+const approvalRows = new Map();   // request_id -> { rem, li }
+let approvalsHistLast = 0;
+let approvalsHistTimer = null;
+
+function remainingText(q) {
+  const left = Math.max(0, Math.ceil((q.deadline - Date.now()) / 1000));
+  return { left: left, text: "Frist: " + (left > 0 ? left + " s (danach abgelehnt)" : "abgelaufen - gilt als abgelehnt") };
+}
+
+function renderApprovals() {
+  const ul = el("approvals-list");
+  ul.replaceChildren();
+  approvalRows.clear();
+  for (const q of pending.values()) {  // die Map haelt die Reihenfolge des Eintreffens: aelteste zuerst
+    const li = document.createElement("li");
+    li.dataset.kind = "open";
+    const head = document.createElement("div");
+    head.className = "ap-head";
+    head.textContent = q.tool + " / " + q.action + " (" + q.level + ")";
+    li.appendChild(head);
+    for (const [cls, value] of [["ap-reason", q.reason], ["ap-resource", q.resource]]) {
+      const d = document.createElement("div");
+      d.className = cls;
+      d.textContent = String(value == null ? "" : value);
+      li.appendChild(d);
+    }
+    const rem = document.createElement("div");
+    rem.className = "ap-rem";
+    li.appendChild(rem);
+    const offered = document.createElement("div");           // reine Anzeige: beantwortet wird allein im Rueckfrage-Dialog (modal, "Ablehnen" zuerst), hier gibt es keine Knoepfe
+    offered.className = "ap-choices";
+    offered.textContent = "angeboten: " + DENY_FIRST.filter((c) => q.choices.includes(c)).map((c) => CHOICE_TEXT[c]).join(", ");
+    li.appendChild(offered);
+    ul.appendChild(li);
+    approvalRows.set(q.request_id, { rem: rem, li: li });
+  }
+  el("approvals-note").textContent = pending.size ? pending.size + " offen (aelteste zuerst)" : "keine offenen Freigaben";
+  updateApprovalRemaining();
+}
+
+function updateApprovalRemaining() {
+  for (const [id, row] of approvalRows) {
+    const q = pending.get(id);
+    if (!q) continue;
+    row.rem.textContent = remainingText(q).text;
+  }
+}
+
+function renderApprovalHistory(items, note, hidden) {
+  const ul = el("approvals-history");
+  ul.replaceChildren();
+  for (const it of items) {
+    const li = document.createElement("li");
+    li.dataset.kind = APPROVAL_KINDS[it.type] ? it.type : "unknown";
+    const clock = /T(\d\d:\d\d:\d\d)/.exec(String(it.timestamp || ""));
+    li.textContent = (clock ? clock[1] : "-") + "  " + (APPROVAL_KINDS[it.type] || "?") + "  " + String(it.tool || "-") + " / " + String(it.action || "-") + " (" + String(it.level || "-") + ")"
+      + (it.status ? "  [" + String(it.status) + "]" : "") + (it.rule ? "  Regel " + String(it.rule) : "");
+    ul.appendChild(li);
+  }
+  el("approvals-history-note").textContent = note + (hidden ? " (+" + hidden + " weitere, aeltere ausgeblendet)" : "");
+}
+
+async function loadApprovalHistory() {
+  approvalsHistLast = Date.now();
+  try {
+    const replies = await Promise.all(Object.keys(APPROVAL_KINDS).map(async (k) => {
+      const r = await fetch(url("view/audit", 0, { type: k, limit: String(APPROVAL_HISTORY_MAX) }), { method: "GET" });
+      return { ok: r.ok, data: await r.json() };
+    }));
+    const seen = new Set();
+    let all = [];
+    let reason = "";
+    for (const r of replies) {
+      if (!r.ok || !r.data || !r.data.available) { reason = reason || (r.data && (r.data.reason || r.data.error)) || "nicht verfuegbar"; continue; }
+      for (const it of Array.isArray(r.data.items) ? r.data.items : []) {
+        const key = it && it.id ? String(it.id) : null;
+        if (!it || typeof it !== "object" || (key && seen.has(key))) continue;
+        if (key) seen.add(key);
+        all.push(it);
+      }
+    }
+    if (!all.length && reason) { renderApprovalHistory([], reason, 0); return; }
+    all.sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));  // neueste zuerst
+    const hidden = Math.max(0, all.length - APPROVAL_HISTORY_MAX);
+    renderApprovalHistory(all.slice(0, APPROVAL_HISTORY_MAX), all.length ? all.length + " Ereignisse" : "keine Ereignisse", hidden);
+  } catch (e) {
+    renderApprovalHistory([], "nicht abrufbar (getrennt)", 0);
+  }
+}
+
+// Geschlossene Rueckfragen laden den Verlauf neu, hoechstens einmal pro Sekunde (ein wartender Abruf genuegt).
+function scheduleApprovalHistory() {
+  if (approvalsHistTimer !== null) return;
+  const wait = approvalsHistLast + 1000 - Date.now();
+  if (wait <= 0) { loadApprovalHistory(); return; }
+  approvalsHistTimer = setTimeout(() => { approvalsHistTimer = null; loadApprovalHistory(); }, wait);
+}
+
+// ---- Tastatur ----------------------------------------------------------------------------------------------------------------------------
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   const q = currentRequest();
@@ -820,6 +926,7 @@ async function loadCoreTable() {
 }
 
 el("timeline-refresh").addEventListener("click", () => loadTimeline());
+el("approvals-refresh").addEventListener("click", () => loadApprovalHistory());
 el("doctor-refresh").addEventListener("click", () => loadView("doctor", {}));
 el("history-refresh").addEventListener("click", () => loadView("history", viewParams("history", ["kind", "status"])));
 el("audit-refresh").addEventListener("click", () => loadView("audit", viewParams("audit", ["type", "tool", "status", "level"])));
@@ -849,6 +956,7 @@ function enterOverlay() {
 setMode("orb");
 if (params.get("view") === "overlay") enterOverlay();
 setEffects("full");
+renderApprovals();
 renderVoice();
 loadCoreTable();
 connect();
