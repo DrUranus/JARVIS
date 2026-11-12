@@ -6,6 +6,11 @@ Templates (driven by what the user explicitly gave in the context or wrote in th
   web page     url (context or objective)              -> research agent reads the page -> evaluate
   coding       workspace (+ optional edits/test)       -> analyse project [-> write edits] [-> run tests] -> evaluate [-> stop session]
   screen       screenshot / window list wording        -> computer agent (screen capability only) -> evaluate
+  file         file / folder wording in the objective  -> files / office agent -> evaluate
+
+Mixed objectives (WP03): every part that the objective TEXT evidences (a URL/domain, a file request, coding words together with a workspace, strong screen wording) is planned as an
+independent branch with ONE shared evaluation; if a part cannot be planned safely the WHOLE goal is refused as `incomplete` - never a partial plan, never a silently dropped part.
+A file request is read from the objective only (never inferred from the workspace context), and URLs/domains are removed before the file parser looks at the text.
 """
 from __future__ import annotations
 
@@ -29,10 +34,46 @@ _TEST = re.compile(r"\b(tests?|testlauf|pytest|unittest|prüf\w*|teste)\b", re.I
 _SCREEN = re.compile(r"\b(screenshot|bildschirm\w*|fenster|windows?)\b", re.IGNORECASE)
 _INPUT = re.compile(r"\b(klick\w*|click|tipp\w*|type|maus|mouse|tastatur|keyboard|drücke|press|öffne|open|starte|start)\b", re.IGNORECASE)
 _RESEARCH = re.compile(r"\b(recherchier\w*|research|finde\s+\w*\s*heraus|find\s+out|informier\w*\s+dich|informationen\s+(?:über|ueber|zu)|information\s+about|quellen|sources)\b", re.IGNORECASE)
+_SCREEN_STRONG = re.compile(r"\b(screenshot|bildschirm\w*)\b", re.IGNORECASE)
+_CODING_CONTEXT_KEYS = ("edits", "runner", "test_args", "read_paths")
+_PART_ORDER = ("web", "file", "coding", "screen")
+MAX_URLS = 5                                            # distinct URLs one objective may name (WP03b); more is refused, never truncated
+# A wish to write a RESULT that does not exist yet into a file ("speichere das Ergebnis in x.txt"). Narrow on purpose: save verb, then (later in the sentence) a file target
+# (a file name with an extension, or the word Datei/file). Bookmarks, favourites, memory and reading lists have no file target and are not matched.
+_SAVE_VERB = r"(?:speicher\w*|abspeicher\w*|schreib\w*|exportier\w*|ablege\w*|save|store|write|export)"
+_SAVE_TARGET = (r"\b(?:in|als|nach|unter|into|to|as|under)\s+(?:(?:der|die|das|eine|einer|einem|eine\s+neue|a|an|the|new)\s+)*"
+                r"(?:datei|file|[\w./\\-]+\.(?:txt|md|csv|json|docx|xlsx|pdf|html?|log|xml|ya?ml)\b)")
+_SAVE_WISH = re.compile(r"\b" + _SAVE_VERB + r"\b[^\n]{0,160}?" + _SAVE_TARGET, re.IGNORECASE)
+_LITERAL_CONTENT = re.compile(r"\b(?:mit\s+dem\s+inhalt|inhalt\s*:|den\s+inhalt|with\s+the\s+content|content\s*:|den\s+text\s*:)", re.IGNORECASE)
 _RUNNERS = ("pytest", "python -m pytest", "python -m unittest", "npm test")
 _EDIT_KEYS = frozenset({"path", "content", "mode", "old_text", "new_text", "expected_sha256"})
 MAX_EDITS = 10
 MAX_READS = 5
+
+
+def find_urls(objective: str, ctx: dict[str, Any]) -> list[str]:
+    """Every distinct URL or bare domain the request names, in order of first appearance (context url first). Duplicates (also 'example.org' vs 'https://example.org')
+    are removed. The caller refuses more than MAX_URLS."""
+    found: list[tuple[int, str]] = []
+    u = ctx.get("url")
+    if isinstance(u, str) and u.strip():
+        found.append((-1, u.strip()))
+    covered: list[tuple[int, int]] = []
+    for m in _URL.finditer(objective):
+        covered.append(m.span())
+        found.append((m.start(), m.group(0).rstrip(".,;:!?)")))
+    for m in _DOMAIN.finditer(objective):
+        if any(a <= m.start() < b for a, b in covered):
+            continue                                    # a domain inside a URL is part of that URL
+        found.append((m.start(), "https://" + m.group(1) + ((m.group(2) or "").rstrip(".,;:!?)") or "/")))
+    out: list[str] = []
+    seen: set[str] = set()
+    for _, url in sorted(found, key=lambda t: t[0]):
+        key = re.sub(r"^https?://", "", url, flags=re.IGNORECASE).rstrip("/").lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(url)
+    return out
 
 
 class Planner(Protocol):
@@ -105,34 +146,125 @@ class GoalPlanner:
                 raise PlanningError(f"the plan needs {len(steps)} steps; the limit is {max_steps}")
             return steps
         objective = goal.objective
-        matches = []
+        parts, file_step_text = self._parts(goal, user)
+        urls = find_urls(objective, user)
+        if ("web" in parts or "screen" in parts) and self._save_wish(file_step_text):
+            raise PlanningError("incomplete: the objective asks to save a research result to a file, but there is no safe data flow from a result to file content yet; "
+                                "nothing is planned (name the file content explicitly, or ask for the research only)")
+        workspace = isinstance(user.get("workspace"), str) and bool(user["workspace"].strip())
         url = find_url(objective, user)
-        if url is not None:
-            matches.append("web")
-        if isinstance(user.get("workspace"), str) and user["workspace"].strip():
-            matches.append("coding")
-        if not matches and _SCREEN.search(objective) and "url" not in user:
-            matches.append("screen")
-        if not matches:
-            try:
-                file_step = parse_file_goal(objective)
-            except FileIntentError as exc:                 # incomplete or ambiguous file request: the person gets the reason, nothing is guessed
-                raise PlanningError(f"file request: {exc}") from None
-            if file_step is not None:
-                matches.append("file")
-        if not matches and self._web_search and _RESEARCH.search(objective):
-            matches.append("search")
-        if not matches:
-            raise PlanningError("no plan: the objective names no web page (url), no coding workspace and no screen question; "
-                                "give a url or a workspace explicitly")
-        if len(matches) > 1:
-            raise PlanningError("the objective is ambiguous: it fits more than one kind of goal")
-        kind = matches[0]
-        specs = {"web": self._web, "coding": self._coding, "screen": self._screen, "search": self._search, "file": self._file}[kind](goal, objective, user, url)
+        builders = {"web": self._web, "file": self._file, "coding": self._coding, "screen": self._screen}
+        if not parts:
+            if workspace:                                   # a workspace alone (no coding words, no other part) is a coding goal, as before
+                parts = ["coding"]
+            elif _SCREEN.search(objective) and "url" not in user:
+                parts = ["screen"]
+            elif self._web_search and _RESEARCH.search(objective):
+                specs = self._search(goal, objective, user, url)
+                return self._finish(goal, specs, max_steps)
+            else:
+                raise PlanningError("no plan: the objective names no web page (url), no coding workspace and no screen question; "
+                                    "give a url or a workspace explicitly")
+        elif workspace and "coding" not in parts:
+            raise PlanningError("the objective is ambiguous: it fits more than one kind of goal "
+                                "(the workspace in the context is not mentioned in the objective: name the coding task or leave the workspace out)")
+        if len(parts) == 1 and not (parts == ["web"] and len(urls) > 1):
+            specs = builders[parts[0]](goal, objective, user, url)
+            return self._finish(goal, specs, max_steps)
+        specs = self._combine(goal, parts, objective, file_step_text, user, url)
+        steps = self._finish(goal, specs, max_steps)
+        self._check_coverage(parts, steps, urls, file_step_text, user)
+        return steps
+
+    def _finish(self, goal: Goal, specs: list[dict[str, Any]], max_steps: int) -> tuple[GoalStep, ...]:
         steps = self._build(goal, specs)
         if len(steps) > max_steps:
             raise PlanningError(f"the plan needs {len(steps)} steps; the limit is {max_steps}")
         return steps
+
+    # ---- mixed objectives (WP03) -------------------------------------------------------------------------------------------------------------
+    @staticmethod
+    def _without_locations(text: str) -> str:
+        """The objective without URLs and bare domains: the file parser would otherwise read 'https://example.org/x' or 'example.com' as a file path."""
+        return _DOMAIN.sub(" ", _URL.sub(" ", text))
+
+    @staticmethod
+    def _save_wish(text: str) -> bool:
+        """True when the text asks to write a not-yet-existing result into a file (and gives no literal content for it). `text` has no URLs/domains."""
+        return bool(_SAVE_WISH.search(text)) and not _LITERAL_CONTENT.search(text)
+
+    def _parts(self, goal: Goal, user: dict[str, Any]) -> tuple[list[str], str]:
+        """The parts the objective TEXT evidences, in a fixed order. Returns (parts, objective text for the file parser). A workspace in the context alone is not a part."""
+        objective = goal.objective
+        parts: list[str] = []
+        urls = find_urls(objective, user)
+        if len(urls) > MAX_URLS:
+            raise PlanningError(f"incomplete: the objective names {len(urls)} different web addresses; at most {MAX_URLS} are planned, nothing is planned "
+                                f"(split the objective)")
+        if urls:
+            parts.append("web")
+        text = self._without_locations(objective)
+        try:
+            file_found = parse_file_goal(text) is not None
+        except FileIntentError:
+            file_found = True                               # an unclear file request IS a file part: planning it will refuse with the reason
+        if file_found:
+            parts.append("file")
+        workspace = isinstance(user.get("workspace"), str) and bool(user["workspace"].strip())
+        if workspace and (_WRITE.search(objective) or _TEST.search(objective) or any(user.get(k) for k in _CODING_CONTEXT_KEYS)):
+            parts.append("coding")
+        if _SCREEN_STRONG.search(objective):
+            parts.append("screen")
+        return [p for p in _PART_ORDER if p in parts], text
+
+    def _combine(self, goal: Goal, parts: list[str], objective: str, file_text: str, user: dict[str, Any], url: str | None) -> list[dict[str, Any]]:
+        """One independent branch per part, then ONE evaluation that depends on every branch tail, then the clean-up steps (coding session close). Any part that cannot be planned
+        refuses the whole goal."""
+        builders = {"web": self._web, "file": self._file, "coding": self._coding, "screen": self._screen}
+        work: list[dict[str, Any]] = []
+        tails: list[int] = []
+        cleanups: list[dict[str, Any]] = []
+        for kind in parts:
+            text = file_text if kind == "file" else objective
+            try:
+                specs = self._web_many(goal, find_urls(objective, user)) if kind == "web" and len(find_urls(objective, user)) > 1 else builders[kind](goal, text, user, url)
+            except PlanningError as exc:
+                raise PlanningError(f"incomplete: the {kind} part of the objective cannot be planned, so nothing is planned ({exc})") from None
+            index: dict[int, int] = {}
+            evaluation = next((sp for sp in specs if sp.get("evaluate")), {})
+            local_work = [i for i, sp in enumerate(specs) if not sp.get("evaluate") and "cleanup_of" not in sp]
+            for pos, i in enumerate(local_work):
+                sp = dict(specs[i])
+                after_local = sp.get("after", [local_work[pos - 1]] if pos > 0 else [])
+                sp["after"] = [index[j] for j in after_local]
+                index[i] = len(work)
+                work.append(sp)
+            eval_pos = next((i for i, sp in enumerate(specs) if sp.get("evaluate")), None)
+            tail_local = evaluation.get("after", [local_work[-1]] if local_work else [])
+            tails.extend(index[j] for j in tail_local if j in index)
+            for sp in specs:
+                if "cleanup_of" in sp:
+                    cl = dict(sp)
+                    cl["cleanup_of"] = index[sp["cleanup_of"]]
+                    cleanups.append(cl)
+            del eval_pos
+        return work + [{"evaluate": True, "after": sorted(set(tails))}] + cleanups
+
+    def _check_coverage(self, parts: list[str], steps: tuple[GoalStep, ...], urls: list[str], file_text: str, user: dict[str, Any]) -> None:
+        """Every evidenced part must appear in the built plan (capability family and its own entity: url, path, workspace); otherwise nothing is returned."""
+        families = {"web": {"research.web"}, "file": {"files.read", "files.write", "office.read", "office.create"}, "coding": {"coding.read", "coding.write", "coding.test"},
+                    "screen": {"computer.screen"}}
+        blob = repr([dict(s.input) for s in steps])
+        missing: list[str] = []
+        for kind in parts:
+            if not any(s.required_capabilities & families[kind] for s in steps):
+                missing.append(kind)
+        if "web" in parts and any(u not in blob for u in urls):
+            missing.append("web:url")
+        if "coding" in parts and str(user.get("workspace", "")).strip() not in blob:
+            missing.append("coding:workspace")
+        if missing:
+            raise PlanningError(f"incomplete: the plan does not cover {', '.join(dict.fromkeys(missing))}; nothing is planned")
 
     # ---- replanning (Phase 14) ---------------------------------------------------------------------------------------------------------------
     @property
@@ -247,6 +379,14 @@ class GoalPlanner:
             {"evaluate": True},
         ]
 
+    def _web_many(self, goal: Goal, urls: list[str]) -> list[dict[str, Any]]:
+        """One independent research branch per distinct URL, then ONE evaluation over all of them."""
+        if not 1 < len(urls) <= MAX_URLS or not all(P.valid_url(u) for u in urls):
+            raise PlanningError("every url must be an http(s) address (at most five different ones)")
+        specs = [{"objective": "Recherchiere und lese die Webseite " + u[:200] + " (Browser)", "caps": {"research.web"}, "input": {"url": u}, "after": []} for u in urls]
+        specs.append({"evaluate": True, "after": list(range(len(urls)))})
+        return specs
+
     _FILE_CAPS = {("files", "list"): {"files.read"}, ("files", "read"): {"files.read"}, ("office", "read"): {"office.read"}, ("office", "create"): {"office.create"},
                   ("files", "replace"): {"files.read", "files.write"}}
 
@@ -320,13 +460,36 @@ class GoalPlanner:
     _BUSINESS_OBJECTIVE = {"market_analysis": "Erstelle die Marktanalyse (Geschäftsmodell, Wettbewerber, Preise)",
                            "competitor_analysis": "Erstelle die Wettbewerbsanalyse (Konkurrenzanalyse, Positionierung)",
                            "business_analysis": "Analysiere die Geschäftsdaten (Schwachstellen, Marge)",
-                           "business_plan": "Erstelle den Businessplan (Geschäftsmodell, Break-even, Szenarien)"}
+                           "business_plan": "Erstelle den Businessplan (Geschäftsmodell, Break-even, Szenarien)",
+                           "business_finder": "Vergleiche die Geschäftskandidaten (Geschäftsmodell, Break-even, Szenarien, Plausibilität, Bewertung) als Entwurf"}
     _FINANCE_OBJECTIVE = {"financial_analysis": "Erstelle die Finanzanalyse (Kennzahlen, Bewertungskennzahlen)",
                           "company_analysis": "Erstelle die Unternehmensanalyse (Kennzahlen, Vergleich)",
                           "paper_trade_analysis": "Analysiere die Paper-Trading Szenarien (Risikoanalyse, Portfolio)"}
     _DEFAULT_FINANCE_KIND = {"financial_analysis": "financial_analysis", "company_analysis": "company_analysis", "paper_trade_analysis": "paper_trade_analysis"}
     _NEEDS = {"business_analysis": ("business", "rows"), "business_plan": ("business", "plan"), "financial_analysis": ("finance", "company"),
-              "company_analysis": ("finance", "companies"), "paper_trade_analysis": ("finance", "ideas")}
+              "company_analysis": ("finance", "companies"), "paper_trade_analysis": ("finance", "ideas"), "business_finder": ("business", "candidates")}
+
+    @staticmethod
+    def _check_finder(blocks: dict[str, dict[str, Any]]) -> None:
+        """business_finder: the owner's frame and 1..5 candidates are required; a candidate may only name pages the research block already lists (no URL is added here).
+        Everything else (numbers, ratings, limits) is validated by the BusinessAgent, which refuses invalid input before anything is computed."""
+        biz = blocks["business"]
+        extra = sorted(set(biz) - {"frame", "candidates"})
+        if extra:
+            raise PlanningError(f"business_finder: unknown business keys {extra[:3]}; allowed: frame, candidates")
+        if not isinstance(biz.get("frame"), dict) or not biz["frame"]:
+            raise PlanningError("business_finder needs business.frame (the owner's interests, skills, time, budget limit ...); no data is invented")
+        cands = biz.get("candidates")
+        if not isinstance(cands, list) or not 1 <= len(cands) <= 5 or not all(isinstance(c, dict) for c in cands):
+            raise PlanningError("business_finder needs business.candidates: 1..5 candidates named by the owner (no ideas are invented)")
+        urls_raw = blocks["research"].get("urls", [])
+        if not isinstance(urls_raw, list):
+            raise PlanningError("business_finder: research.urls must be a list of addresses")
+        listed = {str(u).rstrip("/").lower() for u in urls_raw if isinstance(u, str)}
+        for c in cands:
+            urls = c.get("source_urls") or []
+            if not isinstance(urls, list) or any(not isinstance(u, str) or str(u).rstrip("/").lower() not in listed for u in urls):
+                raise PlanningError("business_finder: a candidate's source_urls must be listed in research.urls (no page is added by the planner)")
 
     def _analysis(self, goal: Goal, user: dict[str, Any]) -> list[dict[str, Any]]:
         t = user.get("template")
@@ -338,6 +501,8 @@ class GoalPlanner:
             if v is not None and (not isinstance(v, dict) or len(v) > 30):
                 raise PlanningError(f"{key} must be an object with up to 30 entries")
             blocks[key] = dict(v or {})
+        if t == "business_finder":
+            self._check_finder(blocks)
         need = self._NEEDS.get(t)
         if need and not blocks[need[0]].get(need[1]):
             raise PlanningError(f"the template {t} needs {need[0]}.{need[1]} in the context (no data is invented)")

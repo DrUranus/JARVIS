@@ -194,6 +194,66 @@ function renderResults() {
   if (!results.size) addItem(ul, "noch keine Ergebnisse");
 }
 
+// ---- Zeitleiste (WP07b): Aufgaben je Agent in zeitlicher Reihenfolge (aelteste oben), nur lesend aus /view/agents. Texte per textContent; Aktualisierung hoechstens 1x/s. ----
+const TIMELINE_MAX = 100;     // sichtbare Eintraege; der Rest wird als "+N weitere" gemeldet
+const TIMELINE_STATES = ["pending", "running", "succeeded", "failed", "blocked", "cancelled"];
+let timelineLast = 0;
+let timelineTimer = null;
+
+function clockOf(iso) {
+  const m = /T(\d\d:\d\d:\d\d)/.exec(String(iso || ""));
+  return m ? m[1] : "";
+}
+
+function renderTimeline(data) {
+  const ul = el("timeline-list");
+  const note = el("timeline-note");
+  ul.replaceChildren();
+  if (!data || typeof data !== "object") { note.textContent = "nicht abrufbar"; return; }
+  if (!data.available) { note.textContent = data.reason || "nicht verfuegbar"; return; }
+  const all = Array.isArray(data.items) ? data.items.slice().reverse() : [];  // die Ansicht liefert neueste zuerst; die Zeitleiste zeigt die aeltesten oben
+  const hidden = Math.max(0, all.length - TIMELINE_MAX);
+  for (const it of all.slice(hidden)) {
+    if (!it || typeof it !== "object") continue;
+    const li = document.createElement("li");
+    const status = String(it.status || "").toLowerCase();
+    li.dataset.status = TIMELINE_STATES.includes(status) ? status : "unknown";
+    const head = document.createElement("div");
+    head.className = "tl-head";
+    head.textContent = (clockOf(it.started_at) || "-") + (it.finished_at ? " - " + clockOf(it.finished_at) : "") + "  " + String(it.agent_id || "-") + "  [" + String(it.status || "?") + "]";
+    li.appendChild(head);
+    const body = document.createElement("div");
+    body.className = "tl-body";
+    body.textContent = String(it.task_id || "") + " " + String(it.objective || "");
+    li.appendChild(body);
+    const deps = Array.isArray(it.dependencies) ? it.dependencies.filter((d) => typeof d === "string" && d) : [];
+    if (deps.length) { const d = document.createElement("div"); d.className = "tl-dep"; d.textContent = "abhaengig von " + deps.join(", "); li.appendChild(d); }
+    if (it.error_code) { const e = document.createElement("div"); e.className = "tl-err"; e.textContent = "Fehlercode: " + String(it.error_code); li.appendChild(e); }
+    ul.appendChild(li);
+  }
+  note.textContent = all.length ? all.length + " Aufgaben" + (hidden ? " (+" + hidden + " weitere, aeltere ausgeblendet)" : "") : "keine Aufgaben";
+}
+
+async function loadTimeline() {
+  timelineLast = Date.now();
+  try {
+    const r = await fetch(url("view/agents", 0, { limit: String(TIMELINE_MAX) }), { method: "GET" });
+    const data = await r.json();
+    if (!r.ok) { renderTimeline(null); el("timeline-note").textContent = "Abgelehnt: " + (data && data.error ? data.error : r.status); return; }
+    renderTimeline(data);
+  } catch (e) {
+    renderTimeline(null);
+  }
+}
+
+// Aufgabenereignisse laden die Zeitleiste neu, aber hoechstens einmal pro Sekunde (ein wartender Abruf genuegt).
+function scheduleTimeline() {
+  if (timelineTimer !== null) return;
+  const wait = timelineLast + 1000 - Date.now();
+  if (wait <= 0) { loadTimeline(); return; }
+  timelineTimer = setTimeout(() => { timelineTimer = null; loadTimeline(); }, wait);
+}
+
 function renderDashboard() { renderTasks(); renderDetail(); renderAgents(); renderResults(); renderStatus(); }
 
 // Systemstatus (Premium V2): nur Werte, die diese Seite aus echten Backend-Ereignissen kennt; ohne Meldung steht dort "unbekannt", nie ein erfundener Wert.
@@ -264,6 +324,7 @@ function answer(id, choice) {
 }
 
 function renderConfirmation() {
+  renderApprovals();
   const q = currentRequest();
   const dlg = el("confirm-dialog");
   el("confirmation").textContent = q ? q.tool + " / " + q.action + " (" + q.level + "): " + q.reason + (pending.size > 1 ? " [+" + (pending.size - 1) + " weitere]" : "") : "keine";
@@ -300,6 +361,7 @@ function renderConfirmation() {
 }
 
 function updateRemaining() {
+  updateApprovalRemaining();
   const q = currentRequest();
   if (!q) return;
   const left = Math.max(0, Math.ceil((q.deadline - Date.now()) / 1000));
@@ -316,6 +378,7 @@ function openConfirmation(d) {
 function closeConfirmation(d) {
   pending.delete(d.request_id);
   renderConfirmation();
+  scheduleApprovalHistory();
 }
 
 // Verbindungsverlust: der Server lehnt ab (detach); die Oberflaeche zeigt nichts Beantwortbares mehr an.
@@ -324,6 +387,109 @@ function clearConfirmations() {
   renderConfirmation();
 }
 
+// ---- Freigaben (WP07c): ALLE offenen Rueckfragen (aelteste zuerst) mit Frist und der angebotenen Auswahl, dazu der Verlauf aus dem Audit (nur Zeit, Art, Werkzeug, Aktion, Stufe, Status, Regel).
+// Reine Anzeige, KEIN Schreibweg und keine Knoepfe: beantwortet wird allein im Rueckfrage-Dialog (answer() -> `confirm`, nur Angebotenes, "Ablehnen" zuerst); nichts wird je automatisch gesendet.
+const APPROVAL_HISTORY_MAX = 100;
+const APPROVAL_KINDS = { confirmation_requested: "angefragt", confirmation_accepted: "erlaubt", confirmation_rejected: "abgelehnt" };
+const approvalRows = new Map();   // request_id -> { rem, li }
+let approvalsHistLast = 0;
+let approvalsHistTimer = null;
+
+function remainingText(q) {
+  const left = Math.max(0, Math.ceil((q.deadline - Date.now()) / 1000));
+  return { left: left, text: "Frist: " + (left > 0 ? left + " s (danach abgelehnt)" : "abgelaufen - gilt als abgelehnt") };
+}
+
+function renderApprovals() {
+  const ul = el("approvals-list");
+  ul.replaceChildren();
+  approvalRows.clear();
+  for (const q of pending.values()) {  // die Map haelt die Reihenfolge des Eintreffens: aelteste zuerst
+    const li = document.createElement("li");
+    li.dataset.kind = "open";
+    const head = document.createElement("div");
+    head.className = "ap-head";
+    head.textContent = q.tool + " / " + q.action + " (" + q.level + ")";
+    li.appendChild(head);
+    for (const [cls, value] of [["ap-reason", q.reason], ["ap-resource", q.resource]]) {
+      const d = document.createElement("div");
+      d.className = cls;
+      d.textContent = String(value == null ? "" : value);
+      li.appendChild(d);
+    }
+    const rem = document.createElement("div");
+    rem.className = "ap-rem";
+    li.appendChild(rem);
+    const offered = document.createElement("div");           // reine Anzeige: beantwortet wird allein im Rueckfrage-Dialog (modal, "Ablehnen" zuerst), hier gibt es keine Knoepfe
+    offered.className = "ap-choices";
+    offered.textContent = "angeboten: " + DENY_FIRST.filter((c) => q.choices.includes(c)).map((c) => CHOICE_TEXT[c]).join(", ");
+    li.appendChild(offered);
+    ul.appendChild(li);
+    approvalRows.set(q.request_id, { rem: rem, li: li });
+  }
+  el("approvals-note").textContent = pending.size ? pending.size + " offen (aelteste zuerst)" : "keine offenen Freigaben";
+  updateApprovalRemaining();
+}
+
+function updateApprovalRemaining() {
+  for (const [id, row] of approvalRows) {
+    const q = pending.get(id);
+    if (!q) continue;
+    row.rem.textContent = remainingText(q).text;
+  }
+}
+
+function renderApprovalHistory(items, note, hidden) {
+  const ul = el("approvals-history");
+  ul.replaceChildren();
+  for (const it of items) {
+    const li = document.createElement("li");
+    li.dataset.kind = APPROVAL_KINDS[it.type] ? it.type : "unknown";
+    const clock = /T(\d\d:\d\d:\d\d)/.exec(String(it.timestamp || ""));
+    li.textContent = (clock ? clock[1] : "-") + "  " + (APPROVAL_KINDS[it.type] || "?") + "  " + String(it.tool || "-") + " / " + String(it.action || "-") + " (" + String(it.level || "-") + ")"
+      + (it.status ? "  [" + String(it.status) + "]" : "") + (it.rule ? "  Regel " + String(it.rule) : "");
+    ul.appendChild(li);
+  }
+  el("approvals-history-note").textContent = note + (hidden ? " (+" + hidden + " weitere, aeltere ausgeblendet)" : "");
+}
+
+async function loadApprovalHistory() {
+  approvalsHistLast = Date.now();
+  try {
+    const replies = await Promise.all(Object.keys(APPROVAL_KINDS).map(async (k) => {
+      const r = await fetch(url("view/audit", 0, { type: k, limit: String(APPROVAL_HISTORY_MAX) }), { method: "GET" });
+      return { ok: r.ok, data: await r.json() };
+    }));
+    const seen = new Set();
+    let all = [];
+    let reason = "";
+    for (const r of replies) {
+      if (!r.ok || !r.data || !r.data.available) { reason = reason || (r.data && (r.data.reason || r.data.error)) || "nicht verfuegbar"; continue; }
+      for (const it of Array.isArray(r.data.items) ? r.data.items : []) {
+        const key = it && it.id ? String(it.id) : null;
+        if (!it || typeof it !== "object" || (key && seen.has(key))) continue;
+        if (key) seen.add(key);
+        all.push(it);
+      }
+    }
+    if (!all.length && reason) { renderApprovalHistory([], reason, 0); return; }
+    all.sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));  // neueste zuerst
+    const hidden = Math.max(0, all.length - APPROVAL_HISTORY_MAX);
+    renderApprovalHistory(all.slice(0, APPROVAL_HISTORY_MAX), all.length ? all.length + " Ereignisse" : "keine Ereignisse", hidden);
+  } catch (e) {
+    renderApprovalHistory([], "nicht abrufbar (getrennt)", 0);
+  }
+}
+
+// Geschlossene Rueckfragen laden den Verlauf neu, hoechstens einmal pro Sekunde (ein wartender Abruf genuegt).
+function scheduleApprovalHistory() {
+  if (approvalsHistTimer !== null) return;
+  const wait = approvalsHistLast + 1000 - Date.now();
+  if (wait <= 0) { loadApprovalHistory(); return; }
+  approvalsHistTimer = setTimeout(() => { approvalsHistTimer = null; loadApprovalHistory(); }, wait);
+}
+
+// ---- Tastatur ----------------------------------------------------------------------------------------------------------------------------
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   const q = currentRequest();
@@ -407,9 +573,9 @@ function handle(ev) {
     case "state": setState(d.state, d.detail); break;
     case "chat": addItem(el("chat"), d.sender + ": " + d.text, d.sender); break;
     case "activity": renderActivity(d); break;
-    case "task_update": onTaskUpdate(d); break;
+    case "task_update": onTaskUpdate(d); scheduleTimeline(); break;
     case "routing": onRouting(d); break;
-    case "result": onResult(d); break;
+    case "result": onResult(d); scheduleTimeline(); break;
     case "confirmation_request": openConfirmation(d); break;
     case "confirmation_closed": closeConfirmation(d); break;
     case "emergency": setEmergency(d.engaged); if (d.engaged) setState("emergency", d.reason); break;
@@ -759,6 +925,8 @@ async function loadCoreTable() {
   setState(currentState);
 }
 
+el("timeline-refresh").addEventListener("click", () => loadTimeline());
+el("approvals-refresh").addEventListener("click", () => loadApprovalHistory());
 el("doctor-refresh").addEventListener("click", () => loadView("doctor", {}));
 el("history-refresh").addEventListener("click", () => loadView("history", viewParams("history", ["kind", "status"])));
 el("audit-refresh").addEventListener("click", () => loadView("audit", viewParams("audit", ["type", "tool", "status", "level"])));
@@ -788,6 +956,7 @@ function enterOverlay() {
 setMode("orb");
 if (params.get("view") === "overlay") enterOverlay();
 setEffects("full");
+renderApprovals();
 renderVoice();
 loadCoreTable();
 connect();

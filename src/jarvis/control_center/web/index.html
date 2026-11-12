@@ -51,6 +51,9 @@
     <div class="col-right" id="tasks-panel">
       <div class="panel"><h2>Aufgaben</h2><ul id="task-list"></ul><p id="problems"></p></div>
       <div class="panel"><h2>Details</h2><div id="task-detail"></div></div>
+      <div class="panel" id="timeline-panel"><h2>Zeitleiste</h2>
+        <div class="filters"><button id="timeline-refresh" type="button">Aktualisieren</button></div>
+        <p id="timeline-note" role="status"></p><ol id="timeline-list"></ol></div>
       <div class="panel"><h2>Ergebnisse</h2><ul id="results-list"></ul></div>
       <div class="panel" id="doctor-panel"><h2>Einrichtung und Diagnose</h2>
         <div class="filters"><button id="doctor-refresh" type="button">Prüfen</button></div>
@@ -73,6 +76,11 @@
           <button id="audit-refresh" type="button">Anzeigen</button>
         </div>
         <p id="audit-note" role="status"></p><ul id="audit-list"></ul></div>
+      <div class="panel" id="approvals-panel"><h2>Freigaben</h2>
+        <p id="approvals-note" role="status">keine offenen Freigaben</p><ul id="approvals-list"></ul>
+        <h3>Verlauf</h3>
+        <div class="filters"><button id="approvals-refresh" type="button">Verlauf anzeigen</button></div>
+        <p id="approvals-history-note" role="status"></p><ul id="approvals-history"></ul></div>
       <div class="panel"><h2>Rueckfrage</h2><p id="confirmation">keine</p></div>
     </div>
   </section>

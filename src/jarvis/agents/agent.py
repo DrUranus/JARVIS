@@ -22,6 +22,7 @@ class Agent(ABC):
     description: str
     capabilities: frozenset[str] = frozenset()
     tool_names: frozenset[str] = frozenset()   # the only tools ctx.tools will give this agent
+    produces: frozenset[str] = frozenset()      # E5: artifact kinds this agent may hand over (only used with the artifacts switch; empty = none)
     supports_cancellation: bool = True          # does perform() poll ctx.check_cancelled()/is_cancelled()?
 
     def __init__(self) -> None:

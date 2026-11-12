@@ -28,7 +28,7 @@ class LLMSettings:
 class VoiceSettings:
     """Voice interface. Defaults ('console') need no hardware and no API key."""
     stt_provider: str = "console"      # console | mock | openai | local
-    tts_provider: str = "console"      # console | mock | system | openai
+    tts_provider: str = "console"      # console | mock | system | openai | windows (Windows PowerShell + System.Speech, lokal; Standard bleibt console)
     audio_input: str = "sounddevice"   # microphone backend (used by non-console STT)
     audio_output: str = "system"       # playback backend (used by openai TTS)
     hotword_detector: str = "none"     # none | mock | <registered local detector>; gates the microphone, no engine ships by default
@@ -174,6 +174,9 @@ class AgentsSettings:
     cancel_grace_seconds: float = 5.0  # an agent that ignores cancel/timeout this long is marked FAILED
     tool_call_limit: int = 200         # tool calls per task
     max_output_chars: int = 20_000     # size of a stored task output
+    agent_budgets_enabled: bool = False   # WP02b: budgets per agent (OFF: no per-agent limit; only the global ones apply)
+    agent_budgets: tuple[str, ...] = ()   # 'agent;max_seconds;max_tool_calls;max_calls_session;max_artifact_chars' (empty field = no limit); can only LOWER the global limits; unknown values refuse start-up
+    artifacts: bool = False            # E5: typed hand-over artifacts IN ADDITION to the unchanged output (research -> business). OFF: results are byte-identical
     router: AgentRouterSettings = field(default_factory=AgentRouterSettings)
 
 
@@ -201,6 +204,43 @@ class RoutingSettings:
     local_provider: str = ""               # registered provider name used for local work (empty = none: nothing is routed locally)
     cloud_provider: str = ""               # registered provider name counted as cloud (empty = no cloud target at all)
     cloud_tasks: tuple[str, ...] = ()      # task classes that MAY use the cloud (empty = none; "speech" is never allowed)
+
+
+@dataclass(frozen=True)
+class LlmBudgetSettings:
+    """LLM token / call / cost budget (E6). OFF by default: then the provider object is used exactly as before. Provisional development defaults of the owner; limits are
+    frozen for the session and never raised automatically. Money values are TEXT decimals (no floats); a cost limit without a known price refuses the call (fail-closed)."""
+    enabled: bool = False
+    max_calls: int = 30                        # LLM calls per session (hard limit 100000)
+    max_input_tokens_per_call: int = 50_000    # ESTIMATED input tokens of one call (characters / 3)
+    max_output_tokens_per_call: int = 2048     # planned output tokens: request.max_tokens, else llm.max_tokens
+    max_input_tokens_session: int = 50_000     # estimated or measured input tokens of the whole session
+    max_tokens_session: int = 100_000          # input + output tokens of the whole session
+    max_cost: str = ""                         # "" = no cost limit; otherwise a positive decimal text (currency-agnostic units)
+    prices: tuple[str, ...] = ()               # "model;input_per_1k;output_per_1k" (text decimals). Unknown model = UNKNOWN price, never estimated
+
+    def to_limits(self):
+        from jarvis.llm.cost_budget import CostBudgetLimits
+        for name in ("max_calls", "max_input_tokens_per_call", "max_output_tokens_per_call", "max_input_tokens_session", "max_tokens_session"):
+            if isinstance(getattr(self, name), bool) or not isinstance(getattr(self, name), int):
+                raise ValueError(f"{name} must be a whole number")
+        if not isinstance(self.max_cost, str):
+            raise ValueError("max_cost must be a text decimal (no float)")
+        return CostBudgetLimits(self.max_calls, self.max_input_tokens_per_call, self.max_output_tokens_per_call, self.max_tokens_session,
+                                max_cost=self.max_cost.strip() or None, max_input_tokens_session=self.max_input_tokens_session)
+
+    def to_prices(self):
+        from jarvis.llm.cost_budget import ModelPrice, PriceTable, make_price
+        out: dict[str, ModelPrice] = {}
+        for entry in self.prices:
+            parts = entry.split(";") if isinstance(entry, str) else []
+            if len(parts) != 3 or not parts[0].strip():
+                raise ValueError(f"price entry {entry!r} must be 'model;input_per_1k;output_per_1k'")
+            model = parts[0].strip()
+            if model in out:
+                raise ValueError(f"price of {model!r} is listed twice")
+            out[model] = make_price(parts[1].strip(), parts[2].strip())
+        return PriceTable(out)
 
 
 @dataclass(frozen=True)
@@ -391,6 +431,7 @@ class Settings:
     goals: GoalsSettings = field(default_factory=GoalsSettings)
     budget: BudgetSettings = field(default_factory=BudgetSettings)
     llm_routing: RoutingSettings = field(default_factory=RoutingSettings)
+    llm_budget: LlmBudgetSettings = field(default_factory=LlmBudgetSettings)
     self_repair: SelfRepairSettings = field(default_factory=SelfRepairSettings)
     self_improvement: SelfImprovementSettings = field(default_factory=SelfImprovementSettings)
     research: ResearchSettings = field(default_factory=ResearchSettings)
@@ -413,6 +454,16 @@ class Settings:
     @property
     def effective_log_level(self) -> str:
         return self.log_level or ("INFO" if self.is_production else "DEBUG")
+
+    def _validate_llm_budget(self) -> None:
+        lb = self.llm_budget
+        try:
+            lb.to_limits()
+            lb.to_prices()
+        except ValueError as exc:
+            raise ConfigError(f"llm_budget: {exc}") from None
+        if lb.max_input_tokens_per_call > lb.max_input_tokens_session or lb.max_input_tokens_session > lb.max_tokens_session:
+            raise ConfigError("llm_budget: max_input_tokens_per_call must not exceed max_input_tokens_session, which must not exceed max_tokens_session")
 
     def validate(self) -> "Settings":
         if self.mode not in MODES:
@@ -517,6 +568,13 @@ class Settings:
         rt = ag.router
         if not 0 < rt.timeout_seconds <= 60 or not 1 <= rt.max_objective_chars <= 2000 or not 1 <= rt.max_reason_chars <= 300:
             raise ConfigError("agents.router.timeout_seconds 0..60 (positive), max_objective_chars 1..2000, max_reason_chars 1..300")
+        try:
+            from jarvis.agent_budgets import AgentBudgets
+            AgentBudgets.from_entries(ag.agent_budgets, global_timeout=ag.task_timeout_seconds, global_tool_calls=ag.tool_call_limit)
+        except ConfigError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - BudgetError or anything else: refuse to start rather than run without the limit
+            raise ConfigError(f"agents.agent_budgets: {exc}") from None
         gl = self.goals
         if not 1 <= gl.max_steps <= 50 or not 1 <= gl.max_attempts_per_step <= 5:
             raise ConfigError("goals.max_steps 1..50, max_attempts_per_step 1..5")
@@ -534,6 +592,7 @@ class Settings:
             raise ConfigError("llm_routing.enabled needs local_provider and/or cloud_provider")
         if lr.enabled and lr.local_provider and lr.local_provider.lower() == lr.cloud_provider.lower():
             raise ConfigError("llm_routing.local_provider and cloud_provider must differ")
+        self._validate_llm_budget()
         si = self.self_improvement
         if not 1 <= si.max_proposals <= 2000 or not 1 <= si.min_occurrences <= 50 or not 1 <= si.max_edits <= 10 or not 1000 <= si.max_diff_bytes <= 500_000 \
                 or not 0 < si.prepare_timeout_seconds <= 600 or not 0 < si.test_timeout_seconds <= 3600:

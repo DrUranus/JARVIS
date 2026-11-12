@@ -17,13 +17,16 @@ from jarvis.tools.registry import ToolRegistry
 
 def build_core(settings: Settings) -> JarvisCore:
     setup_logging(settings.effective_log_level, settings.log_dir)
-    provider = create_provider(settings.llm)
+    provider = original_provider = create_provider(settings.llm)
     # Secrets of this very configuration (and secret-looking env vars) can never be stored as memories,
     # and are redacted from every permission message, prompt, audit event and tool error.
     guard = SecretGuard.from_environment(extra=[settings.llm.api_key, settings.voice.api_key])
     # Every tool call goes through this engine (strict: restrictive defaults, fail closed). A broken policy
     # file raises PolicyError here: JARVIS refuses to start rather than run with an unintended policy.
     permissions = build_permission_engine(settings, redactor=guard)
+    # LLM budget (E6, llm_budget.enabled = false by default): then `provider` stays the IDENTICAL object. Enabled, one wrapper is shared by the Core, coding, goals,
+    # agents routing and self-improvement. It only READS the emergency latch and reports refusals as `budget_exhausted` audit events (numbers only).
+    provider = budgeted_provider(settings, provider, permissions)
     tools = register_builtin_tools(ToolRegistry(permissions), include_demo=not settings.is_production)
     memory = create_memory(settings.memory, guard)
     core = JarvisCore(provider=provider, tools=tools, memory=memory, memory_limit=settings.memory.max_relevant,
@@ -53,7 +56,7 @@ def build_core(settings: Settings) -> JarvisCore:
     core.subsystems["office"] = build_office(settings, tools, permissions, baseline_rules=office_baseline_rules())
     # Multi-agent orchestration sits ABOVE those subsystems: agents only use their tools through the registry (and so the permission engine).
     from jarvis.agents.factory import build_agents
-    core.subsystems["agents"] = build_agents(settings, tools, memory, core.tasks, core.subsystems)
+    core.subsystems["agents"] = build_agents(settings, tools, memory, core.tasks, core.subsystems, budget_audit=agent_budget_audit(permissions.audit))
     # Assistant (assistant-e2e, off by default): the agent router decides per goal step. It only SELECTS (rules; no LLM call); decisions become `routing`
     # events and audit entries. Without assistant.enabled and agents.router.enabled the goal layer uses the AgentPlanner exactly as before.
     from jarvis.interface.assistant import RoutingSink
@@ -101,8 +104,27 @@ def build_core(settings: Settings) -> JarvisCore:
     assistant_ui = getattr(core.subsystems["assistant"], "ui", None)
     if assistant_ui is not None and settings.security.confirmation != "deny":
         permissions.set_confirmation_provider(assistant_ui.confirmation_provider, source="assistant")
+    if provider is not original_provider:
+        core.subsystems["llm_budget"] = provider
     register_emergency_components(core)
     return core
+
+
+def budgeted_provider(settings: Settings, provider: Any, permissions: Any) -> Any:
+    """`provider` itself unless llm_budget.enabled; then a BudgetedProvider (see llm/budgeted.py). Misconfiguration was already refused by `Settings.validate`."""
+    cfg = settings.llm_budget
+    if not cfg.enabled:
+        return provider
+    from jarvis.llm.budgeted import BudgetedProvider
+    from jarvis.llm.cost_budget import CostBudget
+    from jarvis.permissions.audit import AuditEvent, AuditEventType
+
+    def audit(meta: dict) -> bool:
+        m = dict(meta)
+        return permissions.audit.record(AuditEvent(AuditEventType.BUDGET_EXHAUSTED, tool="llm", action="complete", status="denied", detail=str(m.pop("reason", ""))[:300],
+                                                   extra={k: str(v) for k, v in m.items()}))
+    return BudgetedProvider(provider, CostBudget(cfg.to_limits(), cfg.to_prices()), default_model=settings.llm.model, default_max_tokens=settings.llm.max_tokens,
+                            emergency=permissions.emergency, audit=audit)
 
 
 def _routed_agents(settings: Settings, agents: Any, sink: Callable[[str, dict], Any], audit: Any) -> Any:
@@ -132,6 +154,17 @@ def routing_audit(logger) -> Callable[[dict], bool]:
     return record
 
 
+def agent_budget_audit(logger) -> Callable[[dict], bool]:
+    """Adapter: the first exhaustion of an agent budget (numbers only) -> one `budget_exhausted` event in the existing audit log (tool="agent"). Never prompts, inputs or results."""
+    from jarvis.permissions.audit import AuditEvent, AuditEventType
+
+    def record(meta) -> bool:
+        m = dict(meta)
+        return logger.record(AuditEvent(AuditEventType.BUDGET_EXHAUSTED, tool="agent", action=str(m.pop("agent", "")), status="blocked", detail=f"agent budget exhausted: {m.get('limit')}",
+                                        extra={k: str(v) for k, v in m.items()}))
+    return record
+
+
 def recording_guard(core: JarvisCore) -> Callable[[], str | None]:
     """Why a microphone recording must not start or continue: central emergency stop or exhausted session budget (else None). Only reads state."""
     def guard() -> str | None:
@@ -143,6 +176,31 @@ def recording_guard(core: JarvisCore) -> Callable[[], str | None]:
     return guard
 
 
+def speech_guard(core: JarvisCore) -> Callable[[], str | None]:
+    """Why a NEW speech output must not start: only the central emergency stop (else None). Only reads state; the session budget does not limit speaking."""
+    def guard() -> str | None:
+        em = core.permissions.emergency
+        return f"Notaus aktiv ({em.reason})" if em.engaged else None
+    return guard
+
+
+def voice_stopper(speaker: Any) -> Callable[[str], Any]:
+    """Emergency-stop stopper for the speech output: ends a running speech and says honestly whether anything was speaking. Nothing is queued, so nothing is
+    replayed after a reset. Does not touch permissions and never raises."""
+    from jarvis.permissions.emergency import StopOutcome, StopResult
+
+    def stop(reason: str) -> StopResult:
+        was = bool(getattr(speaker, "speaking", False))
+        try:
+            speaker.stop()
+        except Exception as exc:                                                        # noqa: BLE001 - a stopper must report, not raise
+            return StopResult(StopOutcome.FAILED, f"speech output could not be stopped ({type(exc).__name__})")
+        if was:
+            return StopResult(StopOutcome.STOPPED, "the running speech output was ended; nothing is queued and nothing will be replayed")
+        return StopResult(StopOutcome.NOTHING, "nothing was speaking")
+    return stop
+
+
 def build_voice_session(settings: Settings, core: JarvisCore, display=print, input_fn=input, on_state=None):
     """Assemble the voice front-end around an existing core.
 
@@ -152,7 +210,9 @@ def build_voice_session(settings: Settings, core: JarvisCore, display=print, inp
     from jarvis.voice import VoiceSession, build_listener, build_speaker
 
     v = settings.voice
-    return VoiceSession(core, build_listener(v, input_fn, guard=recording_guard(core)), build_speaker(v, display), wake_word=v.wake_word,
+    speaker = build_speaker(v, display, guard=speech_guard(core))
+    core.permissions.emergency.register("voice", voice_stopper(speaker))                # the emergency stop ends a running speech (additive; the latch itself is unchanged)
+    return VoiceSession(core, build_listener(v, input_fn, guard=recording_guard(core)), speaker, wake_word=v.wake_word,
                         require_wake_word=v.require_wake_word, speak_responses=v.speak_responses,
                         display=display, on_state=on_state)
 

@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from jarvis.agents.adapters import BrowserAgent, CodingAgent, ComputerAgent, FilesAgent, ResearchAgent
 from jarvis.agents.agent import Agent
+from jarvis.agent_budgets import AgentBudgets, BudgetError
 from jarvis.agents.errors import AgentError
 from jarvis.agents.models import AgentTask
 from jarvis.agents.orchestrator import AgentOrchestrator
@@ -87,11 +88,12 @@ def _research_agent(settings: Settings, subsystems: dict[str, Any] | None = None
     # the research layer's own URL filter mirrors (never exceeds) what the browser layer allows: the user's exact browser.private_hosts_allowed
     return WebResearchAgent(ResearchLimits(r.max_sources, r.max_actions, r.timeout_seconds, r.max_result_chars),
                             private_hosts_allowed=tuple(settings.browser.private_hosts_allowed),
-                            search_source=(lambda: subsystems.get("research_search")) if subsystems is not None else None)   # looked up at use time: built after the agents
+                            search_source=(lambda: subsystems.get("research_search")) if subsystems is not None else None,      # looked up at use time: built after the agents
+                            artifacts=getattr(settings, "agents").artifacts)
 
 
 def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | None, task_manager: TaskManager,
-                 subsystems: dict[str, Any]) -> AgentsSubsystem:
+                 subsystems: dict[str, Any], budget_audit: Any = None) -> AgentsSubsystem:
     cfg = settings.agents
     if not cfg.enabled:
         return AgentsSubsystem("disabled", "multi-agent orchestration is off (agents.enabled = false)")
@@ -100,10 +102,15 @@ def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | 
         lookup = None
         if memory is not None and getattr(memory, "enabled", False):
             lookup = lambda q, n: [e.content for e in memory.search(q, limit=n)]  # noqa: E731 - read-only, explicit query only
+        budgets = None
+        audit = None
+        if cfg.agent_budgets_enabled and cfg.agent_budgets:
+            budgets = AgentBudgets.from_entries(cfg.agent_budgets, global_timeout=cfg.task_timeout_seconds, global_tool_calls=cfg.tool_call_limit)
+            audit = budget_audit                               # numbers-only sink built in bootstrap.py (the permission package is not imported here)
         orch = AgentOrchestrator(registry, tools=tools, max_concurrent=cfg.max_concurrent, default_timeout=cfg.task_timeout_seconds,
                                  max_queue=cfg.max_queue, max_history=cfg.max_history, cancel_grace=cfg.cancel_grace_seconds,
                                  tool_call_limit=cfg.tool_call_limit, max_output_chars=cfg.max_output_chars, task_manager=task_manager,
-                                 memory_lookup=lookup)
+                                 memory_lookup=lookup, artifacts=cfg.artifacts, agent_budgets=budgets, audit=audit)
         agents: list[Agent] = [_research_agent(settings, subsystems), BrowserAgent(), CodingAgent(interrupt=_interrupt_of(subsystems, "coding")), ComputerAgent(), FilesAgent()]
         if settings.business.enabled:
             from jarvis.business.agent import BusinessAgent
@@ -122,6 +129,9 @@ def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | 
                 agent.state.transition(AgentStatus.DISABLED, f"tool {', '.join(missing)} is not available (subsystem off)")
             elif agent.id == "files" and not any(t in tools for t in agent.tool_names):          # both of its optional tools are off: nothing to work with
                 agent.state.transition(AgentStatus.DISABLED, "neither the files nor the office tool is available (files.enabled / office.enabled are off)")
+        unknown = sorted(a for a in (budgets.agents if budgets is not None else ()) if not registry.has(a))
+        if unknown:                                                                       # fail closed: a budget that names no real agent is a configuration error
+            raise BudgetError(f"agent budget for unknown agent(s) {unknown}")
         atexit.register(orch.shutdown)
     except Exception as exc:  # noqa: BLE001 - whatever happens here, JARVIS still starts
         log.warning("multi-agent layer unavailable: %s", type(exc).__name__)

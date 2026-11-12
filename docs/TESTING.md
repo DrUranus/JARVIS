@@ -85,6 +85,9 @@ Die 38 Windows-Skips (Stand dc2d3d6, vor Phase 11): POSIX-Symlinks/-Skripte/-Mod
 
 Das ist ausdruecklich **kein** Windows-Nachweis: Windows-Nachweis ausstehend, bis `tests-windows` bzw. `tests.yml` fuer den Merge-Commit gruen ist. Eine volle Suite lief in dieser Sitzung nicht; die Zahlen der Tabelle oben stammen aus frueheren Laeufen auf den genannten Commits und wurden hier nicht neu erhoben (die Phase-11-Zeilen sind aelter als die Phasen History/Doctor/Memory-Suche/Barge-in).
 
+## Business-Finder (WP04)
+`tests/test_business_finder_units.py` (Aufgabenart `business_finder` des BusinessAgent: Rahmen/Kandidaten, Matrix, P1–P7, Risiko-Checkliste, Folgeaufgaben, Ergebnisgröße) und `tests/test_business_finder_goals.py` (Vorlage, Kette Research → Business → Auswertung, Planungsfehler, Berechtigung, Not-Aus/Abbruch). Fake-Browser/Fake-Daten, kein Netz, kein LLM. Regression: `tests/test_business_units.py`, `test_finance_units.py`, `test_analysis_*.py`, `test_goals_*.py`, `test_plan_eval.py` (Fingerabdrücke unverändert). Die Vorlagenmenge in `test_analysis_goals.py::test_every_template_is_registered_and_known` enthält jetzt `business_finder`.
+
 ## Umgebungsbefunde (nicht mit Codefehlern verwechseln)
 
 - Der Runner-Prozess laeuft selbst in einem Job Object (`LimitFlags 0x0`); die verschachtelte Zuweisung (Suspended-Start -> Job -> Resume) funktioniert dort.
@@ -136,3 +139,17 @@ kontrollierter Start/Stopp von `jarvis-cc` (nur Loopback, Seite antwortet, Port 
 ausser 127.0.0.1. Lokal: `python -m venv v && v/bin/pip install -e ".[dev]" && cd /tmp && /pfad/v/bin/python -I ci/fresh-install/smoke.py`.
 Der Windows-Lauf (Workflow `fresh-install.yml`, eigener Schutz-PR) ist der Windows-CI-Nachweis; er ersetzt keine interaktive Abnahme (#186).
 
+
+## V2-01 Quellenbewertung (Entwurf, nicht verdrahtet)
+
+`tests/test_research_credibility.py` prueft `src/jarvis/research/credibility.py`: reine, deterministische, erklaerbare Heuristik ohne Netzwerk/Datei/Prozess/Persistenz. Geprueft werden Wertebereich, Gruende je Signal,
+Robustheit gegen Fremdeingaben (wirft nie), Begrenzung, JSON-Tauglichkeit und dass kein Modul das Ergebnis aufruft. Das Ergebnis ist eine Heuristik und kein Wahrheitsbeweis. Plan: `docs/V2_ARCHITEKTUR.md`, `docs/V2_BACKLOG.md`.
+
+## V2-Qualitätssicherung (WP08/WP08b)
+Matrix, Gates G0–G10 und Befehle: `docs/V2_TESTPLAN.md`; Abnahme am Windows-PC: `docs/WINDOWS_V2_ABNAHME.md`. Kurzbefehle (aus dem Repository-Stamm):
+```
+python -m pytest -rfEs tests/test_<modul>_*.py                                                   # 1. direkt betroffene Tests
+python -m pytest -rfEs tests/test_*security*.py tests/test_emergency_stop.py tests/test_autonomy_invariants.py   # 2. Sicherheitsregression
+python -m pytest -rs > pytest.txt ; python tests/support/skip_report.py pytest.txt --platform linux --strict    # 3. Skip-Bericht gegen die Baseline
+```
+**Skip-Zahlen verstehen:** Die CI-PR-Läufe melden Linux 120 / Windows 46 Skips, die Baseline zählt Linux 119 / Windows 45 **plus höchstens einen Checkout-abhängigen Skip** (`kein origin/main in diesem Checkout`: PR-Checkouts sind flach und haben kein `origin/main`; dort wird `test_the_ui_tool_only_touches_computer_and_documentation_files` übersprungen). Lokale Läufe zeigen oft weniger (z. B. 93 auf Linux ohne `tkinter`, mit Playwright und mit `origin/main`) – Umgebungsunterschiede, keine geänderten Tests. Ein Skip gilt nie als bestanden.
