@@ -75,10 +75,12 @@ def test_unknown_reasons_fail_only_in_strict_mode():
 def test_the_baseline_file_is_valid_and_documents_its_sources():
     base = json.loads(BASELINE.read_text(encoding="utf-8"))
     assert base["schema"] == 1
-    assert base["windows"]["max_skipped"] == 46 and base["linux"]["max_skipped"] == 119
+    assert base["windows"]["max_skipped"] == 45 and base["linux"]["max_skipped"] == 119          # gezaehlte Skips; der Checkout-Skip steht separat (WP08b)
     assert all(base[p]["source"] for p in ("windows", "linux"))
     for entry in base["known_reasons"]:
-        assert set(entry) == {"pattern", "category"} and entry["category"] in sr.CATEGORIES
+        flagged = entry.get("checkout_dependent") is True
+        assert set(entry) == ({"pattern", "category", "checkout_dependent", "max"} if flagged else {"pattern", "category"}) and entry["category"] in sr.CATEGORIES
+        assert not flagged or ("origin/main" in entry["pattern"] and entry["max"] == 1)                       # nur dieser eine, begruendete Grund ist Checkout-abhaengig
     import re
     for entry in base["known_reasons"]:
         re.compile(entry["pattern"])                                              # jedes Muster ist gueltig
@@ -124,3 +126,40 @@ def test_the_tool_only_reads_text():
         elif isinstance(n, ast.ImportFrom) and n.module:
             mods.add(n.module.split(".")[0])
     assert not (mods & {"socket", "http", "urllib", "requests", "httpx", "subprocess", "shutil", "sqlite3", "threading", "asyncio"}), mods
+
+
+# ---- WP08b: ein Skip haengt vom Checkout ab (origin/main vorhanden oder nicht) -------------------------------------------------------------------
+CHECKOUT = "SKIPPED [1] tests/test_computer_uia_tools.py:384: kein origin/main in diesem Checkout\n"
+
+
+def _base(max_skipped: int) -> dict:
+    return {"linux": {"max_skipped": max_skipped}, "known_reasons": json.loads(BASELINE.read_text(encoding="utf-8"))["known_reasons"]}
+
+
+def test_the_origin_main_skip_is_reported_separately_and_does_not_hide_other_skips():
+    """In PR-Checkouts fehlt origin/main (der Test wird uebersprungen), in einem Checkout mit origin/main laeuft er: das ist die Differenz 119 <-> 120, kein neuer Skip."""
+    text = SAMPLE.replace("12 skipped", "13 skipped") + CHECKOUT
+    rep = sr.build_report(text, "linux", _base(12))
+    assert rep.total == 13 and rep.checkout_dependent == 1 and rep.counted == 12
+    assert rep.exit_code(strict=True) == 0 and not any("Baseline" in w for w in rep.warnings)
+    assert "checkout" in sr.format_report(rep).lower()
+
+
+def test_an_additional_unexplained_skip_still_fails_even_if_the_checkout_skip_is_present():
+    text = SAMPLE.replace("12 skipped", "14 skipped") + CHECKOUT + "SKIPPED [1] tests/test_x.py:3: POSIX symlink semantics\n"
+    rep = sr.build_report(text, "linux", _base(12))
+    assert rep.counted == 13 and rep.exit_code(strict=True) == 1
+
+
+def test_the_checkout_skip_may_appear_at_most_as_often_as_allowed():
+    text = SAMPLE.replace("12 skipped", "15 skipped") + CHECKOUT.replace("[1]", "[3]")
+    rep = sr.build_report(text, "linux", _base(12))
+    assert rep.checkout_dependent == 1 and rep.counted == 14 and rep.exit_code(strict=True) == 1          # der Rest zaehlt normal
+
+
+def test_the_baseline_separates_the_checkout_dependent_skip_from_the_counted_limits():
+    base = json.loads(BASELINE.read_text(encoding="utf-8"))
+    entry = next(e for e in base["known_reasons"] if "origin/main" in e["pattern"])
+    assert entry.get("checkout_dependent") is True and entry.get("max") == 1
+    assert base["linux"]["max_skipped"] == 119 and base["windows"]["max_skipped"] == 45         # gezaehlte Skips OHNE den Checkout-Skip (CI PR-Laeufe: 120 bzw. 46 gesamt)
+    assert "origin/main" in (base["linux"]["source"] + base["windows"]["source"])

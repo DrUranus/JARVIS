@@ -39,20 +39,27 @@ class Report:
     by_category: dict[str, int] = field(default_factory=dict)
     unknown_reasons: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    checkout_dependent: int = 0          # Skips, die nur vom Checkout abhaengen (z. B. fehlt origin/main in PR-Checkouts); je Grund hoechstens `max`, nicht in `counted`
 
     @property
     def total(self) -> int:
         return sum(i.count for i in self.items)
 
+    @property
+    def counted(self) -> int:
+        """Die Skips, die gegen die Baseline-Obergrenze zaehlen (gesamt minus der erlaubten Checkout-abhaengigen)."""
+        return self.total - self.checkout_dependent
+
     def exit_code(self, strict: bool = False) -> int:
-        if self.baseline_max is not None and self.total > self.baseline_max:
+        if self.baseline_max is not None and self.counted > self.baseline_max:
             return 1
         if strict and self.unknown_reasons:
             return 2
         return 0
 
     def as_dict(self) -> dict[str, Any]:
-        return {"platform": self.platform, "total": self.total, "baseline_max": self.baseline_max, "by_category": self.by_category,
+        return {"platform": self.platform, "total": self.total, "counted": self.counted, "checkout_dependent": self.checkout_dependent,
+                "baseline_max": self.baseline_max, "by_category": self.by_category,
                 "unknown_reasons": self.unknown_reasons, "warnings": self.warnings}
 
 
@@ -79,14 +86,19 @@ def summary_counts(text: str) -> tuple[int, int] | None:
     return None
 
 
-def _categorize(reason: str, known: Sequence[Mapping[str, str]]) -> str | None:
+def _match(reason: str, known: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None:
     for entry in known:
         try:
             if re.search(entry["pattern"], reason, re.IGNORECASE):
-                return entry["category"]
+                return entry
         except (re.error, KeyError, TypeError):
             continue
     return None
+
+
+def _categorize(reason: str, known: Sequence[Mapping[str, Any]]) -> str | None:
+    entry = _match(reason, known)
+    return entry["category"] if entry is not None and "category" in entry else None
 
 
 def build_report(text: str, platform: str, baseline: Mapping[str, Any]) -> Report:
@@ -98,7 +110,14 @@ def build_report(text: str, platform: str, baseline: Mapping[str, Any]) -> Repor
     rep.items = parse(text)
     cats: Counter[str] = Counter()
     unknown: list[str] = []
+    allowance: dict[str, int] = {}               # Checkout-abhaengige Gruende: noch erlaubte Anzahl je Muster
     for item in rep.items:
+        entry = _match(item.reason, known)
+        if entry is not None and entry.get("checkout_dependent") is True:
+            left = allowance.setdefault(entry["pattern"], entry["max"] if isinstance(entry.get("max"), int) and entry["max"] >= 0 else 0)
+            used = min(item.count, left)
+            allowance[entry["pattern"]] = left - used
+            rep.checkout_dependent += used
         cat = _categorize(item.reason, known)
         if cat is None:
             cat = "unbekannt"
@@ -107,8 +126,8 @@ def build_report(text: str, platform: str, baseline: Mapping[str, Any]) -> Repor
         cats[cat] += item.count
     rep.by_category = dict(cats)
     rep.unknown_reasons = unknown
-    if rep.baseline_max is not None and rep.total > rep.baseline_max:
-        rep.warnings.append(f"{rep.total} Skips sind mehr als die Baseline-Obergrenze {rep.baseline_max} ({platform}); jeden neuen Skip begruenden")
+    if rep.baseline_max is not None and rep.counted > rep.baseline_max:
+        rep.warnings.append(f"{rep.counted} gezaehlte Skips sind mehr als die Baseline-Obergrenze {rep.baseline_max} ({platform}); jeden neuen Skip begruenden")
     counts = summary_counts(text)
     if counts is not None and counts[1] != rep.total:
         rep.warnings.append(f"Summenzeile nennt {counts[1]} Skips, die Liste ergibt {rep.total} (fehlt '-rs' oder ist die Ausgabe gekuerzt?)")
@@ -119,6 +138,8 @@ def build_report(text: str, platform: str, baseline: Mapping[str, Any]) -> Repor
 
 def format_report(rep: Report) -> str:
     lines = [f"Skip-Bericht ({rep.platform})", f"Uebersprungen gesamt: {rep.total}" + (f" (Baseline-Obergrenze {rep.baseline_max})" if rep.baseline_max is not None else "")]
+    if rep.checkout_dependent:
+        lines.append(f"  davon {rep.checkout_dependent} vom Checkout abhaengig (z. B. fehlt origin/main in PR-Checkouts) und nicht gegen die Obergrenze gezaehlt; gezaehlt: {rep.counted}")
     for cat in CATEGORIES:
         if rep.by_category.get(cat):
             lines.append(f"  {rep.by_category[cat]:4d}  {cat}")

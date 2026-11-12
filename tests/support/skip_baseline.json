@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Baseline fuer tests/support/skip_report.py. 'max_skipped' ist eine OBERGRENZE: mehr Skips als hier = Fehler. Ein Skip gilt nie als bestanden. Aenderungen nur bewusst, mit Begruendung im PR.",
-  "windows": {"max_skipped": 46, "source": "GitHub-Lauf 42987707150 (tests-windows, PR #229, 2026-11-11): 5270 bestanden, 46 uebersprungen; V1-Referenz main 7cc65b0: 45"},
-  "linux": {"max_skipped": 119, "source": "V1-Referenz main 7cc65b0 (tests-linux, Ubuntu): 5174 bestanden, 119 uebersprungen; Gruende dieser 119 sind nicht einzeln erfasst"},
+  "windows": {"max_skipped": 45, "source": "GEZAEHLTE Skips ohne den Checkout-Skip (origin/main): GitHub-Lauf 42987707150 (tests-windows, PR #229, 2026-11-11) 46 gesamt = 45 + 1 Checkout-Skip; V1-Referenz main 7cc65b0: 45"},
+  "linux": {"max_skipped": 119, "source": "GEZAEHLTE Skips ohne den Checkout-Skip (origin/main): V1-Referenz main 7cc65b0 (tests-linux, Ubuntu) 119 mit vorhandenem origin/main; PR-Laeufe (Merge-Checkout ohne origin/main) zeigen 120 = 119 + 1 Checkout-Skip (Laeufe 43074487872, 43085493928, 43178237580); Gruende der 119 sind nicht einzeln erfasst"},
   "known_reasons": [
     {"pattern": "JARVIS_NATIVE_GUI=1 fehlt", "category": "interaktiv (nur PC-Abnahme #186/G9)"},
     {"pattern": "link creation needs a privilege on Windows", "category": "bekannte Luecke (Windows-Nachweis fehlt)"},
@@ -12,7 +12,7 @@
     {"pattern": "could not import 'trafilatura'", "category": "optionale Bibliothek fehlt"},
     {"pattern": "playwright fehlt", "category": "optionale Bibliothek fehlt"},
     {"pattern": "could not import 'tkinter'", "category": "Umgebung"},
-    {"pattern": "kein origin/main in diesem Checkout", "category": "Umgebung"},
+    {"pattern": "kein origin/main in diesem Checkout", "category": "Umgebung", "checkout_dependent": true, "max": 1},
     {"pattern": "JARVIS_TEST_PUBLIC_WEB", "category": "Netzwerk/extern noetig"},
     {"pattern": "NTFS junctions", "category": "plattformbedingt"},
     {"pattern": "Windows path", "category": "plattformbedingt"},
