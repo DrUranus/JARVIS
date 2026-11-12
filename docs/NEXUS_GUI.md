@@ -24,6 +24,9 @@ jarvis-cc --overlay --overlay-on-top  # optionales Mini-Overlay (140x140, versch
 ```
 Kürzer: `jarvis-cc -c config\nexus.example.toml --open` (Beispielkonfiguration, ändert keine Sicherheitseinstellung; Computer/Browser/Coding/Mikrofon bleiben aus). Ohne diese Einstellungen bricht der Befehl mit Fehlercode 2 ab und es lauscht nichts. Der Server haengt nur an `127.0.0.1` (Token, Host- und Origin-Pruefung, strenge CSP).
 
+## Ansichten Agenten und Werkzeugaufrufe (WP07a)
+`GET /view/agents` und `GET /view/trace` sind zwei weitere nur lesende Ansichten (Details und Grenzen: `docs/UI_CONTRACT.md`). Sie sind die Datengrundlage der geplanten Aufgaben-Timeline (WP07b) und des Freigabe-Panels (WP07c); die Oberfläche ruft sie in WP07a noch nicht auf. Die Premium-V2-Gestaltung bleibt unverändert (keine neue UI-Bibliothek, kein Three.js).
+
 ## Oberflaeche
 - **Orb-Modus (Start):** violett-blaue Kugel mit Tiefe (Nebel, Laengen-/Breitenkreise, Randlicht, Glanz), Ringen, Energieteilchen und Staub. Der Zustand steht als Chip und in der Kopfzeile.
 - **Dashboard:** Agenten und Systemstatus links, Kugel, Gespraech und Ereignisse in der Mitte, Aufgaben, Details, Ergebnisse, Journal, Audit und Rueckfrage rechts.
