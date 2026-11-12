@@ -38,8 +38,10 @@ class ResearchAgent(Agent):
     tool_names = frozenset({"browser"})
 
     def __init__(self, limits: ResearchLimits | None = None, *, private_hosts_allowed: tuple[str, ...] = (), monotonic: Callable[[], float] = time.monotonic,
-                 detector: SecretDetector | None = None, search_source: Callable[[], Any] | None = None) -> None:
+                 detector: SecretDetector | None = None, search_source: Callable[[], Any] | None = None, artifacts: bool = False) -> None:
         super().__init__()
+        self._artifacts = bool(artifacts)                    # E5 (agents.artifacts): hand the result over as a typed `research_data` artifact IN ADDITION to the output
+        self.produces = frozenset({"research_data"}) if self._artifacts else frozenset()
         self._search_source = search_source                    # late lookup of the opt-in search subsystem (it is built after the agents)
         self.limits = limits or ResearchLimits()
         self._private_ok = tuple(private_hosts_allowed)
@@ -73,7 +75,8 @@ class ResearchAgent(Agent):
         run = _Run(self, plan, ctx, gw)
         try:
             outcome = run.read_all()
-            return self._with_answer(str(query), outcome, search_info) if search_info else outcome
+            outcome = self._with_answer(str(query), outcome, search_info) if search_info else outcome
+            return self._with_artifact(task, outcome) if self._artifacts else outcome
         except TaskCancelled:
             return AgentOutcome.cancelled()
         except ToolAccessError as exc:
@@ -81,6 +84,19 @@ class ResearchAgent(Agent):
         finally:
             run.cleanup()
 
+
+    def _with_artifact(self, task: AgentTask, outcome: AgentOutcome) -> AgentOutcome:
+        """E5: adds ONE `research_data` artifact (the structured fields only) to a successful result; the output itself stays unchanged. Any problem -> outcome as it was."""
+        out = outcome.output
+        if not isinstance(out, dict) or out.get("kind") != "research_result" or "artifacts" in out:
+            return outcome
+        try:
+            from jarvis.agents.artifacts import make_artifact, to_dict
+            data = {k: out[k] for k in ("sources", "figures", "claims", "conflicts", "uncertainties") if k in out}
+            artifact = make_artifact("research_data", data, source_agent=self.id, source_task=task.task_id, detector=self._detector)
+            return AgentOutcome(outcome.status, outcome.summary, {**out, "artifacts": [to_dict(artifact)]}, outcome.error, outcome.error_code)
+        except Exception:  # noqa: BLE001 - the artifact is an optional addition, never a reason to fail
+            return outcome
 
     # ---- web search (opt-in): question -> search text -> candidate pages; the pages are then read like any given URL -------------------------------
     def _find_sources(self, task: AgentTask, query: Any, data: dict[str, Any]) -> "tuple[list[str], dict[str, Any]] | AgentOutcome":

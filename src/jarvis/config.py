@@ -174,6 +174,7 @@ class AgentsSettings:
     cancel_grace_seconds: float = 5.0  # an agent that ignores cancel/timeout this long is marked FAILED
     tool_call_limit: int = 200         # tool calls per task
     max_output_chars: int = 20_000     # size of a stored task output
+    artifacts: bool = False            # E5: typed hand-over artifacts IN ADDITION to the unchanged output (research -> business). OFF: results are byte-identical
     router: AgentRouterSettings = field(default_factory=AgentRouterSettings)
 
 

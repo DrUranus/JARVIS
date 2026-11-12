@@ -17,11 +17,12 @@ import logging
 import threading
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from typing import Any, Callable, Protocol, Sequence
+from typing import Mapping, Any, Callable, Protocol, Sequence
 
 from jarvis.agents.agent import Agent
 from jarvis.agents.context import AgentContext, ParentResult, ToolGateway
 from jarvis.agents.errors import DuplicateError, InvalidTaskError, TaskCancelled, ToolAccessError, UnknownAgentError
+from jarvis.agents.artifacts import KINDS, accept, to_dict
 from jarvis.agents.models import AgentTask
 from jarvis.agents.registry import AgentRegistry
 from jarvis.agents.result import AgentOutcome, AgentResult
@@ -107,7 +108,7 @@ class AgentOrchestrator:
                  max_queue: int = 50, max_history: int = 200, cancel_grace: float = 5.0, tool_call_limit: int = 200,
                  max_output_chars: int = 20_000, task_manager: TaskManager | None = None, memory_lookup: MemoryLookup | None = None,
                  clock: Clock | None = None, scheduler: Scheduler | None = None, executor: Executor | None = None,
-                 detector: SecretDetector | None = None) -> None:
+                 detector: SecretDetector | None = None, artifacts: bool = False) -> None:
         if max_concurrent < 1 or default_timeout <= 0 or max_queue < 1 or max_history < 1 or cancel_grace < 0:
             raise InvalidTaskError("orchestrator limits must be positive")
         self.registry = registry
@@ -120,6 +121,7 @@ class AgentOrchestrator:
         self._scheduler: Scheduler = scheduler or ThreadScheduler()
         self._executor: Executor = executor or ThreadExecutor()
         self._detector = detector or SecretDetector.from_environment()
+        self._artifacts = bool(artifacts)           # E5 (agents.artifacts, OFF by default): typed artifacts next to the unchanged output
         self._lock = threading.RLock()
         self._cond = threading.Condition(self._lock)
         self._records: dict[str, _Rec] = {}
@@ -352,12 +354,51 @@ class AgentOrchestrator:
         check_task_transition(rec.status, status)
         self._cancel_timers(rec, grace=False)
         red = self._detector.redact
+        if self._artifacts and status is TaskStatus.SUCCEEDED:
+            output = self._check_artifacts(rec, output)
         out = self._limit_output(self._redact_data(output))
         rec.result = AgentResult(rec.task.task_id, rec.agent_id, status, red(summary or "")[:2000], out,
                                  red(error)[:2000] if error else None, code, rec.result.started_at, self._clock.now())
         self._mirror_final(rec)
         self._cond.notify_all()
         log.info("agent task %s -> %s%s", rec.task.task_id, status.value, f" ({code})" if code else "")
+
+    def _check_artifacts(self, rec: _Rec, output: Any) -> Any:
+        """E5: validates the optional `artifacts` block of a SUCCESSFUL result (declared kinds only, hash, size, reserved keys, plain relative file_refs). Invalid ones are
+        dropped and reported as `artifact_rejections` (index, code, kind - never content); the task and the rest of the output stay as they are. An artifact never grants a
+        right or changes a plan: it is data. If the block would push the stored output over the limit it is dropped, so the existing output is never truncated because of it."""
+        if not isinstance(output, dict) or "artifacts" not in output:
+            return output
+        raw = output["artifacts"]
+        try:
+            declared = getattr(self.registry.get(rec.agent_id), "produces", frozenset()) if rec.agent_id else frozenset()
+        except Exception:  # noqa: BLE001 - an unknown agent declares nothing
+            declared = frozenset()
+        if not isinstance(raw, (list, tuple)):
+            kept: list[dict[str, Any]] = []
+            rejections = [{"index": 0, "code": "artifact_invalid"}]
+        else:
+            res = accept(raw, declared, detector=self._detector)
+            kept = [to_dict(a) for a in res.accepted]
+            rejections = [{"index": r.index, "code": r.code, **({"kind": raw[r.index].get("kind")}
+                           if isinstance(raw[r.index], Mapping) and raw[r.index].get("kind") in KINDS else {})} for r in res.rejected]
+        base = {k: v for k, v in output.items() if k != "artifacts"}
+        full = {**base, "artifacts": kept, **({"artifact_rejections": rejections} if rejections else {})}
+        def fits(v: Any) -> bool:
+            return self._size(self._redact_data(v)) <= self.max_output_chars
+        if fits(full):
+            return full
+        if not fits(base):
+            return base                                    # the plain output alone already exceeds the limit: exactly the old behaviour
+        dropped = {**base, "artifacts": [], "artifact_rejections": [*rejections, {"index": 0, "code": "output_too_large"}]}
+        return dropped if fits(dropped) else base
+
+    @staticmethod
+    def _size(value: Any) -> int:
+        try:
+            return len(json.dumps(value))
+        except (TypeError, ValueError):
+            return 0
 
     def _redact_data(self, value: Any) -> Any:
         if isinstance(value, str):
