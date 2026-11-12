@@ -23,6 +23,7 @@ from jarvis.agents.agent import Agent
 from jarvis.agents.context import AgentContext, ParentResult, ToolGateway
 from jarvis.agents.errors import DuplicateError, InvalidTaskError, TaskCancelled, ToolAccessError, UnknownAgentError
 from jarvis.agents.artifacts import KINDS, accept, to_dict
+from jarvis.agent_budgets import AgentBudget, AgentBudgets
 from jarvis.agents.models import AgentTask
 from jarvis.agents.registry import AgentRegistry
 from jarvis.agents.result import AgentOutcome, AgentResult
@@ -89,6 +90,9 @@ class _Rec:
     timer: TimerHandle | None = None
     grace_timer: TimerHandle | None = None
     core_task: Task | None = None
+    agent_budget: AgentBudget | None = None        # WP02b: resolved at admission (None = the agent has no budget)
+    time_budget: bool = False                # the running timer is the agent's time budget (stricter than the task timeout)
+    gateway: Any = None
 
     @property
     def status(self) -> TaskStatus:
@@ -108,7 +112,8 @@ class AgentOrchestrator:
                  max_queue: int = 50, max_history: int = 200, cancel_grace: float = 5.0, tool_call_limit: int = 200,
                  max_output_chars: int = 20_000, task_manager: TaskManager | None = None, memory_lookup: MemoryLookup | None = None,
                  clock: Clock | None = None, scheduler: Scheduler | None = None, executor: Executor | None = None,
-                 detector: SecretDetector | None = None, artifacts: bool = False) -> None:
+                 detector: SecretDetector | None = None, artifacts: bool = False, agent_budgets: AgentBudgets | None = None,
+                 audit: Callable[[dict[str, Any]], Any] | None = None) -> None:
         if max_concurrent < 1 or default_timeout <= 0 or max_queue < 1 or max_history < 1 or cancel_grace < 0:
             raise InvalidTaskError("orchestrator limits must be positive")
         self.registry = registry
@@ -121,6 +126,9 @@ class AgentOrchestrator:
         self._scheduler: Scheduler = scheduler or ThreadScheduler()
         self._executor: Executor = executor or ThreadExecutor()
         self._detector = detector or SecretDetector.from_environment()
+        self._budgets = agent_budgets              # WP02b (agents.agent_budgets_enabled, OFF by default): budgets per agent, only ever lowering the global limits
+        self._audit = audit                        # numbers-only sink for the first exhaustion of an agent's budget (no objectives, inputs or results)
+        self._audited: set[str] = set()
         self._artifacts = bool(artifacts)           # E5 (agents.artifacts, OFF by default): typed artifacts next to the unchanged output
         self._lock = threading.RLock()
         self._cond = threading.Condition(self._lock)
@@ -204,6 +212,11 @@ class AgentOrchestrator:
             agent = next((a for a in found if a.status is AgentStatus.AVAILABLE), found[0])
         rec.agent_id = agent.id
         rec.result = replace(rec.result, agent_id=agent.id)
+        if self._budgets is not None:
+            try:
+                rec.agent_budget = self._budgets.get(agent.id)
+            except Exception:  # noqa: BLE001 - fail closed: a budget that cannot be read is not "no budget"
+                return "agent_budget_unavailable", f"the budget of agent {agent.id!r} could not be read; the task was not run"
         missing = task.required_capabilities - agent.capabilities
         if missing:
             return "capability_missing", f"agent {agent.id!r} does not offer {sorted(missing)}"
@@ -275,6 +288,8 @@ class AgentOrchestrator:
         self._running += 1
         self.peak_running = max(self.peak_running, self._running)
         timeout = task.timeout if task.timeout is not None else self.default_timeout
+        if rec.agent_budget is not None and rec.agent_budget.max_seconds is not None and rec.agent_budget.max_seconds < timeout:
+            timeout, rec.time_budget = rec.agent_budget.max_seconds, True          # the agent's time budget is the stricter limit
         rec.timer = self._scheduler.call_later(timeout, lambda: self._on_timeout(task.task_id, timeout))
         self._mirror_running(rec)
         try:
@@ -303,7 +318,14 @@ class AgentOrchestrator:
             except Exception:  # noqa: BLE001 - memory trouble never blocks a task
                 memory = ()
         allowed = task.required_capabilities or frozenset(agent.capabilities)
-        gateway = ToolGateway(self._tools, agent.tool_names, rec.cancel_event, self.tool_call_limit)
+        budget = rec.agent_budget
+        budget_calls = budget.max_tool_calls if budget is not None and budget.max_tool_calls is not None and budget.max_tool_calls < self.tool_call_limit else None
+        reserve = None
+        if budget is not None and budget.max_calls_session is not None and self._budgets is not None:
+            budgets, agent_id, cap = self._budgets, agent.id, budget.max_calls_session
+            reserve = lambda: budgets.reserve_call(agent_id, cap)  # noqa: E731
+        gateway = ToolGateway(self._tools, agent.tool_names, rec.cancel_event, self.tool_call_limit, budget_calls=budget_calls, reserve=reserve)
+        rec.gateway = gateway
         return AgentContext(task.task_id, task.objective, copy.deepcopy(dict(task.input)), allowed, memory, parents, dict(task.metadata),
                             gateway, rec.cancel_event)
 
@@ -335,7 +357,12 @@ class AgentOrchestrator:
                 status = outcome.status
                 if rec.cancel_requested and status is not TaskStatus.SUCCEEDED:
                     status = TaskStatus.CANCELLED
-                self._finalize(rec, status, outcome.summary, outcome.output, outcome.error, outcome.error_code)
+                hit = getattr(rec.gateway, "budget_hit", None)
+                if hit is not None and status in (TaskStatus.FAILED, TaskStatus.BLOCKED):          # the agent budget stopped it: whatever the agent made of the refusal
+                    self._note_budget(rec, hit)
+                    self._finalize(rec, TaskStatus.BLOCKED, f"agent_budget_exceeded: {hit}", None, f"agent_budget_exceeded: the agent budget ({hit}) is used up", "agent_budget_exceeded")
+                else:
+                    self._finalize(rec, status, outcome.summary, outcome.output, outcome.error, outcome.error_code)
         else:
             log.info("agent task %s: late result discarded (task is already %s)", rec.task.task_id, rec.status.value)
         st = agent.status
@@ -363,6 +390,22 @@ class AgentOrchestrator:
         self._cond.notify_all()
         log.info("agent task %s -> %s%s", rec.task.task_id, status.value, f" ({code})" if code else "")
 
+    def _note_budget(self, rec: _Rec, limit: str, *, used: Any = None, maximum: Any = None) -> None:
+        """First exhaustion of an agent's budget -> ONE numbers-only audit event (agent, limit kind, used, max, task id). No objective, input, result or artifact text."""
+        agent = rec.agent_id or ""
+        if self._audit is None or agent in self._audited:
+            return
+        self._audited.add(agent)
+        b = rec.agent_budget
+        if used is None:
+            used = getattr(rec.gateway, "calls", 0)
+        if maximum is None:
+            maximum = (b.max_calls_session if limit == "session_calls" else b.max_tool_calls) if b is not None else 0
+        try:
+            self._audit({"agent": agent, "limit": limit if limit != "seconds" else "seconds", "used": used, "max": maximum, "task_id": rec.task.task_id})
+        except Exception:  # noqa: BLE001 - a failing sink never turns a block into a run
+            log.warning("agent budget audit sink failed")
+
     def _check_artifacts(self, rec: _Rec, output: Any) -> Any:
         """E5: validates the optional `artifacts` block of a SUCCESSFUL result (declared kinds only, hash, size, reserved keys, plain relative file_refs). Invalid ones are
         dropped and reported as `artifact_rejections` (index, code, kind - never content); the task and the rest of the output stay as they are. An artifact never grants a
@@ -379,9 +422,18 @@ class AgentOrchestrator:
             rejections = [{"index": 0, "code": "artifact_invalid"}]
         else:
             res = accept(raw, declared, detector=self._detector)
-            kept = [to_dict(a) for a in res.accepted]
-            rejections = [{"index": r.index, "code": r.code, **({"kind": raw[r.index].get("kind")}
-                           if isinstance(raw[r.index], Mapping) and raw[r.index].get("kind") in KINDS else {})} for r in res.rejected]
+            rejected_at = {r.index for r in res.rejected}
+            accepted_at = [i for i in range(len(raw)) if i not in rejected_at]
+            cap = rec.agent_budget.max_artifact_chars if rec.agent_budget is not None else None
+            kept = []
+            over: list[dict[str, Any]] = []
+            for i, a in zip(accepted_at, res.accepted):
+                if cap is not None and a.length > cap:                       # WP02b: the agent's artifact size budget (can only lower the global limits)
+                    over.append({"index": i, "code": "agent_budget_exceeded", "kind": a.kind})
+                else:
+                    kept.append(to_dict(a))
+            rejections = sorted([{"index": r.index, "code": r.code, **({"kind": raw[r.index].get("kind")}
+                                  if isinstance(raw[r.index], Mapping) and raw[r.index].get("kind") in KINDS else {})} for r in res.rejected] + over, key=lambda r: r["index"])
         base = {k: v for k, v in output.items() if k != "artifacts"}
         full = {**base, "artifacts": kept, **({"artifact_rejections": rejections} if rejections else {})}
         def fits(v: Any) -> bool:
@@ -440,7 +492,12 @@ class AgentOrchestrator:
             rec.timed_out = True
             rec.cancel_event.set()
             agent = self.registry.get(rec.agent_id) if rec.agent_id and self.registry.has(rec.agent_id) else None
-            self._finalize(rec, TaskStatus.FAILED, "timeout", {"still_running": True}, f"the task did not finish within {timeout:g} seconds", "timeout")
+            if rec.time_budget:
+                self._note_budget(rec, "seconds", used=timeout, maximum=timeout)
+                self._finalize(rec, TaskStatus.BLOCKED, "agent_budget_exceeded: seconds", {"still_running": True},
+                               f"agent_budget_exceeded: the agent time budget of {timeout:g} seconds is used up", "agent_budget_exceeded")
+            else:
+                self._finalize(rec, TaskStatus.FAILED, "timeout", {"still_running": True}, f"the task did not finish within {timeout:g} seconds", "timeout")
             rec.grace_timer = self._scheduler.call_later(self.cancel_grace, lambda: self._on_grace(task_id))
         self._tell_agent(agent, task_id)
 

@@ -53,7 +53,7 @@ def build_core(settings: Settings) -> JarvisCore:
     core.subsystems["office"] = build_office(settings, tools, permissions, baseline_rules=office_baseline_rules())
     # Multi-agent orchestration sits ABOVE those subsystems: agents only use their tools through the registry (and so the permission engine).
     from jarvis.agents.factory import build_agents
-    core.subsystems["agents"] = build_agents(settings, tools, memory, core.tasks, core.subsystems)
+    core.subsystems["agents"] = build_agents(settings, tools, memory, core.tasks, core.subsystems, budget_audit=agent_budget_audit(permissions.audit))
     # Assistant (assistant-e2e, off by default): the agent router decides per goal step. It only SELECTS (rules; no LLM call); decisions become `routing`
     # events and audit entries. Without assistant.enabled and agents.router.enabled the goal layer uses the AgentPlanner exactly as before.
     from jarvis.interface.assistant import RoutingSink
@@ -103,6 +103,17 @@ def build_core(settings: Settings) -> JarvisCore:
         permissions.set_confirmation_provider(assistant_ui.confirmation_provider, source="assistant")
     register_emergency_components(core)
     return core
+
+
+def agent_budget_audit(logger) -> Callable[[dict], bool]:
+    """Adapter: the first exhaustion of an agent budget (numbers only) -> one `budget_exhausted` event in the existing audit log (tool="agent"). Never prompts, inputs or results."""
+    from jarvis.permissions.audit import AuditEvent, AuditEventType
+
+    def record(meta) -> bool:
+        m = dict(meta)
+        return logger.record(AuditEvent(AuditEventType.BUDGET_EXHAUSTED, tool="agent", action=str(m.pop("agent", "")), status="blocked", detail=f"agent budget exhausted: {m.get('limit')}",
+                                        extra={k: str(v) for k, v in m.items()}))
+    return record
 
 
 def _routed_agents(settings: Settings, agents: Any, sink: Callable[[str, dict], Any], audit: Any) -> Any:
