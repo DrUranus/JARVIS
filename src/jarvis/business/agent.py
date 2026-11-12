@@ -15,9 +15,11 @@ from urllib.parse import urlsplit
 from jarvis.agents import policy as AP
 from jarvis.agents.agent import Agent
 from jarvis.agents.context import AgentContext
+from jarvis.agents.errors import TaskCancelled
 from jarvis.agents.models import AgentTask
 from jarvis.agents.result import AgentOutcome
 from jarvis.business import calc as K
+from jarvis.business import finder as F
 from jarvis.business.errors import InvalidBusinessInput
 from jarvis.business.models import Assumption, Basis, BusinessResult, Competitor, Entry, clip, number
 from jarvis.research.analysis import label_key
@@ -33,7 +35,7 @@ def site_of(url: object) -> str:
         return ""
 
 
-KINDS = ("market_analysis", "competitor_analysis", "business_plan", "business_analysis", "marketing_draft", "lead_list")
+KINDS = ("market_analysis", "competitor_analysis", "business_plan", "business_analysis", "marketing_draft", "lead_list", "business_finder")
 EXTERNAL_KINDS = frozenset({"send", "send_email", "email", "message", "send_message", "dm", "outreach", "cold_outreach", "contact", "offer", "send_offer",
                             "contract", "order", "purchase", "payment", "post", "publish"})
 MARKET_WORDS = ("markt", "market", "marktvolumen", "marktgröße", "market size", "umsatz")
@@ -66,7 +68,10 @@ class BusinessAgent(Agent):
         deadline = self._mono() + self.timeout
         research = collect(ctx.parent_results, data.get("research"))
         try:
-            result = getattr(self, "_" + kind)(task.objective, data, research)
+            result = (self._business_finder(task.objective, data, research, ctx) if kind == "business_finder"
+                      else getattr(self, "_" + kind)(task.objective, data, research))
+        except TaskCancelled:
+            return AgentOutcome.cancelled()
         except InvalidBusinessInput as exc:
             return AgentOutcome.failed(str(exc), code="invalid_input")
         if self._mono() > deadline:
@@ -340,3 +345,56 @@ class BusinessAgent(Agent):
         return BusinessResult(objective, "lead_list", f"{len(leads)} public business page(s) listed" if leads else "no leads: no research data",
                               (Entry(notes, Basis.FACT),), {}, (), (), (), (), (), self._sources(research), self._confidence(research), {}, {"leads": leads, "outreach": "NOT SENT"},
                               () if leads else ("no research data",))
+
+    def _business_finder(self, objective: str, data: Mapping[str, Any], research: ResearchData, ctx: AgentContext) -> BusinessResult:
+        """Compare the owner's business candidates (see business/finder.py for the rules and their limits). Draft only: nothing is sent, ordered, published or stored."""
+        frame, candidates = F.parse_input(data)
+        helpers = {"competitors": lambda rd: self._competitors_from({}, rd), "overview": self._price_overview, "market": lambda rd: self._market_data(rd)}
+        rep = F.build_report(frame, candidates, research, helpers, ctx.check_cancelled)
+        rep, level = F.fit(rep, lambda r, lv: len(json.dumps(self._finder_result(objective, frame, r, research, lv).to_dict(10**9))))
+        return self._finder_result(objective, frame, rep, research, level)
+
+    def _finder_result(self, objective: str, frame: F.Frame, rep: dict[str, Any], research: ResearchData, level: int) -> BusinessResult:
+        rows = rep["candidates"]
+        lean = level >= 3
+        tiny = level >= 5
+        micro = level >= 7
+        unknowns: list[str] = ["legal requirements: not checked, no legal advice"]
+        findings: list[Entry] = []
+        risks: list[Entry] = []
+        assumptions: list[Assumption] = [Assumption(k, v, Basis.GIVEN, "frame, stated by the owner") for k, v in (("hours_per_week", frame.hours_per_week),
+                                                                                                                  ("start_budget_limit", frame.start_budget_limit)) if v is not None]
+        for r in rows:
+            m = r["matrix"]
+            nm = clip(r["name"], 30 if tiny else 80)
+            score = "no overall score" if m["score"] is None else f"score {m['score']:.2f}/5"
+            findings.append(Entry((f"{nm}: {score}, coverage {m['coverage']:.0%} (evidence {m['evidence_coverage']:.0%}), sources: {r['source_support']}"
+                                   + ("" if m["ranked"] else ", not ranked"))[: 60 if micro else 90 if tiny else 300], Basis.INFERENCE, () if lean else tuple(r.get("sources", [])[:2])))
+            for p in r["plausibility"]:
+                if p["status"] in ("warning", "violation"):
+                    risks.append(Entry(f"{nm} {p['rule']}: {clip(p.get('text', ''), 140)}", Basis.INFERENCE))
+            assumptions += [Assumption(f"{nm}.{a['name']}", a["value"], Basis(a["basis"]), a["note"]) for a in r.get("assumptions", []) if a["basis"] == "ESTIMATE"]
+            if r["source_support"] != "full":
+                unknowns.append(f"{nm}: source support {r['source_support']}" + (f" ({len(r.get('unread_sources', []))} source(s) not read)" if r.get("unread_sources") else " - no source read"))
+            for key in ("break_even", "payback"):
+                if r[key].get("status") == "UNKNOWN":
+                    unknowns.append(f"{nm}: {key} - {r[key].get('reason', '')}"[:160])
+            if m["unknown"]:
+                unknowns.append(f"{nm}: criteria without a rating: {', '.join(m['unknown'])}")
+        ranking = " > ".join(clip(n, 30 if tiny else 80) for n in rep["ranking"]) or "none"
+        recs = tuple(Entry(f"{t['candidate']}: {t['text']} ({t['agent']}, needs your approval)", Basis.INFERENCE) for t in rep["follow_up_tasks"] if t["status"] == "proposed")
+        caps = (8, 10, 3, 12) if level < 3 else (4, 4, 2, 6) if level < 5 else (3, 2, 1, 4) if level < 7 else (2, 0, 0, 3)
+        market = {} if level >= 1 else {"per_candidate": {r["name"]: r.get("market", {}) for r in rows}}
+        sources = tuple({k: clip(str(v), 120) for k, v in src.items()} for src in self._sources(research)[: 5 if level < 3 else 3 if level < 5 else 2 if level < 7 else 1])
+        return BusinessResult(objective, "business_finder", f"business finder DRAFT: {len(rows)} candidate(s), ranking: {ranking}; {len(unknowns)} gap(s) UNKNOWN; "
+                              "no forecast, no income promise", tuple(findings), market, (), (), self._capped(risks, caps[0], lambda k: Entry(f"... {k} further warning(s)/gap(s): see drafts.business_finder.candidates", Basis.INFERENCE)),
+                              tuple(assumptions[: caps[1]]), recs[: caps[2]], sources, self._confidence(research, len(unknowns)), {},
+                              {"status": "DRAFT - nothing was published or sent", "disclaimer": F.DISCLAIMER, "business_finder": rep},
+                              self._capped(unknowns, caps[3], lambda k: f"... {k} further gap(s) UNKNOWN: see drafts.business_finder.candidates"), rep["truncated"])
+
+    @staticmethod
+    def _capped(items: list[Any], limit: int, marker: Callable[[int], Any]) -> tuple[Any, ...]:
+        """At most `limit` entries; what is left out is counted in a last entry (nothing disappears silently)."""
+        if len(items) <= limit:
+            return tuple(items)
+        return tuple(items[: max(0, limit - 1)]) + (marker(len(items) - max(0, limit - 1)),)
