@@ -143,6 +143,31 @@ def recording_guard(core: JarvisCore) -> Callable[[], str | None]:
     return guard
 
 
+def speech_guard(core: JarvisCore) -> Callable[[], str | None]:
+    """Why a NEW speech output must not start: only the central emergency stop (else None). Only reads state; the session budget does not limit speaking."""
+    def guard() -> str | None:
+        em = core.permissions.emergency
+        return f"Notaus aktiv ({em.reason})" if em.engaged else None
+    return guard
+
+
+def voice_stopper(speaker: Any) -> Callable[[str], Any]:
+    """Emergency-stop stopper for the speech output: ends a running speech and says honestly whether anything was speaking. Nothing is queued, so nothing is
+    replayed after a reset. Does not touch permissions and never raises."""
+    from jarvis.permissions.emergency import StopOutcome, StopResult
+
+    def stop(reason: str) -> StopResult:
+        was = bool(getattr(speaker, "speaking", False))
+        try:
+            speaker.stop()
+        except Exception as exc:                                                        # noqa: BLE001 - a stopper must report, not raise
+            return StopResult(StopOutcome.FAILED, f"speech output could not be stopped ({type(exc).__name__})")
+        if was:
+            return StopResult(StopOutcome.STOPPED, "the running speech output was ended; nothing is queued and nothing will be replayed")
+        return StopResult(StopOutcome.NOTHING, "nothing was speaking")
+    return stop
+
+
 def build_voice_session(settings: Settings, core: JarvisCore, display=print, input_fn=input, on_state=None):
     """Assemble the voice front-end around an existing core.
 
@@ -152,7 +177,9 @@ def build_voice_session(settings: Settings, core: JarvisCore, display=print, inp
     from jarvis.voice import VoiceSession, build_listener, build_speaker
 
     v = settings.voice
-    return VoiceSession(core, build_listener(v, input_fn, guard=recording_guard(core)), build_speaker(v, display), wake_word=v.wake_word,
+    speaker = build_speaker(v, display, guard=speech_guard(core))
+    core.permissions.emergency.register("voice", voice_stopper(speaker))                # the emergency stop ends a running speech (additive; the latch itself is unchanged)
+    return VoiceSession(core, build_listener(v, input_fn, guard=recording_guard(core)), speaker, wake_word=v.wake_word,
                         require_wake_word=v.require_wake_word, speak_responses=v.speak_responses,
                         display=display, on_state=on_state)
 

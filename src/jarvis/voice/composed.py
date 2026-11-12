@@ -32,3 +32,7 @@ class TTSSpeaker(Speaker):
 
     def stop(self) -> None:
         self._tts.stop()
+
+    @property
+    def speaking(self) -> bool:
+        return bool(getattr(self._tts, "speaking", False))
