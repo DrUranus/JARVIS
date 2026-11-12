@@ -105,17 +105,6 @@ def build_core(settings: Settings) -> JarvisCore:
     return core
 
 
-def agent_budget_audit(logger) -> Callable[[dict], bool]:
-    """Adapter: the first exhaustion of an agent budget (numbers only) -> one `budget_exhausted` event in the existing audit log (tool="agent"). Never prompts, inputs or results."""
-    from jarvis.permissions.audit import AuditEvent, AuditEventType
-
-    def record(meta) -> bool:
-        m = dict(meta)
-        return logger.record(AuditEvent(AuditEventType.BUDGET_EXHAUSTED, tool="agent", action=str(m.pop("agent", "")), status="blocked", detail=f"agent budget exhausted: {m.get('limit')}",
-                                        extra={k: str(v) for k, v in m.items()}))
-    return record
-
-
 def _routed_agents(settings: Settings, agents: Any, sink: Callable[[str, dict], Any], audit: Any) -> Any:
     """The agents subsystem as the goal layer sees it. Only with assistant.enabled AND agents.router.enabled the planner is replaced by a router-backed one
     (same interface: select / available_capabilities); otherwise the original object is returned untouched."""
@@ -140,6 +129,17 @@ def routing_audit(logger) -> Callable[[dict], bool]:
     def record(meta) -> bool:
         m = dict(meta)
         return logger.record(AuditEvent(AuditEventType.LLM_ROUTE, tool="llm", action="route", status=m.pop("status", None), rule=m.pop("rule", None), extra=m))
+    return record
+
+
+def agent_budget_audit(logger) -> Callable[[dict], bool]:
+    """Adapter: the first exhaustion of an agent budget (numbers only) -> one `budget_exhausted` event in the existing audit log (tool="agent"). Never prompts, inputs or results."""
+    from jarvis.permissions.audit import AuditEvent, AuditEventType
+
+    def record(meta) -> bool:
+        m = dict(meta)
+        return logger.record(AuditEvent(AuditEventType.BUDGET_EXHAUSTED, tool="agent", action=str(m.pop("agent", "")), status="blocked", detail=f"agent budget exhausted: {m.get('limit')}",
+                                        extra={k: str(v) for k, v in m.items()}))
     return record
 
 
