@@ -266,3 +266,74 @@ def test_halt_after_the_request_was_written_ends_the_call_with_failsafe_not_a_ba
     p.halt("Notaus")
     t.join(5)
     assert not t.is_alive() and isinstance(box.get("error"), ComputerError) and box["error"].code is ErrorCode.FAILSAFE
+
+
+# ---- Sicherheitsnachweis N2: nach Rueckkehr von halt() erreicht KEINE Anfrage mehr einen Worker -----------------------------------------------------
+def _logging_worker_script(tmp_path):
+    """Der Test-Worker haengt bei jeder AUSGEFUEHRTEN Anfrage (Reader.tree) einen Zeitstempel an eine Datei an: ein Eintrag = die UIA-Anfrage wurde wirklich ausgefuehrt."""
+    log = tmp_path / "executed.log"
+    marker = "    def tree(self, handle, max_depth, max_nodes, max_text, deadline):\n"
+    assert marker in WORKER_SCRIPT
+    script = WORKER_SCRIPT.replace(marker, marker + f"        open({str(log)!r}, 'a').write(repr(time.time()) + '\\n')\n")
+    path = tmp_path / "logging_worker.py"
+    path.write_text(script, encoding="utf-8")
+    return [sys.executable, "-u", str(path)], log
+
+
+def executed(log):
+    return [float(x) for x in log.read_text(encoding="utf-8").split()] if log.exists() else []
+
+
+def test_no_uia_request_is_executed_after_halt_has_returned_even_with_concurrent_callers(tmp_path):
+    cmd, log = _logging_worker_script(tmp_path)
+    p = PywinautoUiaProvider(worker_command=cmd, call_timeout=10.0, max_calls=10_000)
+    rnd = random.Random(20261112)
+    try:
+        before = 0
+        for i in range(12):
+            p.resume()
+            threads = [in_thread(lambda: [_swallow(p.describe, 11, UiLimits()) for _ in range(3)]) for _ in range(4)]
+            time.sleep(rnd.uniform(0.0, 0.25))
+            p.halt(f"n2-{i}")
+            returned = time.time()
+            for t, _ in threads:
+                t.join(10)
+                assert not t.is_alive()
+            late = [ts for ts in executed(log) if ts > returned + 0.05]
+            assert late == [], f"iteration {i}: {len(late)} request(s) executed after halt() returned"
+            assert not p.worker_running
+            before = len(executed(log))
+        assert before >= 1, "the test must have exercised real requests"
+    finally:
+        p.shutdown()
+
+
+def _swallow(fn, *a):
+    try:
+        return fn(*a)
+    except ComputerError:
+        return None
+
+
+@pytest.mark.parametrize("window", ["before_start", "after_start"])
+def test_the_two_deterministic_halt_windows_execute_no_request_at_all(tmp_path, window):
+    cmd, log = _logging_worker_script(tmp_path)
+    p = PywinautoUiaProvider(worker_command=cmd, call_timeout=5.0)
+    start = p._start_worker
+
+    def hooked():
+        if window == "before_start":
+            p.halt("n2")
+        start()
+        if window == "after_start":
+            p.halt("n2")
+
+    p._start_worker = hooked
+    try:
+        with pytest.raises(ComputerError) as e:
+            p.describe(11, UiLimits())
+        assert e.value.code is ErrorCode.FAILSAFE and not p.worker_running
+        time.sleep(0.3)                                                        # ein spaet geschriebener Eintrag wuerde jetzt sichtbar
+        assert executed(log) == []                                             # die Anfrage wurde nie ausgefuehrt
+    finally:
+        p.shutdown()
