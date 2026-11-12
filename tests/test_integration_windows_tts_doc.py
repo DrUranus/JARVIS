@@ -51,10 +51,12 @@ def test_the_check_states_that_nothing_was_installed_or_executed():
     assert "nicht anwendbar" in section("Pinning mit Hash").lower()
 
 
-def test_cloud_tts_stays_excluded_and_no_windows_provider_exists_yet():
+def test_cloud_tts_stays_excluded_and_the_windows_provider_lives_in_its_own_module():
+    """Teil B ist freigegeben (E8) und umgesetzt: der Provider steht in `voice/windows_tts.py`, `system_tts.py` bleibt ohne Windows-Code, der Standard bleibt `console`."""
     assert "ausgeschlossen" in text()
     src = (ROOT / "src" / "jarvis" / "voice" / "system_tts.py").read_text(encoding="utf-8")
     assert "powershell" not in src.lower() and "System.Speech" not in src
     factory = (ROOT / "src" / "jarvis" / "voice" / "factory.py").read_text(encoding="utf-8")
-    assert 'register_tts("windows"' not in factory                                          # Teil B ist nicht freigegeben
-    assert not (ROOT / "src" / "jarvis" / "voice" / "windows_tts.py").exists()
+    assert 'register_tts("windows"' in factory
+    assert (ROOT / "src" / "jarvis" / "voice" / "windows_tts.py").exists()
+    assert 'tts_provider: str = "console"' in (ROOT / "src" / "jarvis" / "config.py").read_text(encoding="utf-8")

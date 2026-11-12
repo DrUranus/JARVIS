@@ -28,7 +28,7 @@ class LLMSettings:
 class VoiceSettings:
     """Voice interface. Defaults ('console') need no hardware and no API key."""
     stt_provider: str = "console"      # console | mock | openai | local
-    tts_provider: str = "console"      # console | mock | system | openai
+    tts_provider: str = "console"      # console | mock | system | openai | windows (Windows PowerShell + System.Speech, lokal; Standard bleibt console)
     audio_input: str = "sounddevice"   # microphone backend (used by non-console STT)
     audio_output: str = "system"       # playback backend (used by openai TTS)
     hotword_detector: str = "none"     # none | mock | <registered local detector>; gates the microphone, no engine ships by default
