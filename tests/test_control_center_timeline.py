@@ -1,12 +1,9 @@
 """WP07b: Aufgaben-Zeitleiste (NEXUS, Premium-V2-Design). Reine, lesende Anzeige aus `/view/agents`; K4: DOM-Liste statt Canvas.
-Node-DOM (web/app.js unveraendert), Asset-Struktur (CSP: kein Inline-Code, kein innerHTML, kein Three.js) und ein Chromium-E2E (wenn Playwright vorhanden)."""
+Node-DOM (web/app.js unveraendert) und Asset-Struktur (CSP: kein Inline-Code, kein innerHTML, kein Three.js). Die Chromium-E2E-Faelle und die Leistungsmessung (E10) stehen in tests/test_control_center_e2e_browser.py: dort laufen sie im Workflow \"Control Center GUI E2E\" mit Playwright (Linux und Windows), nicht als Einzel-Skip im normalen Lauf."""
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import re
-import time
-from pathlib import Path
 
 import pytest
 
@@ -169,115 +166,3 @@ def test_existing_dashboard_panels_and_the_emergency_button_are_untouched(tmp_pa
     assert "t1" in s["text"]["task-list"] or "Aufgabe" in s["text"]["task-list"]
     s2 = snap(tmp_path, [{"clickId": "emergency"}])
     assert [c["type"] for c in s2["sent"]] == ["emergency_stop"]
-
-
-# ---- Chromium-E2E (nur mit Playwright) --------------------------------------------------------------------------------------------------------------
-def test_e2e_timeline_colours_update_after_an_event_and_render_time_is_logged(tmp_path):
-    pytest.importorskip("playwright.sync_api", reason="playwright fehlt: Browser-E2E nicht moeglich (ein uebersprungener Test gilt nicht als bestanden)")
-    import os
-    from playwright import sync_api as pw_api
-    from jarvis.control_center.server import ControlCenterServer
-    from jarvis.control_center.views import ReadViews
-    from jarvis.ui_contract import FakeUiBackend
-
-    state = {"tasks": [task(i, s, started_at=f"2026-11-12T10:0{i}:00+00:00") for i, s in enumerate(STATES, start=1)]}
-    views = ReadViews(agents_source=lambda limit: {"agents": [{"id": "research", "status": "AVAILABLE", "capabilities": ["research.web"], "reason": ""}], "tasks": list(state["tasks"])})
-    backend = FakeUiBackend()
-    srv = ControlCenterServer(backend, poll_interval=0.02, views=views)
-    srv.start()
-    try:
-        with pw_api.sync_playwright() as pw:
-            exe = os.environ.get("JARVIS_CHROMIUM_PATH")
-            try:
-                browser = pw.chromium.launch(headless=True, executable_path=exe) if exe else pw.chromium.launch(headless=True)
-            except pw_api.Error as exc:
-                if "Executable doesn't exist" in str(exc):
-                    pytest.skip("Chromium fehlt: nicht ausgefuehrt, ein uebersprungener Test gilt nicht als bestanden")
-                raise
-            page = browser.new_page(viewport={"width": 1440, "height": 900})
-            errors: list[str] = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{srv.port}/?t={srv.token}")
-            page.click("#mode-toggle") if page.evaluate("document.body.dataset.mode") == "orb" else None
-            t0 = time.perf_counter()
-            page.click("#timeline-refresh")
-            end = time.monotonic() + 10
-            while time.monotonic() < end and page.evaluate("document.querySelectorAll('#timeline-list li').length") < len(STATES):
-                time.sleep(0.05)
-            render_s = time.perf_counter() - t0
-            colours = page.evaluate("Array.from(document.querySelectorAll('#timeline-list li')).map(li => [li.dataset.status, getComputedStyle(li, '::before').backgroundColor || getComputedStyle(li).borderLeftColor])")
-            assert [c[0] for c in colours] == [s.lower() for s in STATES]
-            assert len({c[1] for c in colours}) >= 5                            # the six states are told apart by colour (queued/cancelled may share the neutral tone)
-            state["tasks"].insert(0, task(9, "FAILED", started_at="2026-11-12T10:09:00+00:00"))
-            backend._emit("task_update", {"kind": "agent_task", "id": "at-0009", "status": "FAILED", "detail": "x"})
-            end = time.monotonic() + 10
-            while time.monotonic() < end and page.evaluate("document.querySelectorAll('#timeline-list li').length") < len(STATES) + 1:
-                time.sleep(0.05)
-            assert page.evaluate("document.querySelectorAll('#timeline-list li').length") == len(STATES) + 1
-            assert not errors, errors
-            ev_dir = Path(os.environ.get("JARVIS_GUI_EVIDENCE", Path(__file__).resolve().parents[1] / "reports" / "gui")) / "e2e"
-            ev_dir.mkdir(parents=True, exist_ok=True)
-            page.screenshot(path=str(ev_dir / "wp07b_timeline.png"))
-            print(f"WP07b timeline: first render {render_s * 1000:.0f} ms for {len(STATES)} entries (measured, no threshold: owner number open)")
-            browser.close()
-    finally:
-        srv.stop()
-
-
-# ---- E10: Leistung (Zielwert: 100 Eintraege, erste Darstellung unter 500 ms) ------------------------------------------------------------------------
-PERF_BUDGET_MS = 500.0
-PERF_ENTRIES = 100
-PERF_RUNS = 3
-
-
-def test_e2e_first_display_of_100_entries_stays_under_the_e10_target_and_is_recorded(tmp_path):
-    pytest.importorskip("playwright.sync_api", reason="playwright fehlt: Browser-E2E nicht moeglich (ein uebersprungener Test gilt nicht als bestanden)")
-    import os
-    import platform
-    from playwright import sync_api as pw_api
-    from jarvis.control_center.server import ControlCenterServer
-    from jarvis.control_center.views import ReadViews
-    from jarvis.ui_contract import FakeUiBackend
-
-    tasks = [task(i, STATES[i % len(STATES)], objective=f"Aufgabe {i} " + "x" * 120, started_at=f"2026-11-12T10:{i // 60:02d}:{i % 60:02d}+00:00", dependencies=[f"at-{i - 1:04d}"] if i else []) for i in range(PERF_ENTRIES)]
-    views = ReadViews(agents_source=lambda limit: {"agents": [], "tasks": list(tasks)})
-    srv = ControlCenterServer(FakeUiBackend(), poll_interval=0.02, views=views)
-    srv.start()
-    runs: list[dict[str, float]] = []
-    try:
-        with pw_api.sync_playwright() as pw:
-            exe = os.environ.get("JARVIS_CHROMIUM_PATH")
-            try:
-                browser = pw.chromium.launch(headless=True, executable_path=exe) if exe else pw.chromium.launch(headless=True)
-            except pw_api.Error as exc:
-                if "Executable doesn't exist" in str(exc):
-                    pytest.skip("Chromium fehlt: nicht ausgefuehrt, ein uebersprungener Test gilt nicht als bestanden")
-                raise
-            version = browser.version
-            for _ in range(PERF_RUNS):
-                page = browser.new_page(viewport={"width": 1440, "height": 900})        # every run is a cold page: first display, not a warm update
-                page.goto(f"http://127.0.0.1:{srv.port}/?t={srv.token}")
-                if page.evaluate("document.body.dataset.mode") == "orb":
-                    page.click("#mode-toggle")
-                measured = page.evaluate("""async (want) => {
-                  const ul = document.getElementById('timeline-list'); const t0 = performance.now();
-                  document.getElementById('timeline-refresh').click();
-                  await new Promise((res) => { const check = () => (ul.children.length >= want ? res() : requestAnimationFrame(check)); check(); });
-                  const first = performance.now() - t0;
-                  const data = await (await fetch(url('view/agents', 0, { limit: '100' }), { method: 'GET' })).json();
-                  const r0 = performance.now(); renderTimeline(data); const render = performance.now() - r0;
-                  return { first_display_ms: first, render_only_ms: render, rows: ul.children.length };
-                }""", PERF_ENTRIES)
-                assert measured["rows"] == PERF_ENTRIES
-                runs.append(measured)
-                page.close()
-            browser.close()
-    finally:
-        srv.stop()
-    evidence = {"entries": PERF_ENTRIES, "target_ms": PERF_BUDGET_MS, "runs": runs, "chromium": version, "platform": platform.platform(), "python": platform.python_version(), "cpus": os.cpu_count(),
-                "note": "cold page, headless Chromium against the real loopback server with a fake agents source; click -> 100 rows in the DOM. Not a native-window or real-hardware measurement."}
-    out = Path(os.environ.get("JARVIS_GUI_EVIDENCE", Path(__file__).resolve().parents[1] / "reports" / "gui")) / "e2e"
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "wp07b_timeline_perf.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")
-    print("E10 timeline perf:", json.dumps(evidence))
-    assert runs[0]["first_display_ms"] < PERF_BUDGET_MS, evidence                  # the FIRST (coldest) run decides; all runs are recorded
