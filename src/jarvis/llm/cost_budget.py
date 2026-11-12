@@ -1,7 +1,7 @@
-"""WP02a (S-5): token and cost budget - pure data models and calculations. NOT enforced, NOT wired.
+"""WP02a (S-5) / E6: token and cost budget - pure data models and calculations. Enforced ONLY by `llm/budgeted.py` (E6, off by default).
 
-Nothing here wraps a provider, reads the configuration, touches the emergency stop or the permission engine; no production module imports it (a layering test keeps it that
-way until an owner-approved wiring step). It answers three questions deterministically and without I/O:
+Nothing here wraps a provider, reads the configuration, touches the emergency stop or the permission engine; apart from `llm/budgeted.py` no production module imports it
+(a layering test keeps it that way). It answers three questions deterministically and without I/O:
   * what did a call use?  (`parse_usage` - provider usage dicts, defensive; missing or malformed numbers are UNKNOWN, never guessed)
   * what did it cost?     (`compute_cost` - exact `Decimal` arithmetic with an owner-maintained price table; no price or no token counts -> UNKNOWN (None))
   * may the next call happen? (`CostBudget.check` - call count, per-call token limits, session tokens, optional cost limit; FAIL-CLOSED when a cost limit is set but the
@@ -144,12 +144,15 @@ class CostBudgetLimits:
     max_output_tokens_per_call: int
     max_tokens_session: int
     max_cost: Decimal | None = None
+    max_input_tokens_session: int | None = None      # E6: optional cap on the (estimated or measured) input tokens of the whole session
 
     def __post_init__(self) -> None:
         _limit_int("max_calls", self.max_calls, MAX_CALLS_HARD)
         _limit_int("max_input_tokens_per_call", self.max_input_tokens_per_call, MAX_TOKENS_CALL_HARD)
         _limit_int("max_output_tokens_per_call", self.max_output_tokens_per_call, MAX_TOKENS_CALL_HARD)
         _limit_int("max_tokens_session", self.max_tokens_session, MAX_TOKENS_SESSION_HARD)
+        if self.max_input_tokens_session is not None:
+            _limit_int("max_input_tokens_session", self.max_input_tokens_session, MAX_TOKENS_SESSION_HARD)
         if self.max_cost is not None:
             d = _decimal(self.max_cost, "max_cost")
             if not 0 < d <= MAX_COST_HARD:
@@ -162,11 +165,11 @@ class CostBudgetLimits:
     def from_mapping(cls, data: Any) -> "CostBudgetLimits":
         if not isinstance(data, Mapping):
             raise ValueError("limits must be a mapping")
-        unknown = set(data) - set(cls._KEYS) - {"max_cost"}
+        unknown = set(data) - set(cls._KEYS) - {"max_cost", "max_input_tokens_session"}
         missing = [k for k in cls._KEYS if k not in data]
         if unknown or missing:
             raise ValueError(f"limits: unknown keys {sorted(map(str, unknown))} / missing {missing}")
-        return cls(*(data[k] for k in cls._KEYS), max_cost=data.get("max_cost"))
+        return cls(*(data[k] for k in cls._KEYS), max_cost=data.get("max_cost"), max_input_tokens_session=data.get("max_input_tokens_session"))
 
 
 @dataclass(frozen=True)
@@ -240,6 +243,8 @@ class CostBudget:
                 return Decision(False, f"LLM-Budget: Eingabe-Token {inp} über dem Limit {lim.max_input_tokens_per_call} je Aufruf")
             if out > lim.max_output_tokens_per_call:
                 return Decision(False, f"LLM-Budget: Ausgabe-Token {out} über dem Limit {lim.max_output_tokens_per_call} je Aufruf")
+            if lim.max_input_tokens_session is not None and self._in + inp > lim.max_input_tokens_session:
+                return Decision(False, f"LLM-Budget: Eingabe-Token der Sitzung {self._in}+{inp} über dem Limit {lim.max_input_tokens_session}")
             tokens = self._in + self._out
             if tokens >= lim.max_tokens_session or tokens + inp + out > lim.max_tokens_session:
                 return Decision(False, f"LLM-Budget: Sitzungs-Token {tokens}+{inp + out} über dem Limit {lim.max_tokens_session}")
@@ -270,6 +275,20 @@ class CostBudget:
             else:
                 self._cost += cost
         return Booking(label, u.input_tokens, u.output_tokens, cost)
+
+    def record_estimated(self, model: Any, planned_input: Any, planned_output: Any) -> Booking:
+        """E6: books one finished (or failed) call whose real usage is UNKNOWN, with the PLANNED maxima as an ESTIMATE, so the session token limits still bind.
+        The cost of such a call stays UNKNOWN (never derived from an estimate) and therefore blocks further calls while a cost limit is set. A malformed plan value
+        books 0 for that part. Callers use `record` when the provider reported usage; an estimate never replaces a measured booking."""
+        inp = self._plan(planned_input) or 0
+        out = self._plan(planned_output) or 0
+        label = _model_label(model)
+        with self._lock:
+            self._calls += 1
+            self._in += inp
+            self._out += out
+            self._unknown += 1
+        return Booking(label, inp, out, None)
 
     def snapshot(self) -> Snapshot:
         with self._lock:

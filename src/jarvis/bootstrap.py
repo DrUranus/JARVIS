@@ -17,13 +17,16 @@ from jarvis.tools.registry import ToolRegistry
 
 def build_core(settings: Settings) -> JarvisCore:
     setup_logging(settings.effective_log_level, settings.log_dir)
-    provider = create_provider(settings.llm)
+    provider = original_provider = create_provider(settings.llm)
     # Secrets of this very configuration (and secret-looking env vars) can never be stored as memories,
     # and are redacted from every permission message, prompt, audit event and tool error.
     guard = SecretGuard.from_environment(extra=[settings.llm.api_key, settings.voice.api_key])
     # Every tool call goes through this engine (strict: restrictive defaults, fail closed). A broken policy
     # file raises PolicyError here: JARVIS refuses to start rather than run with an unintended policy.
     permissions = build_permission_engine(settings, redactor=guard)
+    # LLM budget (E6, llm_budget.enabled = false by default): then `provider` stays the IDENTICAL object. Enabled, one wrapper is shared by the Core, coding, goals,
+    # agents routing and self-improvement. It only READS the emergency latch and reports refusals as `budget_exhausted` audit events (numbers only).
+    provider = budgeted_provider(settings, provider, permissions)
     tools = register_builtin_tools(ToolRegistry(permissions), include_demo=not settings.is_production)
     memory = create_memory(settings.memory, guard)
     core = JarvisCore(provider=provider, tools=tools, memory=memory, memory_limit=settings.memory.max_relevant,
@@ -101,8 +104,27 @@ def build_core(settings: Settings) -> JarvisCore:
     assistant_ui = getattr(core.subsystems["assistant"], "ui", None)
     if assistant_ui is not None and settings.security.confirmation != "deny":
         permissions.set_confirmation_provider(assistant_ui.confirmation_provider, source="assistant")
+    if provider is not original_provider:
+        core.subsystems["llm_budget"] = provider
     register_emergency_components(core)
     return core
+
+
+def budgeted_provider(settings: Settings, provider: Any, permissions: Any) -> Any:
+    """`provider` itself unless llm_budget.enabled; then a BudgetedProvider (see llm/budgeted.py). Misconfiguration was already refused by `Settings.validate`."""
+    cfg = settings.llm_budget
+    if not cfg.enabled:
+        return provider
+    from jarvis.llm.budgeted import BudgetedProvider
+    from jarvis.llm.cost_budget import CostBudget
+    from jarvis.permissions.audit import AuditEvent, AuditEventType
+
+    def audit(meta: dict) -> bool:
+        m = dict(meta)
+        return permissions.audit.record(AuditEvent(AuditEventType.BUDGET_EXHAUSTED, tool="llm", action="complete", status="denied", detail=str(m.pop("reason", ""))[:300],
+                                                   extra={k: str(v) for k, v in m.items()}))
+    return BudgetedProvider(provider, CostBudget(cfg.to_limits(), cfg.to_prices()), default_model=settings.llm.model, default_max_tokens=settings.llm.max_tokens,
+                            emergency=permissions.emergency, audit=audit)
 
 
 def _routed_agents(settings: Settings, agents: Any, sink: Callable[[str, dict], Any], audit: Any) -> Any:
