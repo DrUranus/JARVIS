@@ -1,5 +1,5 @@
 """WP07c: Freigabe-Panel (NEXUS, Premium-V2-Design): alle offenen Rueckfragen (aelteste zuerst, Frist, angebotene Auswahl) und der Verlauf aus /view/audit.
-`confirm` bleibt der einzige Schreibweg; nichts wird automatisch erlaubt. Node-DOM (web/app.js unveraendert), Asset-Struktur (CSP) und Chromium-E2E (wenn Playwright vorhanden)."""
+`confirm` bleibt der einzige Schreibweg; nichts wird automatisch erlaubt. Node-DOM (web/app.js unveraendert) und Asset-Struktur (CSP). Der Chromium-E2E-Fall steht in tests/test_control_center_e2e_browser.py (Workflow Control Center GUI E2E mit Playwright)."""
 from __future__ import annotations
 
 import json
@@ -190,58 +190,3 @@ def test_existing_dashboard_and_dialog_are_untouched(tmp_path):
     s = snap(tmp_path, [req(1)])
     assert s["props"]["confirm-dialog"]["hidden"] is False and s["buttons"]["dlg-choices"][0] == "Ablehnen"
     assert "keyboard" in s["text"]["confirmation"]
-
-
-# ---- Chromium-E2E ----------------------------------------------------------------------------------------------------------------------------------------
-def test_e2e_open_request_is_listed_answered_and_the_emergency_button_works(tmp_path):
-    pytest.importorskip("playwright.sync_api", reason="playwright fehlt: Browser-E2E nicht moeglich (ein uebersprungener Test gilt nicht als bestanden)")
-    import os
-    import time
-    from playwright import sync_api as pw_api
-    from jarvis.control_center.server import ControlCenterServer
-    from jarvis.control_center.views import ReadViews
-    from jarvis.ui_contract import FakeUiBackend
-
-    backend = FakeUiBackend()
-    audit = [audit_event("confirmation_requested", 1)]
-    srv = ControlCenterServer(backend, poll_interval=0.02, views=ReadViews(audit_tail=lambda n: list(audit)[-n:]))
-    srv.start()
-    try:
-        with pw_api.sync_playwright() as pw:
-            exe = os.environ.get("JARVIS_CHROMIUM_PATH")
-            try:
-                browser = pw.chromium.launch(headless=True, executable_path=exe) if exe else pw.chromium.launch(headless=True)
-            except pw_api.Error as exc:
-                if "Executable doesn't exist" in str(exc):
-                    pytest.skip("Chromium fehlt: nicht ausgefuehrt, ein uebersprungener Test gilt nicht als bestanden")
-                raise
-            page = browser.new_page(viewport={"width": 1440, "height": 900})
-            errors: list[str] = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{srv.port}/?t={srv.token}")
-            if page.evaluate("document.body.dataset.mode") == "orb":
-                page.click("#mode-toggle")
-            page.fill("#input", "!confirm")
-            page.press("#input", "Enter")
-            page.wait_for_selector("#approvals-list li")
-            assert page.evaluate("document.querySelectorAll('#approvals-list li').length") == 1
-            assert page.evaluate("document.querySelectorAll('#approvals-list li button').length") == 0
-            page.click("#dlg-choices button[data-choice=deny]")
-            page.wait_for_selector("#approvals-list li", state="detached")
-            page.click("#approvals-refresh")
-            end = time.monotonic() + 10
-            while time.monotonic() < end and page.evaluate("document.querySelectorAll('#approvals-history li').length") < 1:
-                time.sleep(0.05)
-            assert page.evaluate("document.querySelectorAll('#approvals-history li').length") >= 1
-            assert page.evaluate("document.querySelector('#approvals-note').textContent").startswith("keine offenen")
-            page.fill("#input", "!confirm")
-            page.press("#input", "Enter")
-            page.wait_for_selector("#approvals-list li")
-            page.click("#emergency")                                       # NOT-AUS bei offenem Panel
-            end = time.monotonic() + 10
-            while time.monotonic() < end and not backend._emergency_on:
-                time.sleep(0.05)
-            assert backend._emergency_on is True and not errors, errors
-            browser.close()
-    finally:
-        srv.stop()
