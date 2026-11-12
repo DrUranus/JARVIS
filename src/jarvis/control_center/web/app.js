@@ -194,6 +194,66 @@ function renderResults() {
   if (!results.size) addItem(ul, "noch keine Ergebnisse");
 }
 
+// ---- Zeitleiste (WP07b): Aufgaben je Agent in zeitlicher Reihenfolge (aelteste oben), nur lesend aus /view/agents. Texte per textContent; Aktualisierung hoechstens 1x/s. ----
+const TIMELINE_MAX = 100;     // sichtbare Eintraege; der Rest wird als "+N weitere" gemeldet
+const TIMELINE_STATES = ["pending", "running", "succeeded", "failed", "blocked", "cancelled"];
+let timelineLast = 0;
+let timelineTimer = null;
+
+function clockOf(iso) {
+  const m = /T(\d\d:\d\d:\d\d)/.exec(String(iso || ""));
+  return m ? m[1] : "";
+}
+
+function renderTimeline(data) {
+  const ul = el("timeline-list");
+  const note = el("timeline-note");
+  ul.replaceChildren();
+  if (!data || typeof data !== "object") { note.textContent = "nicht abrufbar"; return; }
+  if (!data.available) { note.textContent = data.reason || "nicht verfuegbar"; return; }
+  const all = Array.isArray(data.items) ? data.items.slice().reverse() : [];  // die Ansicht liefert neueste zuerst; die Zeitleiste zeigt die aeltesten oben
+  const hidden = Math.max(0, all.length - TIMELINE_MAX);
+  for (const it of all.slice(hidden)) {
+    if (!it || typeof it !== "object") continue;
+    const li = document.createElement("li");
+    const status = String(it.status || "").toLowerCase();
+    li.dataset.status = TIMELINE_STATES.includes(status) ? status : "unknown";
+    const head = document.createElement("div");
+    head.className = "tl-head";
+    head.textContent = (clockOf(it.started_at) || "-") + (it.finished_at ? " - " + clockOf(it.finished_at) : "") + "  " + String(it.agent_id || "-") + "  [" + String(it.status || "?") + "]";
+    li.appendChild(head);
+    const body = document.createElement("div");
+    body.className = "tl-body";
+    body.textContent = String(it.task_id || "") + " " + String(it.objective || "");
+    li.appendChild(body);
+    const deps = Array.isArray(it.dependencies) ? it.dependencies.filter((d) => typeof d === "string" && d) : [];
+    if (deps.length) { const d = document.createElement("div"); d.className = "tl-dep"; d.textContent = "abhaengig von " + deps.join(", "); li.appendChild(d); }
+    if (it.error_code) { const e = document.createElement("div"); e.className = "tl-err"; e.textContent = "Fehlercode: " + String(it.error_code); li.appendChild(e); }
+    ul.appendChild(li);
+  }
+  note.textContent = all.length ? all.length + " Aufgaben" + (hidden ? " (+" + hidden + " weitere, aeltere ausgeblendet)" : "") : "keine Aufgaben";
+}
+
+async function loadTimeline() {
+  timelineLast = Date.now();
+  try {
+    const r = await fetch(url("view/agents", 0, { limit: String(TIMELINE_MAX) }), { method: "GET" });
+    const data = await r.json();
+    if (!r.ok) { renderTimeline(null); el("timeline-note").textContent = "Abgelehnt: " + (data && data.error ? data.error : r.status); return; }
+    renderTimeline(data);
+  } catch (e) {
+    renderTimeline(null);
+  }
+}
+
+// Aufgabenereignisse laden die Zeitleiste neu, aber hoechstens einmal pro Sekunde (ein wartender Abruf genuegt).
+function scheduleTimeline() {
+  if (timelineTimer !== null) return;
+  const wait = timelineLast + 1000 - Date.now();
+  if (wait <= 0) { loadTimeline(); return; }
+  timelineTimer = setTimeout(() => { timelineTimer = null; loadTimeline(); }, wait);
+}
+
 function renderDashboard() { renderTasks(); renderDetail(); renderAgents(); renderResults(); renderStatus(); }
 
 // Systemstatus (Premium V2): nur Werte, die diese Seite aus echten Backend-Ereignissen kennt; ohne Meldung steht dort "unbekannt", nie ein erfundener Wert.
@@ -407,9 +467,9 @@ function handle(ev) {
     case "state": setState(d.state, d.detail); break;
     case "chat": addItem(el("chat"), d.sender + ": " + d.text, d.sender); break;
     case "activity": renderActivity(d); break;
-    case "task_update": onTaskUpdate(d); break;
+    case "task_update": onTaskUpdate(d); scheduleTimeline(); break;
     case "routing": onRouting(d); break;
-    case "result": onResult(d); break;
+    case "result": onResult(d); scheduleTimeline(); break;
     case "confirmation_request": openConfirmation(d); break;
     case "confirmation_closed": closeConfirmation(d); break;
     case "emergency": setEmergency(d.engaged); if (d.engaged) setState("emergency", d.reason); break;
@@ -759,6 +819,7 @@ async function loadCoreTable() {
   setState(currentState);
 }
 
+el("timeline-refresh").addEventListener("click", () => loadTimeline());
 el("doctor-refresh").addEventListener("click", () => loadView("doctor", {}));
 el("history-refresh").addEventListener("click", () => loadView("history", viewParams("history", ["kind", "status"])));
 el("audit-refresh").addEventListener("click", () => loadView("audit", viewParams("audit", ["type", "tool", "status", "level"])));

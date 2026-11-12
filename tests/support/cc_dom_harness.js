@@ -73,12 +73,14 @@ vm.runInContext(fs.readFileSync(webDir + "/app.js", "utf8"), ctx);
     if (step.ack) { const a = step.ack; ackReply = (cmd) => ({ id: cmd.id, ok: a.ok, code: a.code, message: a.message }); }
     if (step.click) { const e = byId.get(step.click.id); const btns = e.querySelectorAll("button"); btns.find((b) => b.textContent.trim() === step.click.text).click(); await new Promise((r) => setImmediate(r)); await new Promise((r) => setImmediate(r)); }
     if (step.clickId) { byId.get(step.clickId).click(); await new Promise((r) => setImmediate(r)); await new Promise((r) => setImmediate(r)); }
+    if (step.wait) for (let k = 0; k < 4; k++) await new Promise((r) => setImmediate(r));
     if (step.frames) for (const t of step.frames) { if (rafCb) { const cb = rafCb; rafCb = null; cb(t); } }
     if (step.effects) { const sel = byId.get("effects"); sel.value = step.effects; for (const f of sel.listeners.change || []) f({}); }
     if (step.disconnect) sources[0].onerror({});
     if (step.toggle) byId.get("mode-toggle").click();
     if (step.snap) snapshots[step.snap] = { mode: body.dataset.mode, state: body.dataset.state, effects: body.dataset.effects, drawn: drawn.splice(0), readyState: sources[0].readyState, sent: sent.slice(), fetched: fetched.slice(), fetchedUrls: fetchedUrls.slice(), text: Object.fromEntries([...byId].map(([k, v]) => [k, v.textContent])),
       props: Object.fromEntries([...byId].map(([k, v]) => [k, { value: v.value, disabled: v.disabled, hidden: v.hidden, dataset: { ...v.dataset }, calls: v.calls.map((c) => c[0]) }])),
+      items: Object.fromEntries([...byId].map(([k, v]) => [k, v.children.map((c) => ({ text: c.textContent, className: c.className, dataset: { ...c.dataset } }))])),
       buttons: Object.fromEntries([...byId].map(([k, v]) => [k, v.querySelectorAll("button").map((b) => b.textContent.trim())])) };
   }
   process.stdout.write(JSON.stringify(snapshots));
