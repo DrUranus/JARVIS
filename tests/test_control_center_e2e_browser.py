@@ -19,6 +19,7 @@ import pytest
 playwright_sync = pytest.importorskip("playwright.sync_api", reason="playwright fehlt: Browser-E2E nicht moeglich (ein uebersprungener Test gilt nicht als bestanden)")
 
 from jarvis.control_center.server import ControlCenterServer
+from jarvis.control_center.views import ReadViews
 from jarvis.ui_contract import FakeUiBackend
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,7 +70,7 @@ class Gui:
 
     def __init__(self, browser, backend=None, *, viewport=(1440, 900), on_open_main=None, query="", **ctx):
         self.backend = backend or FakeUiBackend()
-        self.srv = ControlCenterServer(self.backend, poll_interval=0.02, on_open_main=on_open_main)
+        self.srv = ControlCenterServer(self.backend, poll_interval=0.02, on_open_main=on_open_main, views=ReadViews())     # wie der Launcher: die Ansichten sind immer da (hier ohne Quellen)
         self.srv.start()
         self.context = browser.new_context(viewport={"width": viewport[0], "height": viewport[1]}, **ctx)
         self.page = self.context.new_page()
