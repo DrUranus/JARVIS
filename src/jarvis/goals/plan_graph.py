@@ -127,7 +127,7 @@ def _order(nodes: list[Node]) -> tuple[list[str], tuple[str, ...]]:
     return order, tuple(sorted(cyc or left))
 
 
-def analyse(nodes: Iterable[Node], *, capabilities: Iterable[str], tools: Iterable[str], known_info: Iterable[str], max_parallel: int = 3, goals: Iterable[str] | None = None,
+def analyse(nodes: Iterable[Node], *, capabilities: Iterable[str], available_tools: Iterable[str], known_info: Iterable[str], max_parallel: int = 3, goals: Iterable[str] | None = None,
             done: Iterable[str] = (), failed: Iterable[str] = ()) -> Analysis:
     nodes = list(nodes)
     error, _ = _invalid(nodes)
@@ -146,7 +146,7 @@ def analyse(nodes: Iterable[Node], *, capabilities: Iterable[str], tools: Iterab
         return Analysis(False, "too_deep")
     if not isinstance(max_parallel, int) or isinstance(max_parallel, bool) or max_parallel < 1:
         return Analysis(False, "invalid_parallel_limit")
-    caps, tls, known, done_set, failed_set = set(capabilities), set(tools), set(known_info), set(done) & set(by), set(failed) & set(by)
+    caps, tls, known, done_set, failed_set = set(capabilities), set(available_tools), set(known_info), set(done) & set(by), set(failed) & set(by)
     missing_info: dict[str, tuple[str, ...]] = {}
     missing_tools: dict[str, str] = {}
     missing_caps: dict[str, tuple[str, ...]] = {}
@@ -195,12 +195,12 @@ def analyse(nodes: Iterable[Node], *, capabilities: Iterable[str], tools: Iterab
                     unsolvable=any(t in blocked for t in targets), critical_path=path, critical_seconds=seconds, unknown_durations=unknown, verify_nodes=verify, warnings=warnings)
 
 
-def replan(nodes: Iterable[Node], *, failed: str, code: str, done: Iterable[str], alternatives: Mapping[str, Iterable[Node]], capabilities: Iterable[str], tools: Iterable[str],
+def replan(nodes: Iterable[Node], *, failed: str, code: str, done: Iterable[str], alternatives: Mapping[str, Iterable[Node]], capabilities: Iterable[str], available_tools: Iterable[str],
            known_info: Iterable[str], attempts_used: int = 0, max_parallel: int = 3) -> Replan:
     """What to do after `failed` ended with `code`. Finished work (`done`) is kept; a fatal code or a used-up attempt limit aborts; without a usable alternative the plan is
     degraded (the failed step and everything behind it is blocked, the rest goes on) and `analysis.unsolvable` says whether the goal is still reachable."""
     nodes = list(nodes)
-    kw = dict(capabilities=capabilities, tools=tools, known_info=known_info, max_parallel=max_parallel)
+    kw = dict(capabilities=capabilities, available_tools=available_tools, known_info=known_info, max_parallel=max_parallel)
     if code in NEVER_REPLAN:
         return Replan("abort", f"code {code!r} is never replanned", None, None)
     if attempts_used >= MAX_REPLANS:
@@ -220,10 +220,10 @@ def replan(nodes: Iterable[Node], *, failed: str, code: str, done: Iterable[str]
     return Replan("degraded", reason, None, analyse(nodes, done=done, failed=(failed,), **kw))
 
 
-def resume(nodes: Iterable[Node], *, done: Iterable[str], interrupted: Iterable[str], capabilities: Iterable[str], tools: Iterable[str], known_info: Iterable[str],
+def resume(nodes: Iterable[Node], *, done: Iterable[str], interrupted: Iterable[str], capabilities: Iterable[str], available_tools: Iterable[str], known_info: Iterable[str],
            max_parallel: int = 3) -> Resume:
     """The remaining plan after an interruption. Interrupted steps WITH side effects are listed: they may have happened and must be confirmed again before they run."""
     nodes = list(nodes)
     by = {n.id: n for n in nodes}
     again = tuple(sorted(i for i in set(interrupted) if i in by and by[i].side_effect and i not in set(done)))
-    return Resume(analyse(nodes, done=done, capabilities=capabilities, tools=tools, known_info=known_info, max_parallel=max_parallel), again)
+    return Resume(analyse(nodes, done=done, capabilities=capabilities, available_tools=available_tools, known_info=known_info, max_parallel=max_parallel), again)

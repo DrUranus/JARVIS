@@ -46,7 +46,7 @@ KNOWN = {"region", "budget"}
 
 def run(nodes, **kw):
     kw.setdefault("capabilities", CAPS)
-    kw.setdefault("tools", TOOLS)
+    kw.setdefault("available_tools", TOOLS)
     kw.setdefault("known_info", KNOWN)
     return analyse(nodes, **kw)
 
@@ -113,7 +113,7 @@ def test_information_must_come_from_an_ancestor_not_from_a_sibling():
 
 
 def test_missing_tool_and_missing_capability_abort_with_the_reason():
-    a = run(business_plan(), tools={"files"})
+    a = run(business_plan(), available_tools={"files"})
     assert not a.ok and {"wettbewerb-a", "wettbewerb-b", "wettbewerb-c"} <= set(a.missing_tools)
     assert "preisvergleich" in a.blocked and a.unsolvable                # das Ziel selbst (pruefung) ist nicht erreichbar
     b = run(business_plan(), capabilities={"research.web"})
@@ -156,7 +156,7 @@ def test_reserved_bypass_words_cannot_enter_a_plan():
 def test_replanning_replaces_a_failed_node_by_its_next_alternative_and_keeps_finished_work():
     nodes = business_plan()
     alt = {"wettbewerb-b": [n("wettbewerb-b2", ["markt"], tool="browser", provides=("preise-b",), est_seconds=45)]}
-    r = replan(nodes, failed="wettbewerb-b", code="timeout", done={"markt", "zielgruppe", "wettbewerb-a"}, alternatives=alt, capabilities=CAPS, tools=TOOLS, known_info=KNOWN)
+    r = replan(nodes, failed="wettbewerb-b", code="timeout", done={"markt", "zielgruppe", "wettbewerb-a"}, alternatives=alt, capabilities=CAPS, available_tools=TOOLS, known_info=KNOWN)
     assert r.action == "replaced" and r.replacement == "wettbewerb-b2" and r.analysis.ok
     ids = [x for w in r.analysis.waves for x in w]
     assert "wettbewerb-b" not in ids and "markt" not in ids and "wettbewerb-b2" in ids and ids.index("wettbewerb-b2") < ids.index("preisvergleich")
@@ -166,31 +166,31 @@ def test_replanning_never_retries_a_fatal_code_and_never_exceeds_the_attempt_lim
     nodes = business_plan()
     alt = {"wettbewerb-b": [n("wettbewerb-b2", ["markt"], tool="browser", provides=("preise-b",))]}
     for code in ("permission_denied", "halted", "agent_budget_exceeded", "budget_exhausted", "cancelled"):
-        r = replan(nodes, failed="wettbewerb-b", code=code, done={"markt"}, alternatives=alt, capabilities=CAPS, tools=TOOLS, known_info=KNOWN)
+        r = replan(nodes, failed="wettbewerb-b", code=code, done={"markt"}, alternatives=alt, capabilities=CAPS, available_tools=TOOLS, known_info=KNOWN)
         assert r.action == "abort" and r.replacement is None, code
-    r = replan(nodes, failed="wettbewerb-b", code="timeout", done={"markt"}, alternatives=alt, attempts_used=2, capabilities=CAPS, tools=TOOLS, known_info=KNOWN)
+    r = replan(nodes, failed="wettbewerb-b", code="timeout", done={"markt"}, alternatives=alt, attempts_used=2, capabilities=CAPS, available_tools=TOOLS, known_info=KNOWN)
     assert r.action == "abort" and "attempt" in r.reason
 
 
 def test_without_an_alternative_the_dependents_are_blocked_and_the_rest_continues():
-    r = replan(business_plan(), failed="risiken", code="invalid_result", done={"markt"}, alternatives={}, capabilities=CAPS, tools=TOOLS, known_info=KNOWN)
+    r = replan(business_plan(), failed="risiken", code="invalid_result", done={"markt"}, alternatives={}, capabilities=CAPS, available_tools=TOOLS, known_info=KNOWN)
     assert r.action == "degraded" and set(r.analysis.blocked) == {"risiken", "rangfolge", "plan-30-90", "pruefung"} and "break-even" in r.analysis.runnable
     assert r.analysis.unsolvable                                       # das Ziel ist ohne den Knoten nicht erreichbar: ehrlich gemeldet
 
 
 def test_an_alternative_cannot_smuggle_in_a_capability_the_plan_did_not_have():
     alt = {"risiken": [n("risiken2", ["modelle"], cap="files.write")]}
-    r = replan(business_plan(), failed="risiken", code="timeout", done=set(), alternatives=alt, capabilities=CAPS, tools=TOOLS, known_info=KNOWN)
+    r = replan(business_plan(), failed="risiken", code="timeout", done=set(), alternatives=alt, capabilities=CAPS, available_tools=TOOLS, known_info=KNOWN)
     assert r.action != "replaced" and "capability" in r.reason
 
 
 # ---- Wiederaufnahme --------------------------------------------------------------------------------------------------------------------------------------
 def test_resume_runs_only_what_is_not_done_and_never_repeats_a_side_effect_step_silently():
     nodes = business_plan() + [n("speichern", ["plan-30-90"], cap="files.write", tool="files", side_effect=True)]
-    r = resume(nodes, done={"markt", "zielgruppe", "wettbewerb-a", "wettbewerb-b"}, interrupted={"wettbewerb-c"}, capabilities=CAPS, tools=TOOLS, known_info=KNOWN)
+    r = resume(nodes, done={"markt", "zielgruppe", "wettbewerb-a", "wettbewerb-b"}, interrupted={"wettbewerb-c"}, capabilities=CAPS, available_tools=TOOLS, known_info=KNOWN)
     ids = [x for w in r.analysis.waves for x in w]
     assert "markt" not in ids and "wettbewerb-c" in ids and r.needs_confirmation == ()
-    r2 = resume(nodes, done={x.id for x in business_plan()}, interrupted={"speichern"}, capabilities=CAPS, tools=TOOLS, known_info=KNOWN)
+    r2 = resume(nodes, done={x.id for x in business_plan()}, interrupted={"speichern"}, capabilities=CAPS, available_tools=TOOLS, known_info=KNOWN)
     assert r2.needs_confirmation == ("speichern",)                     # unterbrochener Schritt mit Wirkung: erst nach neuer Freigabe
 
 
@@ -206,7 +206,7 @@ def test_from_steps_adapts_real_goal_steps():
     g = Goal("Testziel")
     steps = [step(g, "s1", "fake"), step(g, "s2", "fake", deps=("s1",)), step(g, "ev", None, deps=("s2",))]
     nodes = from_steps(steps)
-    a = analyse(nodes, capabilities={c for s in steps for c in s.required_capabilities}, tools=set(), known_info=set())
+    a = analyse(nodes, capabilities={c for s in steps for c in s.required_capabilities}, available_tools=set(), known_info=set())
     assert a.ok and [w for w in a.waves] == [("s1",), ("s2",), ("ev",)] and a.verify_nodes == ("ev",)
 
 

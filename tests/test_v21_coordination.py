@@ -25,7 +25,7 @@ def orch_for(agents, *, inline=False, **kw):
 
 def submit_plan(orch, nodes, agent_of, skip=()):
     """Reicht die Knoten als Aufgaben mit ihren Abhaengigkeiten ein (Reihenfolge aus der Plananalyse); bereits erledigte (`skip`) werden nicht erneut eingereicht."""
-    a = analyse(nodes, capabilities={"research.web"}, tools=set(), known_info=set(), max_parallel=orch.max_concurrent, done=skip)
+    a = analyse(nodes, capabilities={"research.web"}, available_tools=set(), known_info=set(), max_parallel=orch.max_concurrent, done=skip)
     assert not a.error
     by = {n.id: n for n in nodes}
     ids = [i for w in a.waves for i in w]
@@ -138,7 +138,7 @@ def test_resume_after_a_process_abort_runs_only_the_open_steps_and_asks_again_fo
     for i in ("lesen", "rechnen"):                                                # der erste Prozess schafft zwei Schritte, dann bricht er ab
         orch1.run(AgentTask(i, agent_id="a0", task_id=i))
     done = {r.task_id for r in orch1.list() if r.status is S.SUCCEEDED}
-    plan = resume(nodes, done=done, interrupted={"senden"}, capabilities={"research.web"}, tools=set(), known_info=set())
+    plan = resume(nodes, done=done, interrupted={"senden"}, capabilities={"research.web"}, available_tools=set(), known_info=set())
     assert [i for w in plan.analysis.waves for i in w] == ["pruefen", "senden"] and plan.needs_confirmation == ("senden",)
     second = FakeAgent("a0")
     orch2, _, _ = orch_for([second], inline=True)                                 # neuer Prozess, neuer Orchestrator
