@@ -123,7 +123,7 @@ def test_halt_ends_a_hanging_call_quickly_and_the_provider_recovers_after_resume
     t.join(5)
     assert not t.is_alive(), "the hanging call must end after halt()"
     assert time.monotonic() - start < 3
-    assert isinstance(box.get("error"), ComputerError) and box["error"].code in (ErrorCode.BACKEND_ERROR, ErrorCode.FAILSAFE), box
+    assert isinstance(box.get("error"), ComputerError) and box["error"].code is ErrorCode.FAILSAFE, box
     assert not p.worker_running
     for call in (lambda: p.describe(11, UiLimits()), p.list_windows):
         with pytest.raises(ComputerError) as e:
@@ -160,7 +160,7 @@ def test_halt_at_random_moments_never_produces_an_unexpected_exception_or_a_stuc
         if err is not None and not isinstance(err, ComputerError):
             unexpected.append((i, type(err).__name__, str(err)[:80]))
         if isinstance(err, ComputerError):
-            assert err.code in (ErrorCode.BACKEND_ERROR, ErrorCode.FAILSAFE), (i, err.code)
+            assert err.code is ErrorCode.FAILSAFE, (i, err.code)                 # nach halt() ist jeder Abbruch ein definierter FAILSAFE
         assert not p.worker_running
     assert unexpected == []
 
@@ -193,7 +193,7 @@ def test_halt_ends_a_hanging_action_provider_call(act_provider, op):
     act_provider.halt("Notaus")
     t.join(5)
     assert not t.is_alive()
-    assert isinstance(box.get("error"), ComputerError) and box["error"].code in (ErrorCode.BACKEND_ERROR, ErrorCode.FAILSAFE), box
+    assert isinstance(box.get("error"), ComputerError) and box["error"].code is ErrorCode.FAILSAFE, box
     assert not act_provider.worker_running
     with pytest.raises(ComputerError) as e:
         act_provider.read_state(5, TARGET)
@@ -215,16 +215,14 @@ def test_the_action_provider_halt_race_loop_has_no_unexpected_exception(tmp_path
             t.join(8)
             assert not t.is_alive()
             err = box.get("error")
-            assert err is None or isinstance(err, ComputerError), (i, type(err).__name__, str(err)[:80])
+            assert err is None or (isinstance(err, ComputerError) and err.code is ErrorCode.FAILSAFE), (i, type(err).__name__, str(err)[:80])
     finally:
         p.shutdown()
 
 
-# ---- Befund: halt() zwischen Worker-Start und Anfrage (deterministisch, WP06 / N2) -----------------------------------------------------------------
-@pytest.mark.xfail(strict=True, reason="WP06-Befund (N2 noetig): halt() zwischen _start_worker() und dem Schreiben der Anfrage laesst `assert self._proc is not None` in "
-                                       "PywinautoUiaProvider._request als AssertionError scheitern statt sauber mit ComputerError(FAILSAFE). Kein Umgehen des Not-Aus "
-                                       "(es wird nichts ausgefuehrt), aber ein unsauberer Abbruch. Reparaturvorschlag in docs/uia-compat-results.md; erst nach Freigabe N2.")
+# ---- N2-Reparatur: halt() zwischen Pruefung, Worker-Start und Anfrage (deterministisch) -------------------------------------------------------------
 def test_halt_between_worker_start_and_request_is_a_clean_failsafe_error(provider):
+    """Vorher: AssertionError (`assert self._proc is not None`), weil halt() den Worker nach dem Start, aber vor dem Schreiben der Anfrage entfernte."""
     p = provider(call_timeout=5.0)
     start = p._start_worker
 
@@ -235,4 +233,36 @@ def test_halt_between_worker_start_and_request_is_a_clean_failsafe_error(provide
     p._start_worker = hooked
     with pytest.raises(ComputerError) as e:
         p.describe(11, UiLimits())
-    assert e.value.code in (ErrorCode.FAILSAFE, ErrorCode.BACKEND_ERROR)
+    assert e.value.code is ErrorCode.FAILSAFE and not p.worker_running
+    p.resume()
+    p._start_worker = start
+    assert p.describe(11, UiLimits()).node_count == 4                          # nach resume() wieder nutzbar
+
+
+def test_halt_after_the_halted_check_but_before_the_worker_starts_never_leaves_a_running_worker(provider):
+    """Vorher: der Aufruf startete nach halt() einen NEUEN Worker und fuehrte die Anfrage aus (Lesezugriff nach dem Not-Aus)."""
+    p = provider(call_timeout=5.0)
+    start = p._start_worker
+
+    def hooked():
+        p.halt("vor dem Worker-Start")                                          # halt() nach der `_halted`-Pruefung, bevor der Worker gestartet wird
+        start()
+
+    p._start_worker = hooked
+    with pytest.raises(ComputerError) as e:
+        p.describe(11, UiLimits())
+    assert e.value.code is ErrorCode.FAILSAFE
+    assert not p.worker_running                                                # der Worker bleibt gestoppt
+    p._start_worker = start
+    with pytest.raises(ComputerError) as e2:
+        p.describe(11, UiLimits())
+    assert e2.value.code is ErrorCode.FAILSAFE and not p.worker_running
+
+
+def test_halt_after_the_request_was_written_ends_the_call_with_failsafe_not_a_backend_error(provider):
+    p = provider(call_timeout=30.0)
+    t, box = in_thread(p.describe, HANG, UiLimits())
+    time.sleep(0.4)
+    p.halt("Notaus")
+    t.join(5)
+    assert not t.is_alive() and isinstance(box.get("error"), ComputerError) and box["error"].code is ErrorCode.FAILSAFE
