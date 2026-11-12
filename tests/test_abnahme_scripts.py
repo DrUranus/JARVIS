@@ -45,4 +45,4 @@ def test_the_measuring_helper_imports_only_the_standard_library_and_the_existing
 
 def test_the_owner_guide_states_the_open_status_and_the_uac_rule():
     doc = (ROOT / "docs" / "WINDOWS_V2_ABNAHME_KURZ.md").read_text(encoding="utf-8")
-    assert "#186 bleibt offen" in doc and "bestätigt oder bedient UAC nie" in doc and "Trockenlauf" in doc and "installiert **nichts**" in doc
+    assert "#186 bleibt offen" in doc and "bestätigt oder bedient UAC nie" in doc and "TROCKENLAUF" in doc and "installiert nichts" in doc and "-Execute" in doc
