@@ -174,6 +174,8 @@ class AgentsSettings:
     cancel_grace_seconds: float = 5.0  # an agent that ignores cancel/timeout this long is marked FAILED
     tool_call_limit: int = 200         # tool calls per task
     max_output_chars: int = 20_000     # size of a stored task output
+    agent_budgets_enabled: bool = False   # WP02b: budgets per agent (OFF: no per-agent limit; only the global ones apply)
+    agent_budgets: tuple[str, ...] = ()   # 'agent;max_seconds;max_tool_calls;max_calls_session;max_artifact_chars' (empty field = no limit); can only LOWER the global limits; unknown values refuse start-up
     artifacts: bool = False            # E5: typed hand-over artifacts IN ADDITION to the unchanged output (research -> business). OFF: results are byte-identical
     router: AgentRouterSettings = field(default_factory=AgentRouterSettings)
 
@@ -518,6 +520,13 @@ class Settings:
         rt = ag.router
         if not 0 < rt.timeout_seconds <= 60 or not 1 <= rt.max_objective_chars <= 2000 or not 1 <= rt.max_reason_chars <= 300:
             raise ConfigError("agents.router.timeout_seconds 0..60 (positive), max_objective_chars 1..2000, max_reason_chars 1..300")
+        try:
+            from jarvis.agent_budgets import AgentBudgets
+            AgentBudgets.from_entries(ag.agent_budgets, global_timeout=ag.task_timeout_seconds, global_tool_calls=ag.tool_call_limit)
+        except ConfigError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - BudgetError or anything else: refuse to start rather than run without the limit
+            raise ConfigError(f"agents.agent_budgets: {exc}") from None
         gl = self.goals
         if not 1 <= gl.max_steps <= 50 or not 1 <= gl.max_attempts_per_step <= 5:
             raise ConfigError("goals.max_steps 1..50, max_attempts_per_step 1..5")

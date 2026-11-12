@@ -44,7 +44,8 @@ def test_the_layer_never_imports_the_subsystems_it_coordinates_nor_the_permissio
     for f, tree in modules(AGENTS):
         for m in imports(tree):
             assert not m.startswith(FORBIDDEN_JARVIS), f"{f.relative_to(AGENTS)} imports {m}"
-    allowed_jarvis = {"jarvis.errors", "jarvis.redaction", "jarvis.tasks", "jarvis.tools", "jarvis.config", "jarvis.memory"}
+    allowed_jarvis = {"jarvis.errors", "jarvis.redaction", "jarvis.tasks", "jarvis.tools", "jarvis.config", "jarvis.memory",
+                      "jarvis.agent_budgets"}        # WP02b: pure, neutral budget model (no I/O, no permissions, no subsystem); the configuration validates with the same module
     for f, tree in modules(AGENTS):
         for m in imports(tree):
             if m.startswith("jarvis.") and not m.startswith("jarvis.agents"):
