@@ -1,6 +1,6 @@
 """WP01 (V2-06): typed hand-over artifacts between agents - an ISOLATED, backward-compatible core.
 
-NOT wired into the orchestrator (no production module imports it; a layering test keeps it that way until the wiring is approved). Pure data and checks: no file, network,
+Wired (E5, agents.artifacts, OFF by default) ONLY into the orchestrator's result check and the research hand-over (`research/agent.py`, `research/handoff.py`); a layering test keeps it that way. Pure data and checks: no file, network,
 process or thread access. An artifact is plain data (kind, source, SHA-256, length, content, redaction flag, basis); it carries NO right: it can neither grant a permission nor
 change a plan, and its text is never an instruction. `file_ref` holds only a plain relative path - nothing here ever reads a file (PathGuard stays the one gate).
 
