@@ -74,6 +74,7 @@ vm.runInContext(fs.readFileSync(webDir + "/app.js", "utf8"), ctx);
     if (step.click) { const e = byId.get(step.click.id); const btns = e.querySelectorAll("button"); btns.find((b) => b.textContent.trim() === step.click.text).click(); await new Promise((r) => setImmediate(r)); await new Promise((r) => setImmediate(r)); }
     if (step.clickId) { byId.get(step.clickId).click(); await new Promise((r) => setImmediate(r)); await new Promise((r) => setImmediate(r)); }
     if (step.wait) for (let k = 0; k < 4; k++) await new Promise((r) => setImmediate(r));
+    if (step.key) { for (const f of docListeners.keydown || []) f({ key: step.key, preventDefault() {} }); await new Promise((r) => setImmediate(r)); }
     if (step.frames) for (const t of step.frames) { if (rafCb) { const cb = rafCb; rafCb = null; cb(t); } }
     if (step.effects) { const sel = byId.get("effects"); sel.value = step.effects; for (const f of sel.listeners.change || []) f({}); }
     if (step.disconnect) sources[0].onerror({});
