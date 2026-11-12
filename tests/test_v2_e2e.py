@@ -133,7 +133,6 @@ def test_e6_a_denied_permission_blocks_without_retry_and_creates_nothing(tmp_pat
     assert res.status in (G.BLOCKED, G.FAILED) and not (ws / "Archiv").exists()
     asked = len(prompts.requests)
     assert asked <= 2                                                          # eine Rueckfrage, kein Wiederholungssturm
-    assert all(s.attempts <= 1 for s in res.steps if hasattr(s, "attempts")) or True
 
 
 # ---- E7 verbotene Folgeaktion ----------------------------------------------------------------------------------------------------------------------------------
@@ -212,12 +211,28 @@ def test_e9c_agent_budget_blocks_the_agent_without_retry_and_audits_numbers_only
 
 
 # ---- E10 Not-Aus erreicht die neuen Komponenten ----------------------------------------------------------------------------------------------------------------
-def test_e10_the_central_emergency_stop_knows_the_new_components(tmp_path):
+def test_e10_the_central_emergency_stop_reaches_agents_goals_tools_and_the_speech_output(tmp_path):
+    from jarvis.bootstrap import speech_guard, voice_stopper
     core, e, ws, _ = world(tmp_path)
-    names = set(core.permissions.emergency.names())
-    assert {"agents", "goals"} <= names or len(names) >= 2, names
-    rep = core.permissions.emergency.engage("test", source="test") and core.permissions.emergency.run_stoppers()
-    assert rep is not None and core.permissions.emergency.engaged
+    em = core.permissions.emergency
+    assert {"agents", "goals", "browser", "computer", "files"} <= set(em.names())
+    spoken = []
+
+    class Speaker:                                                              # Fake-Sprachausgabe (Windows-TTS hat eigene Tests); der Stopper steht wie in build_voice_session
+        def __init__(self):
+            self.stopped = 0
+        def stop(self):
+            self.stopped += 1
+    sp = Speaker()
+    em.register("voice", voice_stopper(sp))
+    guard = speech_guard(core)
+    assert guard() is None                                                      # ohne Not-Aus darf gesprochen werden
+    em.engage("test", source="test")
+    report = em.run_stoppers()
+    assert sp.stopped == 1 and "voice" in {c.name for c in report.components}   # laufende Ausgabe wird beendet ...
+    assert guard()                                                              # ... und neue Ausgabe verweigert (Grund als Text)
+    assert all(c.outcome.value in ("stopped", "nothing", "requested") for c in report.components), report.components
+    assert not spoken
 
 
 # ---- E11 NEXUS gegen den echten Lauf ---------------------------------------------------------------------------------------------------------------------------
