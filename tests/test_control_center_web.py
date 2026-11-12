@@ -43,7 +43,7 @@ def test_js_talks_only_to_own_endpoints():
     assert "http://" not in js and "https://" not in js
     assert re.findall(r"new EventSource\((.*)\);", js) == ["url(\"events\", lastSeq)"]
     # genau drei eigene Ziele: Befehle (POST), die Zustandstabelle des Kerns (GET, cc-ai-core) und die lesenden Ansichten (GET, cc-results-audit)
-    assert re.findall(r"fetch\(([^,]*),", js) == ["url(\"command\")", "url(\"view/\" + which", "url(\"core_states.json\")", "url(\"/overlay/open\")"]  # overlay/open: nur Mini-Overlay, Token+Origin, oeffnet das Hauptfenster
+    assert re.findall(r"fetch\(([^,]*),", js) == ["url(\"view/agents\"", "url(\"command\")", "url(\"view/\" + which", "url(\"core_states.json\")", "url(\"/overlay/open\")"]  # view/agents: Zeitleiste (WP07b, GET); overlay/open: nur Mini-Overlay, Token+Origin, oeffnet das Hauptfenster
 
 
 def test_starts_in_orb_mode_and_has_toggle_and_emergency_button_in_both_modes():
