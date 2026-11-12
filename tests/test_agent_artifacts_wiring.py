@@ -227,7 +227,16 @@ def _chain(tmp_path, switch):
 
 
 def _strip(o):
-    return {k: v for k, v in o.items() if k not in ("artifacts", "artifact_rejections")}
+    return _no_clock({k: v for k, v in o.items() if k not in ("artifacts", "artifact_rejections")})
+
+
+def _no_clock(v):
+    """The research agent stamps `retrieved_at` with the REAL clock; two runs may differ by a second. Only that field is ignored."""
+    if isinstance(v, dict):
+        return {k: _no_clock(x) for k, x in v.items() if k != "retrieved_at"}
+    if isinstance(v, list):
+        return [_no_clock(x) for x in v]
+    return v
 
 
 def test_end_to_end_the_research_output_is_unchanged_and_the_artifact_is_an_addition(tmp_path):
@@ -236,7 +245,7 @@ def test_end_to_end_the_research_output_is_unchanged_and_the_artifact_is_an_addi
     assert "artifacts" not in off.output
     assert [a["kind"] for a in on.output["artifacts"]] == ["research_data"] and "artifact_rejections" not in on.output
     assert _strip(on.output).keys() == off.output.keys()
-    assert on.output["sources"] == off.output["sources"] and on.output["figures"] == off.output["figures"]
+    assert _no_clock(on.output["sources"]) == _no_clock(off.output["sources"]) and on.output["figures"] == off.output["figures"]
     assert on_biz.status == off_biz.status
 
 
