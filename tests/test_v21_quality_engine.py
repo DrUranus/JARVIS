@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from jarvis.business import calc
 from jarvis.quality.engine import MANDATORY, conflicts, evaluate
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "jarvis"
@@ -32,7 +33,14 @@ def good():
             "files": ["bericht.txt"]}
 
 
+def break_even(inputs):
+    """Der Aufrufer reicht die vorhandene Rechnung herein (business.calc); die Engine selbst importiert keine andere Schicht."""
+    res = calc.break_even(inputs.get("fixed_costs"), inputs.get("price"), inputs.get("variable_cost"))
+    return res["units"] if res["status"] == "COMPUTED" else None
+
+
 def run(report, exists=lambda p: True, audit=AUDIT, **kw):
+    kw.setdefault("calculators", {"break_even": break_even})
     return evaluate(report, file_exists=exists, audit_events=audit, **kw)
 
 
@@ -157,7 +165,7 @@ def test_budgets_are_checked_and_unknown_use_of_a_binding_budget_fails_closed():
 def test_declared_files_must_really_exist():
     v = run(good(), exists=lambda p: False)
     assert not v.accepted and codes(v, "files") == ("file_missing:0",)
-    v = evaluate(good(), file_exists=None, audit_events=AUDIT)
+    v = run(good(), exists=None)
     assert status(v, "files") == "UNKNOWN" and not v.accepted                 # ungeprueft ist nicht bestanden
 
     def boom(path):
@@ -208,11 +216,19 @@ def test_evaluation_does_not_change_its_input_and_is_deterministic():
     assert run(r).to_dict() == run(r).to_dict() and r == before
 
 
-def test_the_engine_is_pure_and_reuses_the_business_calculation():
+def test_without_the_calculator_a_domain_formula_is_unverifiable_not_passed():
+    v = evaluate(good(), file_exists=lambda p: True, audit_events=AUDIT)
+    assert status(v, "calculations") == "UNKNOWN" and codes(v, "calculations") == ("calculation_unverifiable:c1",) and not v.accepted
+
+    def broken(inputs):
+        raise RuntimeError("Rechner defekt")
+    assert codes(run(good(), calculators={"break_even": broken}), "calculations") == ("calculation_wrong:c1",)
+
+
+def test_the_engine_is_pure_and_imports_no_other_layer():
     text = (SRC / "quality" / "engine.py").read_text(encoding="utf-8")
     tree = ast.parse(text)
     mods = {a.name for x in ast.walk(tree) if isinstance(x, ast.Import) for a in x.names} | {x.module for x in ast.walk(tree) if isinstance(x, ast.ImportFrom)}
-    assert mods <= {"__future__", "dataclasses", "math", "typing", "jarvis.business", "jarvis.business.errors"}, mods
-    assert "calc.break_even(" in text
+    assert mods <= {"__future__", "dataclasses", "math", "typing"}, mods
     calls = {n.func.id for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
     assert not calls & {"open", "exec", "eval", "compile", "__import__"}

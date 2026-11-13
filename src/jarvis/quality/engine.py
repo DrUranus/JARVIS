@@ -3,7 +3,8 @@
 An agent's own "SUCCEEDED" decides nothing (in either direction). A result is ACCEPTED only if every mandatory check passes:
   requirements  every requirement is covered by evidence that exists in the result (a statement, a calculation or a declared file)
   sources       every FACT names sources that were really read (listed with status ok); assumptions must be marked as such
-  calculations  claimed numbers are recomputed (break-even through business.calc); a calculation that cannot be checked is UNKNOWN, not passed
+  calculations  claimed numbers are recomputed. Simple arithmetic is checked here; domain formulas (e.g. break-even) are recomputed with the calculator the caller passes in
+                (`calculators`, e.g. business.calc - this module imports no other layer); a calculation that cannot be checked is UNKNOWN, not passed
   consistency   the same figure with different values is a conflict unless the result shows it as one
   completeness  required fields are filled
   approvals     every action with a side effect or an external effect has its own recorded, accepted confirmation (one approval covers one action)
@@ -15,9 +16,6 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Mapping, Sequence
-
-from jarvis.business import calc
-from jarvis.business.errors import BusinessError
 
 MANDATORY = ("requirements", "sources", "calculations", "consistency", "completeness", "approvals", "budgets", "files")
 BASES = ("FACT", "GIVEN", "INFERENCE", "ESTIMATE", "UNKNOWN")
@@ -80,9 +78,11 @@ def conflicts(figures: Any) -> list[dict[str, Any]]:
     return out
 
 
-def _recompute(op: Any, inputs: Any) -> float | None | str:
+def _recompute(op: Any, inputs: Any, calculators: Mapping[str, Callable[[Any], Any]]) -> float | None | str:
     """The recomputed value; None if the operation has no result for these inputs; "?" if it cannot be checked here."""
     try:
+        if isinstance(op, str) and op in calculators:
+            return _num(calculators[op](inputs))                          # None = this operation has no result for these inputs
         if op in ("sum", "product") and isinstance(inputs, (list, tuple)) and inputs:
             nums = [_num(x) for x in inputs]
             if any(n is None for n in nums):
@@ -96,12 +96,9 @@ def _recompute(op: Any, inputs: Any) -> float | None | str:
                 return g("a") / g("b")
             if op == "margin" and g("revenue") and g("costs") is not None:
                 return (g("revenue") - g("costs")) / g("revenue")
-            if op == "break_even":
-                res = calc.break_even(g("fixed_costs"), g("price"), g("variable_cost"))
-                return res["units"] if res.get("status") == "COMPUTED" else None
             if op in ("difference", "ratio", "margin"):
                 return None
-    except (BusinessError, ArithmeticError, TypeError, ValueError):
+    except Exception:  # noqa: BLE001 - a calculator that fails has not confirmed the number
         return None
     return "?"
 
@@ -113,7 +110,8 @@ def _plain_path(path: Any) -> bool:
     return not (p.startswith(("/", "~")) or (len(p) > 1 and p[1] == ":") or ".." in p.split("/"))
 
 
-def evaluate(report: Any, *, file_exists: Callable[[str], bool] | None, audit_events: Sequence[Any] = (), require_reproduction: bool = False) -> Verdict:
+def evaluate(report: Any, *, file_exists: Callable[[str], bool] | None, audit_events: Sequence[Any] = (), require_reproduction: bool = False,
+             calculators: Mapping[str, Callable[[Any], Any]] | None = None) -> Verdict:
     r: Mapping[str, Any] = report if isinstance(report, Mapping) else {}
     statements, calcs = _maps(r.get("statements")), _maps(r.get("calculations"))
     files = [f for f in r.get("files", [])] if isinstance(r.get("files"), (list, tuple)) else []
@@ -155,7 +153,7 @@ def evaluate(report: Any, *, file_exists: Callable[[str], bool] | None, audit_ev
         if claimed is None:
             fails.append(f"calculation_invalid:{cid}")
             continue
-        value = _recompute(c.get("op"), c.get("inputs"))
+        value = _recompute(c.get("op"), c.get("inputs"), calculators or {})
         if value == "?":
             unknowns.append(f"calculation_unverifiable:{cid}")
         elif value is None or not math.isclose(claimed, value, rel_tol=1e-6, abs_tol=1e-6):
