@@ -242,7 +242,7 @@ def test_the_mission_module_imports_no_agents_permissions_tools_or_writers_and_h
 # ---- Oberflaeche: Struktur ---------------------------------------------------------------------------------------------------------------------------------------
 def test_the_assets_have_the_mission_panel_and_use_no_new_library_or_dangerous_api():
     html, js, css = text("index.html"), text("app.js"), text("styles.css")
-    for i in ("mission-panel", "mission-note", "mission-refresh", "mission-graph", "mission-agents", "mission-budget", "mission-progress", "mission-quality", "mission-business", "mission-memory"):
+    for i in ("mission-panel", "mission-note", "mission-refresh", "mission-graph", "mission-agents", "mission-budget", "mission-progress", "mission-errors", "mission-quality", "mission-business", "mission-memory"):
         assert f'id="{i}"' in html, i
     body = js.split("function renderMission")[1].split("\nasync function ")[0]
     for bad in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", ".src =", "href", 'setAttribute("style"', "style.cssText", "three", "THREE", "eval(", "POST"):
@@ -256,7 +256,7 @@ def test_the_assets_have_the_mission_panel_and_use_no_new_library_or_dangerous_a
 # ---- Oberflaeche: DOM (Node) ----------------------------------------------------------------------------------------------------------------------------------------
 def mission_data(**over):
     d = {"available": True, "reason": "", "limit": 100,
-         "graph": {"available": True, "truncated": False, "waves": [["t1"], ["t2", "t3"]], "edges": [["t1", "t2"], ["t1", "t3"]], "external_deps": [], "cycle": [],
+         "graph": {"available": True, "truncated": False, "waves": [["t1"], ["t2", "t3"]], "edges": [["t1", "t2"], ["t1", "t3"]], "external_deps": [], "cycle": [], "blocked_by_failure": ["t9"],
                    "nodes": [{"id": "t1", "agent": "research", "status": "SUCCEEDED", "wave": 0, "deps": [], "objective": "Preise"},
                              {"id": "t2", "agent": "business", "status": "RUNNING", "wave": 1, "deps": ["t1"], "objective": "Analyse"},
                              {"id": "t3", "agent": "business", "status": "FAILED", "wave": 1, "deps": ["t1"], "objective": "Plan"}]},
@@ -265,7 +265,8 @@ def mission_data(**over):
          "progress": {"available": True, "total": 3, "by_status": {"SUCCEEDED": 1, "RUNNING": 1, "FAILED": 1}, "finished": 2, "percent": 67},
          "quality": {"available": True, "reason": "", "accepted": 0, "rejected": 1, "items": [{"task_id": "t3", "accepted": False, "failed": ["sources"], "unknown": [], "self_reported": "SUCCEEDED"}]},
          "business": {"available": True, "reason": "", "items": [{"task_id": "t2", "agent_id": "strategist", "kind": "rank", "summary": "Rangfolge", "confidence": "medium", "unknowns": 1, "sources": 2}]},
-         "memory": {"available": False, "reason": "Projektgedaechtnis noch nicht angebunden."}}
+         "memory": {"available": False, "reason": "Projektgedaechtnis noch nicht angebunden."},
+         "errors": {"available": True, "reason": "", "items": [{"task_id": "t3", "agent": "business", "code": "agent_crashed", "status": "FAILED"}]}}
     d.update(over)
     return d
 
@@ -284,6 +285,7 @@ def test_dom_renders_all_sections_from_the_view_with_text_only(tmp_path):
     assert any("research" in x["text"] for x in s["items"]["mission-agents"])
     assert "3/50" in s["text"]["mission-budget"] and s["props"]["mission-progress"]["value"] == 67
     assert "sources" in s["text"]["mission-quality"] and "strategist" in s["text"]["mission-business"] and "noch nicht angebunden" in s["text"]["mission-memory"]
+    assert "agent_crashed" in s["text"]["mission-errors"] and "t9" in s["text"]["mission-graph"]
 
 
 def test_dom_shows_the_reason_when_the_layer_is_off_and_never_throws_on_odd_data(tmp_path):
@@ -293,3 +295,16 @@ def test_dom_shows_the_reason_when_the_layer_is_off_and_never_throws_on_odd_data
     assert "nicht aktiv" in s["text"]["mission-note"] and s["items"]["mission-graph"] == []
     s = snap(tmp_path, {"available": True, "graph": "kaputt", "agents": None, "progress": [], "budget": 5})
     assert s["fetched"] == ["mission"]
+
+
+# ---- uebernommen aus dem Prototyp claude/v21-nexus (mission_view.py): Fehler und Blockade durch Fehlschlag ---------------------------------------------------------
+def test_tasks_behind_a_failed_or_cancelled_task_are_listed_as_blocked_by_that_failure():
+    g = view(task(1, "FAILED", error_code="timeout"), task(2, "PENDING", deps=["t1"]), task(3, "PENDING", deps=["t2"]), task(4, "SUCCEEDED"), task(5, "PENDING", deps=["t4"])).snapshot(50)["graph"]
+    assert g["blocked_by_failure"] == ["t2", "t3"]
+
+
+def test_errors_show_codes_per_task_without_texts():
+    out = view(task(1, "FAILED", error_code="timeout", summary="Geheimnis " + KEY), task(2, "BLOCKED", error_code="emergency_stop"), task(3)).snapshot(50)["errors"]
+    assert out["available"] is True and [(e["task_id"], e["code"]) for e in out["items"]] == [("t2", "emergency_stop"), ("t1", "timeout")]
+    assert KEY not in json.dumps(out) and "Geheimnis" not in json.dumps(out)
+    assert view(task(1)).snapshot(50)["errors"]["items"] == []

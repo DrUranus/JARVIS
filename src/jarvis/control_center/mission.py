@@ -65,11 +65,11 @@ class MissionView:
         if not isinstance(raw, Mapping):
             reason = REASONS["graph"] if self._agents_source is None else "Die Agentenuebersicht ist nicht lesbar."
             out = {"available": False, "reason": reason, "limit": limit, "graph": self._graph([], limit), "agents": self._off(reason, items=[]),
-                   "progress": self._progress([])}
+                   "progress": self._progress([]), "errors": {"available": False, "reason": reason, "items": []}}
         else:
             tasks = [t for t in self._list(raw.get("tasks")) if isinstance(t, Mapping) and isinstance(t.get("task_id"), str)]
             out = {"available": True, "reason": "", "limit": limit, "graph": self._graph(tasks, limit), "agents": self._agents(raw.get("agents"), tasks),
-                   "progress": self._progress(tasks[-limit:])}
+                   "progress": self._progress(tasks[-limit:]), "errors": self._errors(tasks[-limit:])}
         out.update(budget=self._budget(), quality=self._rows("quality", self._quality_source, self._quality_row),
                    business=self._rows("business", self._business_source, self._business_row), memory=self._memory())
         return out
@@ -108,11 +108,21 @@ class MissionView:
             depth(t["task_id"])
         nodes = [{"id": self._t(t["task_id"], 64), "agent": self._t(t.get("agent_id"), 64), "status": self._t(t.get("status"), 32).upper(), "wave": wave.get(t["task_id"]),
                   "deps": deps[t["task_id"]], "objective": self._t(t.get("objective"), 120)} for t in window]
+        status = {n["id"]: n["status"] for n in nodes}
+        blocked: set[str] = set()                                                        # waiting tasks that depend (directly or not) on a failed or cancelled one
+        changed = True
+        while changed:
+            changed = False
+            for n in nodes:
+                if n["id"] not in blocked and n["status"] in ("PENDING", "BLOCKED") and any(status.get(d) in ("FAILED", "CANCELLED") or d in blocked for d in n["deps"]):
+                    blocked.add(n["id"])
+                    changed = True
         top = max((w for w in wave.values() if w is not None), default=-1)
         waves = [[n["id"] for n in nodes if n["wave"] == i] for i in range(top + 1)]
         return {"available": True, "truncated": len(tasks) >= min(limit, MAX_NODES),            # a full window: older tasks may exist that are not shown
                 "nodes": nodes, "waves": waves, "external_deps": external[:MAX_ITEMS],
-                "edges": [[d, n["id"]] for n in nodes for d in n["deps"] if d in ids], "cycle": [n["id"] for n in nodes if n["wave"] is None]}
+                "edges": [[d, n["id"]] for n in nodes for d in n["deps"] if d in ids], "cycle": [n["id"] for n in nodes if n["wave"] is None],
+                "blocked_by_failure": sorted(blocked)}
 
     # ---- agents and progress ---------------------------------------------------------------------------------------------------------------
     def _agents(self, agents: Any, tasks: list[Mapping[str, Any]]) -> dict[str, Any]:
@@ -122,6 +132,12 @@ class MissionView:
                   "capabilities": [self._t(c, 64) for c in self._list(a.get("capabilities"))[:MAX_ITEMS]], "pending": count(a.get("id"), "PENDING"), "running": count(a.get("id"), "RUNNING")}
                  for a in self._list(agents)[:MAX_AGENTS] if isinstance(a, Mapping)]
         return {"available": True, "items": sorted(items, key=lambda a: a["id"])}
+
+    def _errors(self, tasks: list[Mapping[str, Any]]) -> dict[str, Any]:
+        """Error CODES per task, newest first - never the texts (those stay in the task view)."""
+        rows = [{"task_id": self._t(t.get("task_id"), 64), "agent": self._t(t.get("agent_id"), 64), "code": self._t(t.get("error_code"), 64), "status": self._t(t.get("status"), 32).upper()}
+                for t in reversed(tasks) if t.get("error_code")]
+        return {"available": True, "reason": "", "items": rows[:MAX_ITEMS]}
 
     def _progress(self, tasks: list[Mapping[str, Any]]) -> dict[str, Any]:
         by: dict[str, int] = {}

@@ -271,7 +271,7 @@ function renderMission(data) {
   const note = el("mission-note");
   const graph = el("mission-graph");
   graph.replaceChildren();
-  for (const id of ["mission-agents", "mission-quality", "mission-business", "mission-memory"]) el(id).replaceChildren();
+  for (const id of ["mission-agents", "mission-errors", "mission-quality", "mission-business", "mission-memory"]) el(id).replaceChildren();
   el("mission-budget").textContent = "";
   el("mission-progress").value = 0;
   el("mission-progress-note").textContent = "";
@@ -296,6 +296,7 @@ function renderMission(data) {
     li.appendChild(ul);
     graph.appendChild(li);
   });
+  if (Array.isArray(g.blocked_by_failure) && g.blocked_by_failure.length) { const li = document.createElement("li"); li.className = "tl-err"; li.textContent = "Blockiert durch einen Fehlschlag: " + g.blocked_by_failure.join(", "); graph.appendChild(li); }
   if (Array.isArray(g.cycle) && g.cycle.length) { const li = document.createElement("li"); li.className = "tl-err"; li.textContent = "Zyklus in den Abhaengigkeiten: " + g.cycle.join(", "); graph.appendChild(li); }
   if (Array.isArray(g.external_deps) && g.external_deps.length) { const li = document.createElement("li"); li.className = "tl-dep"; li.textContent = "Voraussetzung ausserhalb des Fensters: " + g.external_deps.join(", "); graph.appendChild(li); }
   const agents = data.agents && typeof data.agents === "object" ? data.agents : null;
@@ -313,6 +314,7 @@ function renderMission(data) {
     const by = p.by_status && typeof p.by_status === "object" ? Object.entries(p.by_status).map(([k, v]) => k + " " + v).join(", ") : "";
     el("mission-progress-note").textContent = (p.finished | 0) + " von " + (p.total | 0) + " Aufgaben abgeschlossen (" + (p.percent | 0) + " %)" + (by ? "  - " + by : "");
   }
+  missionSection("mission-errors", data.errors && typeof data.errors === "object" ? data.errors : null, (d) => (Array.isArray(d.items) ? d.items : []).map((x) => String(x.task_id) + "  " + String(x.agent || "-") + "  " + String(x.code)));
   const q = data.quality && typeof data.quality === "object" ? data.quality : null;
   missionSection("mission-quality", q, (d) => (Array.isArray(d.items) ? d.items : []).map((x) => String(x.task_id) + "  " + (x.accepted ? "angenommen" : "NICHT angenommen") + "  (Agent meldet: " + String(x.self_reported || "?") + ")"
     + (Array.isArray(x.failed) && x.failed.length ? "  fehlgeschlagen: " + x.failed.join(", ") : "") + (Array.isArray(x.unknown) && x.unknown.length ? "  ungeprueft: " + x.unknown.join(", ") : "")));
