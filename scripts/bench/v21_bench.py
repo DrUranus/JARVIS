@@ -86,15 +86,29 @@ def case_memory(n: int) -> dict[str, Any]:
     return {"adds": n, "searches": max(1, n // 10), "hits": hits}
 
 
+def _release_log_files(tmp: str) -> None:
+    import logging
+    for logger in [logging.getLogger(), *(logging.getLogger(n) for n in list(logging.root.manager.loggerDict))]:
+        for h in list(getattr(logger, "handlers", ())):
+            if str(getattr(h, "baseFilename", "")).startswith(str(Path(tmp).resolve())) or str(getattr(h, "baseFilename", "")).startswith(tmp):
+                logger.removeHandler(h)
+                h.close()
+
+
 def case_build_core(n: int) -> dict[str, Any]:
     from jarvis.bootstrap import build_core
     from jarvis.config import load_settings
-    with tempfile.TemporaryDirectory() as tmp:
+    # Windows: der Kern haelt Log- und Datenbankdateien offen; ein Aufraeumfehler des Temp-Ordners ist kein Messfehler.
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         env = {"JARVIS_WORKSPACE": str(Path(tmp) / "ws"), "JARVIS_LOG_DIR": str(Path(tmp) / "logs"), "JARVIS_MEMORY_PATH": str(Path(tmp) / "m.db"), "JARVIS_AGENTS_ENABLED": "true",
                "JARVIS_GOALS_ENABLED": "true"}
         (Path(tmp) / "ws").mkdir()
         for _ in range(n):
-            build_core(load_settings(env=env))
+            core = build_core(load_settings(env=env))
+            close = getattr(getattr(core, "memory", None), "close", None)
+            if callable(close):
+                close()
+        _release_log_files(tmp)
     return {"starts": n, "note": "mock LLM, agents and goals on, everything else default (off)"}
 
 
