@@ -1,9 +1,30 @@
-# V2.1 – Architektur, Abhängigkeitsmatrix und Integrationsvorbereitung (M1–M8)
+# V2.1 – Architektur, Branch- und Abhängigkeitsmatrix (M1–M8)
 
-Stand: Vorbereitung, **nichts ist gepusht, kein PR, kein Merge**. Alle V2.1-Zweige liegen auf `claude/v2-integration` (Commit `7c2b4b7`), das **selbst noch nicht in `main` ist**
-(`main` steht auf `7cc65b0e`). Die Reihenfolge unten gilt daher erst nach dem Besitzer-Merge von `claude/v2-integration`.
+Stand: Integrationsstand auf dem **lokalen** Branch `claude/v21-integration` (Basis `claude/v2-integration` @ `7c2b4b7`, nicht `main`). Nichts gepusht, kein PR, kein Merge.
+Maßgeblich sind die Remote-Commits, wie sie am Tag der Integration vorlagen (`git fetch`, 2026-11-13).
 
-Legende „Stand“: **Kern** = reine, getestete Logik ohne Verdrahtung · **Verdrahtet (aus)** = in `bootstrap.py`/Fabrik eingehängt, Standard aus · **Konzept** = nur Dokument.
+## 0. Branch-Matrix (tatsächlicher Remote-Stand)
+
+| Branch | Kopf | Vorwärts-Commits auf `7c2b4b7` | Inhalt | Nachfolger/Duplikat | Aufnahme in `claude/v21-integration` |
+|---|---|---|---|---|---|
+| `v21-intelligence` | `91471bc` | 2 | M1 `goals/plan_graph.py`, M5 `goals/decision.py`, Koordinationstests | – | vollständig |
+| `v21-strategist` | `ace5a84` | 1 | M2 Kern `business/strategist.py` | **Vorgänger** von `v21-strategist-agent` (dessen Basis) | über `strategist-agent` (kein Doppel-Commit) |
+| `v21-strategist-agent` | `915a5a7` | 2 (inkl. `ace5a84`) | M2 Agent `business/strategist_agent.py`, Fähigkeit `business.strategy`, Schalter | Nachfolger von `strategist` | vollständig |
+| `v21-memory-quality` | `d39f508` | 3 | M3 `memory/project_memory.py`, M7 `quality/engine.py` | – | vollständig |
+| `v21-lab-bench` | `8458f73` | 3 | M8 `scripts/bench/v21_bench.py` (+ Windows-Fix `36ead65`), M4-Bewertungskern `lab/evaluate.py` | Fix doppelt zu `bench-winfix` | vollständig |
+| `v21-bench-winfix` | `bb3e23b` | 2 | gleiche Windows-Korrektur wie `36ead65`, anders umgesetzt (Logger schließen statt `ignore_cleanup_errors`) | **Duplikat** zu `lab-bench` | **nicht** aufgenommen (`lab-bench` löst denselben Fall bereits); sein Test „kein offener FileHandler“ ist deshalb nicht Teil der Integration |
+| `v21-estop-orchestrator` | `b27c243` | 1 | Not-Aus-Guard im Orchestrator, `bootstrap.emergency_guard` | – | vollständig |
+| `v21-bearer-detection` | `0299291` | 1 | Bearer-Muster in `redaction.py` | – | vollständig |
+| `v21-mission-control` | `c18e3a1` | 1 | M6 verdrahtete Ansicht `/view/mission` (`control_center/mission.py`, UI) | **Teilduplikat** zu `nexus` (Graph, Agenten, Fortschritt, Business, Qualität, Gedächtnis) | vollständig |
+| `v21-nexus` | `d1b810f` | 1 | M6-Datenmodell `control_center/mission_view.py` (neun Felder, **nicht verdrahtet**), `docs/V21_STATUS.md` | Teilduplikat zu `mission-control` | **nur Teile übernommen**: Fehlercodes-Abschnitt und „blockiert durch Fehlschlag“; Rest (Kosten, Quellen, Freigabeanzeige) mangels Datenquelle nicht; Datei selbst nicht übernommen |
+| `v21-m4-lab-concept` | `308c61d` | 1 | M4-Konzeptdokument | – | vollständig (nach `docs/v21/`) |
+| `v21-integration-prep` | lokal, nie gepusht | – | frühere Probe-Zusammenführung | **Vorgänger** von `claude/v21-integration` | ersetzt; nur `710a779` (Doku, `emergency_stop` in `NEVER_REPLAN`, Koordinationstest) übernommen |
+
+Doppelte Implementierungen: (1) Windows-Fix des Benchmarks (`36ead65` ≙ `bb3e23b`), (2) Mission-Control-Datenmodell (`mission.py` ≙ `mission_view.py`, überschneidend in Graph/Fortschritt/Agenten/Business/Qualität/Gedächtnis), (3) Strategist-Kern in zwei Zweigen (kein Inhaltsduplikat, nur Vorgänger).
+Der Prototyp `mission_view.py` bleibt als Referenz auf seinem Branch; in der Integration gibt es genau **eine** Laufzeitimplementierung (`control_center/mission.py`).
+
+## Betroffen von `bootstrap.py`
+Nur `claude/v21-estop-orchestrator`: Funktion `emergency_guard(core)` und das Schlüsselwort `stop_guard=` an `build_agents`. `speech_guard` delegiert dorthin (Verhalten gleich). Enge Prüfung: `tests/test_v21_bootstrap_wiring.py` (Fingerabdruck des restlichen Moduls = V2.0-Stand, AST-Invarianten N3-B bleiben erfüllt).
 
 ## 1. Die acht Missionen
 
@@ -12,11 +33,11 @@ Legende „Stand“: **Kern** = reine, getestete Logik ohne Verdrahtung · **Ver
 | M1 | Plananalyse (Abhängigkeitsgraph, Wellen, Neuplanung, Wiederaufnahme) | `claude/v21-intelligence` `91471bc` | Kern | `goals/plan_graph.py` |
 | M2 | Business Strategist | `claude/v21-strategist` `ace5a84` (Kern) + `claude/v21-strategist-agent` (Agent) | Kern + **Agent verdrahtet (aus)** | `business/strategist.py`, `business/strategist_agent.py`, `agents/policy.py`, `agents/factory.py`, `config.py` |
 | M3 | Projektgedächtnis | `claude/v21-memory-quality` `d39f508` | Kern | `memory/project_memory.py` |
-| M4 | Self-Improvement Lab | `claude/v21-m4-lab-concept` | **Konzept** (keine Implementierung) | `docs/V21_M4_SELF_IMPROVEMENT_LAB.md` |
+| M4 | Self-Improvement Lab | `claude/v21-m4-lab-concept` + `claude/v21-lab-bench` | **Konzept + reiner Bewertungskern** (Analyse, Benchmark-Vergleich, Fehlerklassifizierung; `may_apply` immer `False`); keine Ausführung | `docs/v21/M4_SELF_IMPROVEMENT_LAB.md`, `lab/evaluate.py` |
 | M5 | Vorgehensvergleich und Koordination | `claude/v21-intelligence` | Kern | `goals/decision.py` |
-| M6 | NEXUS Mission Control | `claude/v21-mission-control` | **Verdrahtet** (nur lesende Ansicht; Anzeige nur mit `control_center.enabled`) | `control_center/mission.py`, `views.py`, `server.py`, `launcher.py`, `web/*` |
+| M6 | NEXUS Mission Control | `claude/v21-mission-control` (+ Teile aus `claude/v21-nexus`) | **Verdrahtet** (nur lesende Ansicht; Anzeige nur mit `control_center.enabled`) | `control_center/mission.py`, `views.py`, `server.py`, `launcher.py`, `web/*` |
 | M7 | Quality Engine | `claude/v21-memory-quality` | Kern | `quality/engine.py` |
-| M8 | Lab-Bench (Mikro-Benchmarks) | `claude/v21-lab-bench` `c8be7d1` | Werkzeug (Skript, nur Messung) | `scripts/bench/v21_bench.py` |
+| M8 | Lab-Bench (Mikro-Benchmarks) | `claude/v21-lab-bench` `8458f73` | Werkzeug (Skript, nur Messung) | `scripts/bench/v21_bench.py` |
 
 Querschnitt (kein M, aber V2.1-Aufträge): Not-Aus-Guard im Orchestrator (`claude/v21-estop-orchestrator`) und Bearer-Erkennung (`claude/v21-bearer-detection`).
 
@@ -61,6 +82,8 @@ Wichtig: M1, M3, M5, M7 sind **schichtrein** (importieren keine andere V2.1-Schi
 | `StrategistAgent` (id `strategist`) | `business/strategist_agent.py` | Agent ohne Tools | nur bei `business.strategist = true` und `agents.enabled` |
 | `BusinessSettings.strategist` | `config.py` | Schalter (Standard `false`), Umgebung `JARVIS_BUSINESS_STRATEGIST` | **kein Eintrag in `config/jarvis.toml`** (die Datei ist hash-geschützt) |
 | `SecretDetector`-Muster „Bearer token“ (2) | `redaction.py` | zwei zusätzliche Muster vor „credential statement“ | erkennt/schwärzt Bearer-Token vollständig |
+| `ProjectMemory.overview()` | `memory/project_memory.py` | rein lesend, nur Zähler je Projekt | Quelle für M6 (noch nicht angebunden) |
+| `lab.evaluate` (`parse_junit`, `compare_tests`, `compare_bench`, `cluster_failures`, `assess`) | `lab/evaluate.py` | reiner Bewertungskern | nirgends verdrahtet; `may_apply = False`, `requires_owner_approval = True` |
 | `MissionView.snapshot(limit)`, `ReadViews.mission`, `/view/mission` | `control_center/*` | GET, nur lesend | Graph, Agenten, Budget, Fortschritt, Qualität, Business, Gedächtnis |
 | Quellfunktionen `budget_source`, `business_source`, `quality_source`, `memory_source` | `control_center/mission.py` | Rückrufe | M7/M3 sind noch **nicht** angebunden (Abschnitt 8) |
 
@@ -92,8 +115,11 @@ Quell-Verträge für die noch offenen Anbindungen (Form, die `MissionView` erwar
 | K4 | `config/jarvis.toml` und `test_autonomy_invariants.py` sind hash-geschützt | kein TOML-Eintrag für `business.strategist`; Standard nur im Code | Standard bleibt aus; Dokumentation im README später |
 | K5 | `goals/plan_graph.NEVER_REPLAN` kannte den neuen Task-Code `emergency_stop` nicht | in der Integrationsvorbereitung ergänzt (mit Test) | behoben |
 | K6 | Die `GoalEngine` ersetzt nur `FAILED/TIMEOUT` mit wiederholbarem Code; `BLOCKED/emergency_stop` wird nie neu geplant | kein Konflikt, per Test gesichert | ok |
-| K8 | `tests/test_computer_uia_tools.py::test_the_ui_tool_only_touches_computer_and_documentation_files` vergleicht `origin/main...HEAD` und verbietet jede Änderung an `bootstrap.py` (einmalige Prüfung der UI-Tool-Arbeit, wirkt aber dauerhaft). Der Not-Aus-Guard muss laut Regel „Verdrahtung nur in `bootstrap.py`“ dort eingehängt werden | **nicht geändert**; der Test schlägt auf `claude/v21-estop-orchestrator` (und der Integrationsprobe) fehl, sobald `origin/main` im Checkout liegt | **offene Besitzerentscheidung (D-D)**: Test auf seinen ursprünglichen Zweck begrenzen oder Ausnahme freigeben |
+| K8 | `tests/test_computer_uia_tools.py::test_the_ui_tool_only_touches_computer_and_documentation_files` (historischer UIA-Bereichswächter) vergleicht `origin/main...HEAD` und verbietet jede Änderung an `bootstrap.py`. Der Not-Aus-Guard muss laut Regel „Verdrahtung nur in `bootstrap.py`“ dort eingehängt werden | **Wächter unverändert.** Zusätzlich gilt die enge Prüfung `tests/test_v21_bootstrap_wiring.py`: alles außer `emergency_guard`/`speech_guard`/`stop_guard=` ist strukturgleich zum V2.0-Stand, der Guard ist reine Lesefunktion, die N3-B-Invarianten gelten weiter. Der Wächter bleibt in Checkouts mit `origin/main` **rot** (historischer Wächterkonflikt, kein Produktfehler) | **Besitzerentscheidung D-D offen**: den Wächter nach Prüfung der engen Zusatzprüfung freigeben/begrenzen |
 | K9 | `test_v21_coordination` dokumentierte als „BEFUND“, dass der Orchestrator nach Not-Aus noch Aufgaben annahm | Test auf die verschärfte Zusicherung umgestellt (BLOCKED, Agent nie gestartet) – Verschärfung, keine Abschwächung | behoben |
+| K10 | M4 `compare_bench` las `runs` auf oberster Ebene, M8 schreibt es je Fall → echte Benchmarkdaten waren nie vergleichbar | Laufzahl aus Fall/`conditions`/oben gelesen (Mindestlaufzahl unverändert) | behoben (`test_v21_lab_integration.py`) |
+| K11 | Sperrliste des Labs (`PROTECTED`) war kleiner als `self_improvement.policy.NEVER_TARGETS` | um alle Wurzeln ergänzt (Verschärfung); Test hält beide Listen deckungsgleich | behoben |
+| K12 | Doppelte Windows-Korrektur des Benchmarks (`36ead65` ≙ `bb3e23b`) und doppeltes Mission-Control-Modell | je eine Variante integriert, siehe Abschnitt 0 | behoben |
 | K7 | Python-Subprozess-Tests mit `-I` brauchen ein installiertes `jarvis` (`pip install -e`) | keine Codeänderung; Umgebungsthema der lokalen Prüfung | siehe Bericht |
 
 ## 7. Integrationsreihenfolge (nach Merge von `claude/v2-integration`)
@@ -104,10 +130,10 @@ Quell-Verträge für die noch offenen Anbindungen (Form, die `MissionView` erwar
 4. **M3 und M7** (`claude/v21-memory-quality`) – reine Kerne; danach Quellfunktionen für M6 anbinden (kleine Adapter in `launcher.py`).
 5. **M1 und M5** (`claude/v21-intelligence`) – reine Kerne; Verdrahtung in die `GoalEngine` ist eine **eigene, ausdrücklich freizugebende** Phase-14-Aufgabe.
 6. **M6 Mission Control** (`claude/v21-mission-control`) – nach 3 und 4, damit die Abschnitte Business/Qualität/Gedächtnis Daten haben; die Ansicht selbst ist unabhängig lauffähig.
-7. **M8 Bench** (`claude/v21-lab-bench`) – jederzeit; misst nur.
+7. **M8 Bench** (`claude/v21-lab-bench`; enthält jetzt auch den M4-Bewertungskern) – jederzeit; misst nur.
 8. **M4** – Konzept, nur Dokument; Umsetzung erst nach Entscheidungen D1–D8 im Konzept.
 
-Die lokale Probe-Zusammenführung `claude/v21-integration-prep` (alle acht Zweige in dieser Reihenfolge-unabhängigen Mischung auf `claude/v2-integration`) ist **konfliktfrei** und liegt nur lokal vor.
+Der lokale Integrationsbranch `claude/v21-integration` (Basis `7c2b4b7`) enthält alle Zweige außer den beiden Duplikaten (Abschnitt 0); er ist konfliktfrei zusammengeführt und **nicht gepusht**.
 
 ## 8. Noch fehlende Funktionen
 

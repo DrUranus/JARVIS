@@ -23,6 +23,16 @@ Phase 15 (`src/jarvis/self_improvement/`, `docs/PHASE14_AUTONOMY.md`) ist ein **
 **Konsequenz:** M4 ist keine neue Fähigkeit „JARVIS ändert Code“, sondern die **Beschreibung der Strecke zwischen `PROPOSED` und `READY_FOR_APPROVAL`**, die heute
 absichtlich nicht gebaut ist, plus der Beweis, dass die Produktivinstallation auf dieser Strecke nicht beschreibbar ist.
 
+## 0a. Stand nach der Integration (Evaluierungskern)
+
+Der Zweig `claude/v21-lab-bench` liefert `src/jarvis/lab/evaluate.py`: einen **reinen Bewertungskern** (keine Datei, kein Prozess, kein Netz, keine andere Schicht).
+Er deckt die *erlaubten* Teile ab: Analyse von JUnit-Berichten (`parse_junit`, `compare_tests`), Benchmark-Vergleich (`compare_bench`), Fehlerklassifizierung (`cluster_failures`)
+und Bewertung eines Vorschlags (`assess`: `improvement | no_evidence | reject`, immer `requires_owner_approval = True`, `may_apply = False`). Er bereitet **keinen** Code vor
+und kann **nichts** übernehmen; die Phase-15-Sperren (`ExecutionGuard` gesperrt, `allow_prepare`/`allow_activation`/`repo_path` abgelehnt) sind unverändert und per Test abgesichert
+(`tests/test_v21_lab_integration.py`). Seine Sperrliste ist mit `self_improvement.policy.NEVER_TARGETS` deckungsgleich. Beim Zusammenführen wurde ein Fehler behoben:
+`compare_bench` las die Laufzahl am falschen Ort, so dass echte Benchmarkausgaben nie vergleichbar waren.
+Damit ist die Strecke „Messen → Vergleichen → Bewerten → Vorschlag an den Menschen“ vorhanden; **nicht** vorhanden und nicht freigegeben ist jede Strecke, die Code erzeugt, ausführt oder anwendet.
+
 ## 1. Leitfrage und Kernentscheidung
 
 > Wie kann JARVIS Verbesserungsvorschläge erstellen, ohne seine eigene produktive Installation verändern zu können?
