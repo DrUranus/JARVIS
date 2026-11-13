@@ -28,3 +28,10 @@ def test_invalid_arguments_are_refused_and_the_script_uses_no_network():
     text = (ROOT / "scripts" / "bench" / "v21_bench.py").read_text(encoding="utf-8")
     for bad in ("socket", "urllib", "requests", "subprocess", "http.client"):
         assert bad not in text, bad
+
+
+def test_build_core_case_leaves_no_open_log_file_behind():
+    """Windows (CI): eine noch geoeffnete jarvis.log blockiert das Loeschen des Temp-Ordners (WinError 32). Plattformunabhaengig geprueft: nach dem Fall haengt kein FileHandler mehr am Logger."""
+    import logging
+    bench.case_build_core(1)
+    assert not [h for h in logging.getLogger("jarvis").handlers if isinstance(h, logging.FileHandler)]

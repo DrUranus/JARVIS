@@ -93,8 +93,15 @@ def case_build_core(n: int) -> dict[str, Any]:
         env = {"JARVIS_WORKSPACE": str(Path(tmp) / "ws"), "JARVIS_LOG_DIR": str(Path(tmp) / "logs"), "JARVIS_MEMORY_PATH": str(Path(tmp) / "m.db"), "JARVIS_AGENTS_ENABLED": "true",
                "JARVIS_GOALS_ENABLED": "true"}
         (Path(tmp) / "ws").mkdir()
-        for _ in range(n):
-            build_core(load_settings(env=env))
+        try:
+            for _ in range(n):
+                core = build_core(load_settings(env=env))
+                closer = getattr(getattr(core, "memory", None), "close", None)
+                if callable(closer):
+                    closer()                                   # the SQLite file must not stay open (Windows cannot delete an open file)
+        finally:
+            from jarvis.logging_setup import setup_logging
+            setup_logging("INFO", None)                        # replaces and CLOSES the file handler that points into the temporary folder
     return {"starts": n, "note": "mock LLM, agents and goals on, everything else default (off)"}
 
 
