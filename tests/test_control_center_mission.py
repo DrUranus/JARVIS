@@ -281,7 +281,8 @@ def test_dom_renders_all_sections_from_the_view_with_text_only(tmp_path):
     s = snap(tmp_path, mission_data())
     assert s["fetched"] == ["mission"] and "3 Aufgaben" in s["text"]["mission-note"]
     graph = s["items"]["mission-graph"]
-    assert len(graph) == 2 and "t1" in graph[0]["text"] and "t2" in graph[1]["text"] and "t3" in graph[1]["text"]
+    waves = [x for x in graph if x["className"] == "mission-wave"]
+    assert len(waves) == 2 and len(graph) == 3 and graph[2]["className"] == "tl-err" and "t1" in graph[0]["text"] and "t2" in graph[1]["text"] and "t3" in graph[1]["text"]
     assert any("research" in x["text"] for x in s["items"]["mission-agents"])
     assert "3/50" in s["text"]["mission-budget"] and s["props"]["mission-progress"]["value"] == 67
     assert "sources" in s["text"]["mission-quality"] and "strategist" in s["text"]["mission-business"] and "noch nicht angebunden" in s["text"]["mission-memory"]
