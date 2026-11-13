@@ -14,7 +14,7 @@ from jarvis.goals import policy as GP
 
 MAX_REPLANS = 2
 NEVER_REPLAN = frozenset(GP.FATAL_CODES | {"agent_budget_exceeded", "agent_budget_unavailable", "budget_exhausted", "cancelled", "failsafe", "not_authorized", "blocked_target",
-                                           "external_action_not_supported"})
+                                           "external_action_not_supported", "emergency_stop"})
 
 
 @dataclass(frozen=True)

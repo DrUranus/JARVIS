@@ -276,3 +276,9 @@ def test_both_modules_are_pure():
         tree = ast.parse((SRC / "goals" / name).read_text(encoding="utf-8"))
         mods = {a.name for x in ast.walk(tree) if isinstance(x, ast.Import) for a in x.names} | {x.module for x in ast.walk(tree) if isinstance(x, ast.ImportFrom)}
         assert mods <= {"__future__", "dataclasses", "typing", "jarvis.goals", "jarvis.goals.policy"}, mods
+
+
+def test_an_emergency_stop_is_never_replanned_around():
+    """Integration V2.1: der Orchestrator meldet nach dem Not-Aus `emergency_stop`; eine Neuplanung darf ihn nie umgehen."""
+    from jarvis.goals import plan_graph as PG
+    assert "emergency_stop" in PG.NEVER_REPLAN

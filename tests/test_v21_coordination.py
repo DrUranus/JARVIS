@@ -169,12 +169,11 @@ def test_emergency_stop_during_parallel_work_cancels_everything_and_refuses_new_
         assert sub.orchestrator.wait(f"p{i}", timeout=WAIT).status is S.CANCELLED
     assert "agents" in {c.name for c in report.components} and em.engaged
     assert core.emergency_stopped
-    # BEFUND (dokumentiert, nicht geaendert): der Orchestrator selbst nimmt nach dem Not-Aus noch eine direkt eingereichte Aufgabe an; die Einstiegspunkte (core.handle, Ziele)
-    # verweigern neue Arbeit, und JEDER Werkzeugaufruf wird von der PermissionEngine abgelehnt. Ein Agent kann also rechnen, aber nichts in der Welt tun.
+    # Seit V2.1 (Not-Aus-Guard): der Orchestrator nimmt nach dem Not-Aus auch eine direkt eingereichte Aufgabe nicht mehr an - der Agent wird gar nicht erst gestartet.
     late = FakeAgent("spaet", tool_names=frozenset({"echo"}), tool_calls=[("echo", {"text": "hallo"})])
     sub.registry.register(late)
-    sub.orchestrator.run(AgentTask("nach dem Not-Aus", agent_id="spaet", task_id="spaet"), timeout=WAIT)
-    assert late.tool_results and all(not r.success for r in late.tool_results)       # kein Werkzeug wird mehr ausgefuehrt
+    res = sub.orchestrator.run(AgentTask("nach dem Not-Aus", agent_id="spaet", task_id="spaet"), timeout=WAIT)
+    assert res.status is S.BLOCKED and res.error_code == "emergency_stop" and late.tasks == [] and late.tool_results == []
     assert "Notaus" in core.handle("Starte etwas Neues").text or "gestoppt" in core.handle("Starte etwas Neues").text.lower()
     for w in workers:
         w.release.set()
