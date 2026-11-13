@@ -56,7 +56,8 @@ def build_core(settings: Settings) -> JarvisCore:
     core.subsystems["office"] = build_office(settings, tools, permissions, baseline_rules=office_baseline_rules())
     # Multi-agent orchestration sits ABOVE those subsystems: agents only use their tools through the registry (and so the permission engine).
     from jarvis.agents.factory import build_agents
-    core.subsystems["agents"] = build_agents(settings, tools, memory, core.tasks, core.subsystems, budget_audit=agent_budget_audit(permissions.audit))
+    core.subsystems["agents"] = build_agents(settings, tools, memory, core.tasks, core.subsystems, budget_audit=agent_budget_audit(permissions.audit),
+                                              stop_guard=emergency_guard(core))      # V2.1: the orchestrator only READS the latch and accepts nothing new while it is engaged
     # Assistant (assistant-e2e, off by default): the agent router decides per goal step. It only SELECTS (rules; no LLM call); decisions become `routing`
     # events and audit entries. Without assistant.enabled and agents.router.enabled the goal layer uses the AgentPlanner exactly as before.
     from jarvis.interface.assistant import RoutingSink
@@ -176,12 +177,17 @@ def recording_guard(core: JarvisCore) -> Callable[[], str | None]:
     return guard
 
 
-def speech_guard(core: JarvisCore) -> Callable[[], str | None]:
-    """Why a NEW speech output must not start: only the central emergency stop (else None). Only reads state; the session budget does not limit speaking."""
+def emergency_guard(core: JarvisCore) -> Callable[[], str | None]:
+    """Why NEW work must not be accepted or started: only the central emergency stop (else None). Only reads state; never engages or resets the latch."""
     def guard() -> str | None:
         em = core.permissions.emergency
         return f"Notaus aktiv ({em.reason})" if em.engaged else None
     return guard
+
+
+def speech_guard(core: JarvisCore) -> Callable[[], str | None]:
+    """Why a NEW speech output must not start: only the central emergency stop (else None). The session budget does not limit speaking."""
+    return emergency_guard(core)
 
 
 def voice_stopper(speaker: Any) -> Callable[[str], Any]:

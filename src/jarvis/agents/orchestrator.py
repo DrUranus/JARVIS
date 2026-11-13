@@ -34,6 +34,9 @@ from jarvis.tasks import TaskStatus as CoreStatus
 
 log = logging.getLogger("jarvis.agents")
 
+STOP_CODE = "emergency_stop"
+STOP_MESSAGE = "the emergency stop is active: no new agent task is accepted or started until it is explicitly reset"
+
 
 # ---- injectable time and execution (so tests are deterministic) -----------------------------------------------------------------------------
 class Clock(Protocol):
@@ -113,7 +116,7 @@ class AgentOrchestrator:
                  max_output_chars: int = 20_000, task_manager: TaskManager | None = None, memory_lookup: MemoryLookup | None = None,
                  clock: Clock | None = None, scheduler: Scheduler | None = None, executor: Executor | None = None,
                  detector: SecretDetector | None = None, artifacts: bool = False, agent_budgets: AgentBudgets | None = None,
-                 audit: Callable[[dict[str, Any]], Any] | None = None) -> None:
+                 audit: Callable[[dict[str, Any]], Any] | None = None, stop_guard: Callable[[], str | None] | None = None) -> None:
         if max_concurrent < 1 or default_timeout <= 0 or max_queue < 1 or max_history < 1 or cancel_grace < 0:
             raise InvalidTaskError("orchestrator limits must be positive")
         self.registry = registry
@@ -129,6 +132,7 @@ class AgentOrchestrator:
         self._budgets = agent_budgets              # WP02b (agents.agent_budgets_enabled, OFF by default): budgets per agent, only ever lowering the global limits
         self._audit = audit                        # numbers-only sink for the first exhaustion of an agent's budget (no objectives, inputs or results)
         self._audited: set[str] = set()
+        self._stop_guard = stop_guard              # V2.1: READ-ONLY view of the central emergency stop (returns a reason while it is engaged, else None). Never engages or resets it.
         self._artifacts = bool(artifacts)           # E5 (agents.artifacts, OFF by default): typed artifacts next to the unchanged output
         self._lock = threading.RLock()
         self._cond = threading.Condition(self._lock)
@@ -198,7 +202,19 @@ class AgentOrchestrator:
             log.info("agent task %s submitted (%s)", task.task_id, rec.status.value)
             return rec.result
 
+    def _stopped(self) -> bool:
+        """True while the central emergency stop is engaged. Fails CLOSED: a guard that raises counts as stopped. The guard only reads a flag (no lock, no I/O),
+        so calling it while holding `self._lock` cannot deadlock. After a reset it returns None again: no state is kept here, so resume needs no special path."""
+        if self._stop_guard is None:
+            return False
+        try:
+            return self._stop_guard() is not None
+        except Exception:  # noqa: BLE001 - unreadable latch = closed
+            return True
+
     def _admission(self, rec: _Rec) -> tuple[str, str] | None:
+        if self._stopped():
+            return STOP_CODE, STOP_MESSAGE
         task = rec.task
         agent: Agent | None
         if task.agent_id is not None:
@@ -244,8 +260,13 @@ class AgentOrchestrator:
         progress = True
         while progress:
             progress = False
+            stopped = self._stopped()               # re-read per pass and under the lock that guards every launch: nothing is started after the latch was seen engaged
             for rec in sorted((r for r in self._records.values() if r.status is TaskStatus.PENDING), key=lambda r: (r.task.priority, r.seq)):
                 if rec.status is not TaskStatus.PENDING:
+                    continue
+                if stopped:
+                    self._finalize(rec, TaskStatus.BLOCKED, STOP_MESSAGE, None, STOP_MESSAGE, STOP_CODE)
+                    progress = True
                     continue
                 dep = self._dependency_state(rec)
                 if isinstance(dep, tuple):

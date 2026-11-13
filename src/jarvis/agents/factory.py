@@ -93,7 +93,7 @@ def _research_agent(settings: Settings, subsystems: dict[str, Any] | None = None
 
 
 def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | None, task_manager: TaskManager,
-                 subsystems: dict[str, Any], budget_audit: Any = None) -> AgentsSubsystem:
+                 subsystems: dict[str, Any], budget_audit: Any = None, stop_guard: Callable[[], str | None] | None = None) -> AgentsSubsystem:
     cfg = settings.agents
     if not cfg.enabled:
         return AgentsSubsystem("disabled", "multi-agent orchestration is off (agents.enabled = false)")
@@ -110,7 +110,7 @@ def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | 
         orch = AgentOrchestrator(registry, tools=tools, max_concurrent=cfg.max_concurrent, default_timeout=cfg.task_timeout_seconds,
                                  max_queue=cfg.max_queue, max_history=cfg.max_history, cancel_grace=cfg.cancel_grace_seconds,
                                  tool_call_limit=cfg.tool_call_limit, max_output_chars=cfg.max_output_chars, task_manager=task_manager,
-                                 memory_lookup=lookup, artifacts=cfg.artifacts, agent_budgets=budgets, audit=audit)
+                                 memory_lookup=lookup, artifacts=cfg.artifacts, agent_budgets=budgets, audit=audit, stop_guard=stop_guard)
         agents: list[Agent] = [_research_agent(settings, subsystems), BrowserAgent(), CodingAgent(interrupt=_interrupt_of(subsystems, "coding")), ComputerAgent(), FilesAgent()]
         if settings.business.enabled:
             from jarvis.business.agent import BusinessAgent
