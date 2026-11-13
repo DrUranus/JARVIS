@@ -81,3 +81,31 @@ M1 Kern ✔ (unverdrahtet) · M2 Kern + Agent ✔ (aus) · M3 Kern ✔ + Integra
 5. **M4 D1–D8** (`M4_SELF_IMPROVEMENT_LAB.md` §9): Sandbox-Backend, `EXPORTED`-Zustand, Paketort/Aufbewahrung, Installationsrechte, Speicher-Sicherung, Erweiterungsverfahren der Erlaubnisliste, Tests des Vorschlags, Modellnutzung.
 6. Umgang mit den Duplikatzweigen `bench-winfix` und `nexus` (behalten als Referenz oder löschen – Löschen wurde nicht vorgenommen).
 7. Installation von `pip install -e ".[dev]"` freigeben, damit die 52 Umgebungsfehler lokal verschwinden?
+
+
+---
+
+# Nachtrag (Folgeauftrag „Integration Validation & Next Gates“)
+
+## A. Verifikation der Angaben
+Bestätigt: Basis `7c2b4b7`, Doku in `docs/v21/`, `main`/`claude/v2-integration` unverändert. Korrektur: der Kopf war `3337d1b` (Doku-Commit nach dem geprüften Code-Commit `8234308`; Code identisch). Zwei Commits mit gleicher Nachricht (`ba39271`, `4223b73`) sind ein Zwischenstand und seine Korrektur – kein doppelter Inhalt.
+Vor dem Push geprüft: keine Änderungen an `.github/`, `.claude/`, `config/`, `permissions/`, `ui_contract/`, `pyproject.toml`, `CLAUDE.md`, X0 oder `emergency.py`; keine Binär-/Schlüssel-/`.env`-Dateien; Funde des Geheimnis-Detektors im Diff sind ausschließlich synthetische Testwerte und Doku-Beispiele. Push ohne Force.
+
+## B. Linux-Testumgebung (Aufgabe 2)
+Ursache der 52 „Umgebungsfehler“ (Abschnitt 5): fehlende Pakete (`openpyxl`, `python-docx`, `defusedxml` → 49) und `python -I` ohne installiertes `jarvis` (3). `pyproject.toml` `dev` unter Linux = `pytest`, `openpyxl`, `python-docx`, `defusedxml` (die Windows-Pakete `mss`/`pywinauto` entfallen); die CI installiert zusätzlich `pyyaml`. Isoliertes venv außerhalb des Repos, `pip install -e ".[dev]"` + `pyyaml`. **Ergebnis des sequenziellen Volllaufs auf `3337d1b`: 1 failed, 6126 passed, 99 skipped (138 s).** Der eine Fehlschlag ist der historische UIA-Wächter (K8). Es gibt damit keine Umgebungsfehler mehr.
+
+## C. Neue Arbeitspakete (Branch `claude/v21-gates`, in `claude/v21-integration` eingeführt)
+| Paket | Inhalt | Standard | Tests |
+|---|---|---|---|
+| M7-Qualitätstor | `quality/gate.py`, Hook im Orchestrator (duck-typed), `agents.quality_gate` + `agents.quality_gate_agents` | **aus**; unbekannter Agent = Start der Agentenschicht verweigert | `test_v21_quality_gate.py` (17) |
+| M1-Vorabprüfung | `goals/plan_check.py`, Hook in `GoalEngine._plan`, `goals.plan_analysis` | **aus** | `test_v21_plan_analysis.py` (35) |
+| M3-Persistenz | nur Testadapter `tests/support/project_memory_file_adapter.py`, Konzept `M3_PERSISTENZ.md` | **nicht verdrahtet** | `test_v21_project_memory_persistence.py` (8) |
+| UIA-Wächter | Entscheidungsvorlage + Vorschlagstest (nicht angewendet), Negativtests der bootstrap-Verdrahtung | Wächter **unverändert** | `test_v21_uia_guard_proposal.py`, `test_v21_bootstrap_wiring.py` (32) |
+| M4 | `M4_ENTSCHEIDUNGEN_D1_D8.md` | alle offen | – |
+Vertragserweiterungen (Prüfung erbeten): Fabrik `agents/factory.py` darf zusätzlich `jarvis.quality` importieren (Pin in `test_agents_security.py`); `plan_graph.NEVER_REPLAN` kennt `quality_*`, `plan_*`.
+Nicht geändert: E5-Allowlist, Strategist, `PermissionEngine`, `emergency.py`, X0, Konfigurationsdatei `config/jarvis.toml`.
+
+## D. Sicherheitsbewertung der neuen Teile
+- **Qualitätstor:** reine Leseprüfung des Ergebnisses; Agenten-Selbstaussagen (auch `accepted`/`status` im Bericht) werden ignoriert; kein Bericht, unlesbarer Bericht oder fehlerhafte Prüfung = BLOCKED; das eigene Ergebnis des Agenten wird nicht weitergereicht; Budget (`agent_budget_exceeded`) und Not-Aus (`emergency_stop`) wirken **vor** dem Tor. Offen: ohne angebundene Audit-Quelle gelten Aktionen mit Nebenwirkung als nicht freigegeben (fail-closed); Datei-Prüfung nur mit übergebener Funktion.
+- **Plan-Vorabprüfung:** führt nichts aus; ein unlösbarer Plan startet keinen Schritt; Fehler der Prüfung = BLOCKED.
+- **Persistenz:** nur Test; Geheimnisse werden beim Laden erneut geprüft; Isolation je Projekt belegt.
