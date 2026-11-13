@@ -116,6 +116,10 @@ def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | 
             from jarvis.business.agent import BusinessAgent
             agents.append(BusinessAgent(max_steps=settings.business.max_steps, timeout=settings.business.timeout_seconds,
                                         max_result_chars=settings.business.max_result_chars))
+        if settings.business.strategist:                 # V2.1, OFF by default: a separate agent with no tools (analysis and drafts only)
+            from jarvis.business.strategist_agent import StrategistAgent
+            agents.append(StrategistAgent(max_steps=settings.business.max_steps, timeout=settings.business.timeout_seconds,
+                                          max_result_chars=settings.business.max_result_chars))
         if settings.finance.enabled:
             from jarvis.finance.agent import FinanceAgent
             from jarvis.finance.models import RiskLimits
