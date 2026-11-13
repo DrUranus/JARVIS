@@ -15,6 +15,8 @@ import ast
 import hashlib
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "src" / "jarvis" / "bootstrap.py"
 BASELINE_7C2B4B7 = "883d2ab65ed0d615a3bfa73b9d67740be5d45ac9250668c6a45b04abc2240a94"
@@ -39,6 +41,26 @@ def fingerprint(source: str) -> str:
             elif isinstance(n, (ast.Import, ast.ImportFrom)):
                 parts.append("import:" + (getattr(n, "module", None) or "") + ":" + ",".join(a.name for a in n.names))
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+def wiring_problems(source: str) -> list[str]:
+    """Alle Teilpruefungen dieser Datei als Funktion ueber einen Quelltext (fuer Negativtests und den Vorschlag fuer den historischen Waechter). Leere Liste = in Ordnung."""
+    problems: list[str] = []
+    t = ast.parse(source)
+    if fingerprint(source) != BASELINE_7C2B4B7:
+        problems.append("bootstrap weicht ausserhalb der Guard-Verdrahtung vom V2.0-Stand ab")
+    guard = next((n for n in t.body if isinstance(n, ast.FunctionDef) and n.name == "emergency_guard"), None)
+    if guard is None:
+        problems.append("emergency_guard fehlt")
+    else:
+        if any(isinstance(n, ast.Call) for n in ast.walk(guard)) or {n.attr for n in ast.walk(guard) if isinstance(n, ast.Attribute)} - {"permissions", "emergency", "engaged", "reason"}:
+            problems.append("emergency_guard ist keine reine Lesefunktion")
+    uses = [n for n in ast.walk(t) if isinstance(n, ast.keyword) and n.arg == "stop_guard"]
+    ok = len(uses) == 1 and any(isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id == "build_agents" and uses[0] in c.keywords for c in ast.walk(t))
+    v = uses[0].value if uses else None
+    if not (ok and isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id == "emergency_guard" and [a.id for a in v.args if isinstance(a, ast.Name)] == ["core"]):
+        problems.append("stop_guard ist nicht genau einmal als emergency_guard(core) an build_agents gebunden")
+    return problems
 
 
 def tree():
@@ -87,3 +109,29 @@ def test_the_n3_invariants_of_bootstrap_still_hold():
     sys.modules[spec.name] = pm
     spec.loader.exec_module(pm)
     assert pm.check_bootstrap(SOURCE.read_text(encoding="utf-8")) == []
+
+
+# ---- Negativtests: jede Abweichung wird gefunden -------------------------------------------------------------------------------------------------------------
+def real() -> str:
+    return SOURCE.read_text(encoding="utf-8")
+
+
+def test_the_real_source_has_no_wiring_problems():
+    assert wiring_problems(real()) == []
+
+
+@pytest.mark.parametrize("name,mutate", [
+    ("extra call in build_core", lambda s: s.replace("    return core\n", "    sneak()\n    return core\n", 1)),
+    ("guard engages the latch", lambda s: s.replace("        em = core.permissions.emergency\n        return f\"Notaus aktiv", "        em = core.permissions.emergency\n        em.engage('x')\n        return f\"Notaus aktiv", 1)),
+    ("guard reads something else", lambda s: s.replace("em.engaged else None\n    return guard\n\n\ndef speech_guard", "em.engaged and core.tools else None\n    return guard\n\n\ndef speech_guard", 1)),
+    ("guard removed", lambda s: s.replace("def emergency_guard(", "def other_guard(", 1)),
+    ("stop_guard bound to something else", lambda s: s.replace("stop_guard=emergency_guard(core)", "stop_guard=None", 1)),
+    ("second stop_guard", lambda s: s.replace("return core\n", "build_agents(stop_guard=emergency_guard(core))\n    return core\n", 1)),
+    ("new import", lambda s: s.replace("import sys\n", "import sys\nimport subprocess\n", 1)),
+    ("security.confirmation guard weakened", lambda s: s.replace('!= "deny"', '!= "never"', 1)),
+    ("function renamed", lambda s: s.replace("def build_core", "def build_core_x", 1)),
+])
+def test_every_mutation_of_the_wiring_is_found(name, mutate):
+    mutated = mutate(real())
+    assert mutated != real(), name
+    assert wiring_problems(mutated) != [], name
