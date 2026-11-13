@@ -50,7 +50,7 @@ def test_the_layer_never_imports_the_subsystems_it_coordinates_nor_the_permissio
         for m in imports(tree):
             if m.startswith("jarvis.") and not m.startswith("jarvis.agents"):
                 # only the composition code (factory.py) builds the Phase-10 agents; nothing else in the layer knows research/business/finance
-                extra = {"jarvis.research", "jarvis.business", "jarvis.finance"} if f.name == "factory.py" else set()
+                extra = {"jarvis.research", "jarvis.business", "jarvis.finance", "jarvis.quality"} if f.name == "factory.py" else set()          # V2.1 M7: nur factory.py baut das (standardmaessig aus) Qualitaetstor
                 assert any(m == a or m.startswith(a + ".") for a in allowed_jarvis | extra), f"{f.relative_to(AGENTS)} imports {m}"
     mem_users = [f.name for f, t in modules(AGENTS) if any(m.startswith("jarvis.memory") for m in imports(t))]
     assert mem_users == ["factory.py"]      # only the composition code touches the memory TYPE; the orchestrator gets a read-only callable

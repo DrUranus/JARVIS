@@ -176,6 +176,8 @@ class AgentsSettings:
     max_output_chars: int = 20_000     # size of a stored task output
     agent_budgets_enabled: bool = False   # WP02b: budgets per agent (OFF: no per-agent limit; only the global ones apply)
     agent_budgets: tuple[str, ...] = ()   # 'agent;max_seconds;max_tool_calls;max_calls_session;max_artifact_chars' (empty field = no limit); can only LOWER the global limits; unknown values refuse start-up
+    quality_gate: bool = False         # V2.1 M7: a SUCCEEDED result of the agents in quality_gate_agents counts only with accepted evidence (output.quality_report). OFF: results are byte-identical
+    quality_gate_agents: tuple[str, ...] = ()   # agent ids the gate applies to; empty = none (an unknown id refuses start-up of the agent layer)
     artifacts: bool = False            # E5: typed hand-over artifacts IN ADDITION to the unchanged output (research -> business). OFF: results are byte-identical
     router: AgentRouterSettings = field(default_factory=AgentRouterSettings)
 
@@ -576,6 +578,9 @@ class Settings:
             raise
         except Exception as exc:  # noqa: BLE001 - BudgetError or anything else: refuse to start rather than run without the limit
             raise ConfigError(f"agents.agent_budgets: {exc}") from None
+        import re as _re
+        if not all(_re.fullmatch(r"[a-z][a-z0-9_\-]{0,31}", a) for a in ag.quality_gate_agents) or len(set(ag.quality_gate_agents)) != len(ag.quality_gate_agents) or len(ag.quality_gate_agents) > 20:
+            raise ConfigError("agents.quality_gate_agents: up to 20 distinct agent ids (lower-case letters, digits, _ -)")
         gl = self.goals
         if not 1 <= gl.max_steps <= 50 or not 1 <= gl.max_attempts_per_step <= 5:
             raise ConfigError("goals.max_steps 1..50, max_attempts_per_step 1..5")

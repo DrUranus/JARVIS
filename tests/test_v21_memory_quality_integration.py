@@ -149,13 +149,16 @@ def test_the_cores_do_no_io_start_no_threads_and_know_neither_permissions_nor_em
         assert not any(m.startswith(("jarvis.permissions", "jarvis.agents", "jarvis.tools", "jarvis.bootstrap")) for m in [n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]), rel
 
 
-def test_no_integration_point_is_active_the_cores_are_wired_nowhere():
-    allowed = {SRC / "memory" / "project_memory.py", SRC / "quality" / "engine.py", SRC / "quality" / "__init__.py"}
+def test_no_integration_point_is_active_the_memory_is_wired_nowhere_and_the_quality_engine_only_through_the_disabled_gate():
+    allowed_quality = {SRC / "memory" / "project_memory.py", SRC / "quality" / "engine.py", SRC / "quality" / "__init__.py", SRC / "quality" / "gate.py", SRC / "agents" / "factory.py"}
     for path in SRC.rglob("*.py"):
-        if path in allowed:
-            continue
         text = path.read_text(encoding="utf-8")
-        assert "project_memory" not in text and "jarvis.quality" not in text and "ProjectMemory" not in text, path
+        if path != SRC / "memory" / "project_memory.py":
+            assert "project_memory" not in text and "ProjectMemory" not in text, path
+        if path not in allowed_quality:
+            assert "jarvis.quality" not in text, path
+    from jarvis.config import Settings
+    assert Settings().agents.quality_gate is False and Settings().agents.quality_gate_agents == ()
 
 
 # ---- Zusammenspiel mit Mission Control ------------------------------------------------------------------------------------------------------------------

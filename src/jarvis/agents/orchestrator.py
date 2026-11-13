@@ -116,7 +116,7 @@ class AgentOrchestrator:
                  max_output_chars: int = 20_000, task_manager: TaskManager | None = None, memory_lookup: MemoryLookup | None = None,
                  clock: Clock | None = None, scheduler: Scheduler | None = None, executor: Executor | None = None,
                  detector: SecretDetector | None = None, artifacts: bool = False, agent_budgets: AgentBudgets | None = None,
-                 audit: Callable[[dict[str, Any]], Any] | None = None, stop_guard: Callable[[], str | None] | None = None) -> None:
+                 audit: Callable[[dict[str, Any]], Any] | None = None, stop_guard: Callable[[], str | None] | None = None, quality_gate: Any = None) -> None:
         if max_concurrent < 1 or default_timeout <= 0 or max_queue < 1 or max_history < 1 or cancel_grace < 0:
             raise InvalidTaskError("orchestrator limits must be positive")
         self.registry = registry
@@ -132,6 +132,7 @@ class AgentOrchestrator:
         self._budgets = agent_budgets              # WP02b (agents.agent_budgets_enabled, OFF by default): budgets per agent, only ever lowering the global limits
         self._audit = audit                        # numbers-only sink for the first exhaustion of an agent's budget (no objectives, inputs or results)
         self._audited: set[str] = set()
+        self._quality_gate = quality_gate         # V2.1 M7 (agents.quality_gate, OFF by default): `applies(agent_id)` / `check(agent_id, status, output)`; duck-typed, this module knows no quality layer
         self._stop_guard = stop_guard              # V2.1: READ-ONLY view of the central emergency stop (returns a reason while it is engaged, else None). Never engages or resets it.
         self._artifacts = bool(artifacts)           # E5 (agents.artifacts, OFF by default): typed artifacts next to the unchanged output
         self._lock = threading.RLock()
@@ -379,7 +380,10 @@ class AgentOrchestrator:
                 if rec.cancel_requested and status is not TaskStatus.SUCCEEDED:
                     status = TaskStatus.CANCELLED
                 hit = getattr(rec.gateway, "budget_hit", None)
-                if hit is not None and status in (TaskStatus.FAILED, TaskStatus.BLOCKED):          # the agent budget stopped it: whatever the agent made of the refusal
+                gated = self._apply_quality_gate(rec, outcome) if status is TaskStatus.SUCCEEDED else None
+                if gated is not None:
+                    self._finalize(rec, TaskStatus.BLOCKED, *gated)
+                elif hit is not None and status in (TaskStatus.FAILED, TaskStatus.BLOCKED):          # the agent budget stopped it: whatever the agent made of the refusal
                     self._note_budget(rec, hit)
                     self._finalize(rec, TaskStatus.BLOCKED, f"agent_budget_exceeded: {hit}", None, f"agent_budget_exceeded: the agent budget ({hit}) is used up", "agent_budget_exceeded")
                 else:
@@ -396,6 +400,26 @@ class AgentOrchestrator:
         rec.stuck = False
         self._cond.notify_all()
         self._dispatch()
+
+    def _apply_quality_gate(self, rec: _Rec, outcome: AgentOutcome) -> tuple[str, Any, str, str] | None:
+        """None = the result stands. Otherwise (summary, output, error, code) of a BLOCKED result: an unverified success is not a success, and its own output is NOT passed on
+        (only the verdict codes). A gate that fails is a closed gate. Runs only for SUCCEEDED results of the agents the gate was switched on for; budgets and the emergency stop act before."""
+        gate = self._quality_gate
+        if gate is None:
+            return None
+        try:
+            if not gate.applies(rec.agent_id):
+                return None
+            d = gate.check(rec.agent_id, outcome.status.value, outcome.output)
+            if d.accepted is True:
+                return None
+            code, failed, unknown = str(d.code), [str(x)[:60] for x in d.failed][:20], [str(x)[:60] for x in d.unknown][:20]
+            self_reported = str(d.self_reported)[:20] if d.self_reported else None
+        except Exception:  # noqa: BLE001 - fail closed; no internals
+            log.warning("quality gate unavailable for task %s", rec.task.task_id)
+            code, failed, unknown, self_reported = "quality_unavailable", [], ["gate_error"], outcome.status.value
+        msg = f"quality gate: the result was not accepted ({code})"
+        return msg, {"quality": {"accepted": False, "code": code, "failed": failed, "unknown": unknown, "self_reported": self_reported}}, msg, code
 
     # ---- finishing ----------------------------------------------------------------------------------------------------------------------------
     def _finalize(self, rec: _Rec, status: TaskStatus, summary: str, output: Any, error: str | None, code: str | None) -> None:
