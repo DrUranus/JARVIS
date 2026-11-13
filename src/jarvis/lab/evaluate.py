@@ -20,7 +20,10 @@ TOLERANCE = 0.20      # Abweichung des Medians, ab der ueberhaupt ein Befund moe
 # Dateien, die ein Verbesserungsvorschlag nie anfassen darf (Sicherheitsgrenzen, Freigabe, Not-Aus, deren Tests, Automatisierung).
 PROTECTED = (".github/", ".claude/", "CLAUDE.md", "config/jarvis.toml", "src/jarvis/permissions/", "src/jarvis/ui_contract/", "src/jarvis/bootstrap.py",
              "src/jarvis/self_improvement/", "src/jarvis/lab/", "tests/support/protected_manifest", "tests/test_security", "tests/test_emergency_stop.py",
-             "tests/test_autonomy_invariants.py", "tests/test_protected_files.py")
+             "tests/test_autonomy_invariants.py", "tests/test_protected_files.py",
+             # V2.1 Integration: dieselben Bereiche, die die Phase-15-Schicht nie veraendert (self_improvement.policy.NEVER_TARGETS); ein Test haelt beide Listen deckungsgleich.
+             "src/jarvis/tools/", "src/jarvis/coding/", "src/jarvis/browser/", "src/jarvis/computer/", "src/jarvis/core/", "src/jarvis/agents/", "src/jarvis/llm/",
+             "src/jarvis/interface/", "src/jarvis/voice/", "src/jarvis/redaction.py", "src/jarvis/config.py", "src/jarvis/errors.py", "src/jarvis/logging_setup.py")
 
 
 class LabError(JarvisError):
@@ -114,6 +117,14 @@ def _num(v: Any) -> float | None:
     return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0 else None
 
 
+def _runs(doc: Mapping[str, Any], case: Mapping[str, Any]) -> int:
+    for raw in (case.get("runs"), (doc.get("conditions") or {}).get("runs") if isinstance(doc.get("conditions"), Mapping) else None, doc.get("runs")):
+        n = _num(raw)
+        if n is not None:
+            return int(n)
+    return 0
+
+
 def compare_bench(before: Mapping[str, Any], after: Mapping[str, Any], *, tolerance: float = TOLERANCE, min_runs: int = MIN_RUNS) -> dict[str, BenchDiff]:
     out: dict[str, BenchDiff] = {}
     b_env, a_env = before.get("environment") or {}, after.get("environment") or {}
@@ -125,7 +136,7 @@ def compare_bench(before: Mapping[str, Any], after: Mapping[str, Any], *, tolera
             out[case] = BenchDiff(case, "missing", why="nur in einer Messung vorhanden")
             continue
         vals = [_num(x.get(k)) for x in (b, a) for k in ("median_s", "min_s", "max_s")]
-        runs = min(int(before.get("runs") or 0), int(after.get("runs") or 0))
+        runs = min(_runs(before, b), _runs(after, a))                      # M8 schreibt die Laufzahl je Fall (und unter "conditions"); aeltere Dateien auf oberster Ebene
         if not same_env:
             out[case] = BenchDiff(case, "incomparable", why="andere Maschine/Plattform/Python-Version")
         elif runs < min_runs:
