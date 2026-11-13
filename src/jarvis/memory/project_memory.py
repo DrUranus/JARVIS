@@ -198,6 +198,19 @@ class ProjectMemory:
         confirmed = sorted((r for r in rows if r.confirmed and r.kind != "issue"), key=lambda r: r.key)
         return [{"kind": "issue", "key": r.key, "seen": r.seen, "hint": r.value} for r in issues] + [{"kind": "confirmed", "key": r.key, "seen": r.seen, "hint": r.value} for r in confirmed]
 
+    def overview(self) -> list[dict[str, Any]]:
+        """Counts per project for read-only displays (Mission Control): active records by kind, open conflicts, stale records, suggestions. Never a key, value or source."""
+        out = []
+        for project in self.projects():
+            rows = self._projects[project]
+            counts: dict[str, int] = {}
+            for r in rows:
+                if r.status == "active":
+                    counts[r.kind] = counts.get(r.kind, 0) + 1
+            out.append({"project": project, "counts": dict(sorted(counts.items())), "conflicts": len(self._conflict_keys(project)), "stale": sum(1 for r in rows if r.status == "stale"),
+                        "suggestions": len(self.suggestions(project))})
+        return out
+
     # ---- snapshot -----------------------------------------------------------------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
         return {"version": VERSION, "projects": {p: [r.to_dict() for r in rows] for p, rows in sorted(self._projects.items()) if rows}}
