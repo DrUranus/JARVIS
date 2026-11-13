@@ -159,7 +159,7 @@ def test_the_layer_has_no_agent_that_can_change_the_system_itself():
     assert "self" not in caps.lower().replace("itself", "").split("known_capabilities")[1].split(")")[0]
     from jarvis.agents import policy
     assert policy.KNOWN_CAPABILITIES == {"browser.read", "browser.interact", "coding.read", "coding.write", "coding.test", "coding.plan", "computer.screen",
-                                         "computer.input", "research.web", "business.analyze", "finance.analyze", "files.read", "files.write", "office.read", "office.create"}      # no shell/install/commit/push/network capability exists
+                                         "computer.input", "research.web", "business.analyze", "business.strategy", "finance.analyze", "files.read", "files.write", "office.read", "office.create"}      # no shell/install/commit/push/network capability exists
     assert not any(w in c for c in policy.KNOWN_CAPABILITIES for w in ("shell", "git", "install", "ssh", "network", "credential", "admin", "self"))
 
 

@@ -306,6 +306,7 @@ class BusinessSettings:
     max_steps: int = 20                # computation steps / list items per task (hard limit 100)
     timeout_seconds: float = 120.0     # hard limit 600
     max_result_chars: int = 20_000
+    strategist: bool = False           # V2.1: register the separate Business Strategist agent (id "strategist", capability business.strategy). Independent of `enabled`; OFF by default
 
 
 @dataclass(frozen=True)
