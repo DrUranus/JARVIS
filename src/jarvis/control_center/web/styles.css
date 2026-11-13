@@ -128,6 +128,20 @@ body[data-mode="overlay"] #orb { width: 80px; height: 80px; cursor: pointer; }
 body[data-mode="overlay"] #emergency { display: block; width: 100%; padding: 4px; font-size: 12px; }
 body[data-mode="overlay"] #overlay-open { display: block; font-size: 10px; padding: 1px 6px; }
 
+/* Mission Control (V2.1 M6): dieselben Farben und Abstaende wie die Zeitleiste; keine Animation. */
+#mission-panel h3 { margin: 12px 0 4px; font-size: 13px; letter-spacing: 0.08em; color: var(--dim); font-weight: 600; }
+#mission-graph, #mission-graph ul, #mission-agents, #mission-quality, #mission-business, #mission-memory { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+#mission-graph > li { padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(123, 77, 255, 0.08); }
+#mission-graph .mission-wave > ul > li, #mission-agents li, #mission-quality li, #mission-business li, #mission-memory li { --tl: #6b7686; padding: 4px 8px; border-left: 4px solid var(--tl); overflow-wrap: anywhere; font-size: 13px; }
+#mission-graph li[data-status="pending"] { --tl: #3b6bff; }
+#mission-graph li[data-status="running"] { --tl: #9b5cff; }
+#mission-graph li[data-status="succeeded"] { --tl: #2ecc71; }
+#mission-graph li[data-status="failed"] { --tl: #ff4d4d; }
+#mission-graph li[data-status="blocked"] { --tl: #ffc933; }
+#mission-graph .tl-dep, #mission-graph .tl-err { color: var(--dim); font-size: 13px; }
+#mission-progress { width: 100%; height: 10px; accent-color: var(--violet); }
+#mission-budget, #mission-progress-note, #mission-note { color: var(--dim); font-size: 13px; margin: 2px 0; }
+
 /* Zeitleiste (WP07b): nur vorhandene Farben des Designs; Bewegung nur bei Effektstufe full, nie bei prefers-reduced-motion. */
 #timeline-panel { position: relative; }
 #timeline-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }

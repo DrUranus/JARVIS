@@ -54,6 +54,16 @@
       <div class="panel" id="timeline-panel"><h2>Zeitleiste</h2>
         <div class="filters"><button id="timeline-refresh" type="button">Aktualisieren</button></div>
         <p id="timeline-note" role="status"></p><ol id="timeline-list"></ol></div>
+      <div class="panel" id="mission-panel"><h2>Mission Control</h2>
+        <div class="filters"><button id="mission-refresh" type="button">Aktualisieren</button></div>
+        <p id="mission-note" role="status"></p>
+        <h3>Aufgaben-Abhaengigkeiten</h3><ol id="mission-graph"></ol>
+        <h3>Agentenstatus</h3><ul id="mission-agents"></ul>
+        <h3>Budget</h3><p id="mission-budget"></p>
+        <h3>Projektfortschritt</h3><progress id="mission-progress" max="100" value="0"></progress><p id="mission-progress-note"></p>
+        <h3>Qualitaetspruefung</h3><ul id="mission-quality"></ul>
+        <h3>Business-Ergebnisse</h3><ul id="mission-business"></ul>
+        <h3>Projektgedaechtnis</h3><ul id="mission-memory"></ul></div>
       <div class="panel"><h2>Ergebnisse</h2><ul id="results-list"></ul></div>
       <div class="panel" id="doctor-panel"><h2>Einrichtung und Diagnose</h2>
         <div class="filters"><button id="doctor-refresh" type="button">Prüfen</button></div>

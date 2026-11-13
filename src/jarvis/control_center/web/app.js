@@ -246,6 +246,96 @@ async function loadTimeline() {
   }
 }
 
+// ---- Mission Control (V2.1 M6): eine nur lesende Uebersicht aus /view/mission (GET). Texte per textContent; kein Befehl, keine Freigabe, kein Abbrechen. ----
+const MISSION_STATES = ["pending", "running", "succeeded", "failed", "blocked", "cancelled"];
+
+function missionLine(parent, text, status) {
+  const li = document.createElement("li");
+  if (status !== undefined) li.dataset.status = MISSION_STATES.includes(String(status).toLowerCase()) ? String(status).toLowerCase() : "unknown";
+  li.textContent = text;
+  parent.appendChild(li);
+  return li;
+}
+
+function missionSection(id, data, rows) {
+  const ul = el(id);
+  ul.replaceChildren();
+  if (!data || typeof data !== "object") { missionLine(ul, "nicht abrufbar"); return; }
+  if (!data.available) { missionLine(ul, String(data.reason || "nicht verfuegbar")); return; }
+  const list = rows(data);
+  if (!list.length) missionLine(ul, "keine Eintraege");
+  for (const t of list) missionLine(ul, t);
+}
+
+function renderMission(data) {
+  const note = el("mission-note");
+  const graph = el("mission-graph");
+  graph.replaceChildren();
+  for (const id of ["mission-agents", "mission-quality", "mission-business", "mission-memory"]) el(id).replaceChildren();
+  el("mission-budget").textContent = "";
+  el("mission-progress").value = 0;
+  el("mission-progress-note").textContent = "";
+  if (!data || typeof data !== "object") { note.textContent = "nicht abrufbar"; return; }
+  if (!data.available) { note.textContent = String(data.reason || "nicht verfuegbar"); return; }
+  const g = data.graph && typeof data.graph === "object" ? data.graph : {};
+  const nodes = Array.isArray(g.nodes) ? g.nodes.filter((n) => n && typeof n === "object") : [];
+  const byId = new Map(nodes.map((n) => [String(n.id), n]));
+  (Array.isArray(g.waves) ? g.waves : []).forEach((wave, i) => {
+    const li = document.createElement("li");
+    li.className = "mission-wave";
+    const head = document.createElement("div");
+    head.className = "tl-head";
+    head.textContent = "Welle " + (i + 1) + (i === 0 ? " (ohne Voraussetzung)" : "");
+    li.appendChild(head);
+    const ul = document.createElement("ul");
+    for (const id of Array.isArray(wave) ? wave : []) {
+      const n = byId.get(String(id)) || { id };
+      const deps = Array.isArray(n.deps) && n.deps.length ? "  <- " + n.deps.join(", ") : "";
+      missionLine(ul, String(n.id) + "  " + String(n.agent || "-") + "  [" + String(n.status || "?") + "]  " + String(n.objective || "") + deps, n.status);
+    }
+    li.appendChild(ul);
+    graph.appendChild(li);
+  });
+  if (Array.isArray(g.cycle) && g.cycle.length) { const li = document.createElement("li"); li.className = "tl-err"; li.textContent = "Zyklus in den Abhaengigkeiten: " + g.cycle.join(", "); graph.appendChild(li); }
+  if (Array.isArray(g.external_deps) && g.external_deps.length) { const li = document.createElement("li"); li.className = "tl-dep"; li.textContent = "Voraussetzung ausserhalb des Fensters: " + g.external_deps.join(", "); graph.appendChild(li); }
+  const agents = data.agents && typeof data.agents === "object" ? data.agents : null;
+  missionSection("mission-agents", agents, (a) => (Array.isArray(a.items) ? a.items : []).map((x) => String(x.id) + "  [" + String(x.status) + "]  laeuft " + (x.running | 0) + ", wartet " + (x.pending | 0) + (x.reason ? "  - " + String(x.reason) : "")));
+  const b = data.budget && typeof data.budget === "object" ? data.budget : null;
+  if (!b) el("mission-budget").textContent = "nicht abrufbar";
+  else if (!b.available || !b.session) el("mission-budget").textContent = String(b.reason || "nicht verfuegbar");
+  else {
+    const s = b.session;
+    el("mission-budget").textContent = "Aufrufe " + (s.calls | 0) + "/" + (s.max_calls | 0) + ", Laufzeit " + Number(s.elapsed || 0).toFixed(0) + "/" + Number(s.max_seconds || 0).toFixed(0) + " s" + (s.exhausted ? "  ERSCHOEPFT: " + String(s.exhausted) : "");
+  }
+  const p = data.progress && typeof data.progress === "object" ? data.progress : null;
+  if (p && p.available) {
+    el("mission-progress").value = Math.max(0, Math.min(100, p.percent | 0));
+    const by = p.by_status && typeof p.by_status === "object" ? Object.entries(p.by_status).map(([k, v]) => k + " " + v).join(", ") : "";
+    el("mission-progress-note").textContent = (p.finished | 0) + " von " + (p.total | 0) + " Aufgaben abgeschlossen (" + (p.percent | 0) + " %)" + (by ? "  - " + by : "");
+  }
+  const q = data.quality && typeof data.quality === "object" ? data.quality : null;
+  missionSection("mission-quality", q, (d) => (Array.isArray(d.items) ? d.items : []).map((x) => String(x.task_id) + "  " + (x.accepted ? "angenommen" : "NICHT angenommen") + "  (Agent meldet: " + String(x.self_reported || "?") + ")"
+    + (Array.isArray(x.failed) && x.failed.length ? "  fehlgeschlagen: " + x.failed.join(", ") : "") + (Array.isArray(x.unknown) && x.unknown.length ? "  ungeprueft: " + x.unknown.join(", ") : "")));
+  const biz = data.business && typeof data.business === "object" ? data.business : null;
+  missionSection("mission-business", biz, (d) => (Array.isArray(d.items) ? d.items : []).map((x) => String(x.task_id) + "  " + String(x.agent_id) + "/" + String(x.kind || "-") + "  Sicherheit " + String(x.confidence || "UNKNOWN")
+    + ", " + (x.unknowns | 0) + " unbekannt, " + (x.sources | 0) + " Quellen  - " + String(x.summary || "")));
+  const m = data.memory && typeof data.memory === "object" ? data.memory : null;
+  missionSection("mission-memory", m, (d) => (Array.isArray(d.projects) ? d.projects : []).map((x) => String(x.project) + "  " + Object.entries(x.counts && typeof x.counts === "object" ? x.counts : {}).map(([k, v]) => k + " " + v).join(", ")
+    + "  Widersprueche " + (x.conflicts | 0) + ", veraltet " + (x.stale | 0) + ", Vorschlaege " + (x.suggestions | 0)));
+  note.textContent = nodes.length ? nodes.length + " Aufgaben" + (g.truncated ? " (aeltere ausgeblendet)" : "") : "keine Aufgaben";
+}
+
+async function loadMission() {
+  try {
+    const r = await fetch(url("view/mission", 0, { limit: String(TIMELINE_MAX) }), { method: "GET" });
+    const data = await r.json();
+    if (!r.ok) { renderMission(null); el("mission-note").textContent = "Abgelehnt: " + (data && data.error ? data.error : r.status); return; }
+    renderMission(data);
+  } catch (e) {
+    renderMission(null);
+  }
+}
+
 // Aufgabenereignisse laden die Zeitleiste neu, aber hoechstens einmal pro Sekunde (ein wartender Abruf genuegt).
 function scheduleTimeline() {
   if (timelineTimer !== null) return;
@@ -926,6 +1016,7 @@ async function loadCoreTable() {
 }
 
 el("timeline-refresh").addEventListener("click", () => loadTimeline());
+el("mission-refresh").addEventListener("click", () => loadMission());
 el("approvals-refresh").addEventListener("click", () => loadApprovalHistory());
 el("doctor-refresh").addEventListener("click", () => loadView("doctor", {}));
 el("history-refresh").addEventListener("click", () => loadView("history", viewParams("history", ["kind", "status"])));
