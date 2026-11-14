@@ -33,8 +33,15 @@ def calc_be(i):
     return r["units"] if r["status"] == "COMPUTED" else None
 
 
+def live_sink() -> MemoryAuditSink:
+    """Ein arbeitendes Audit enthaelt immer Ereignisse (die Engine protokolliert jede Werkzeug-Registrierung); ein leeres gilt als nicht verfuegbar."""
+    sink = MemoryAuditSink()
+    sink.record(AuditEvent(AuditEventType.TOOL_REGISTERED, detail="tool 'echo' registered"))
+    return sink
+
+
 def gate(sink=None, agents=("business", "strategist"), **kw):
-    sink = sink if sink is not None else MemoryAuditSink()
+    sink = sink if sink is not None else live_sink()
     return QualityGate(agents, calculators={"break_even": calc_be}, audit_events=lambda: sink.tail(1000), **kw), sink
 
 
@@ -146,7 +153,7 @@ def test_malformed_audit_data_blocks(events):
 
 
 def test_contradicting_approvals_in_the_audit_block_even_for_a_clean_result():
-    sink = MemoryAuditSink()
+    sink = live_sink()
     for t in (AuditEventType.CONFIRMATION_ACCEPTED, AuditEventType.CONFIRMATION_REJECTED):
         sink.record(AuditEvent(t, request_id="q1", tool="mail", action="send"))
     g, _ = gate(sink)
@@ -155,13 +162,13 @@ def test_contradicting_approvals_in_the_audit_block_even_for_a_clean_result():
 
 
 def test_an_exhausted_budget_recorded_in_the_audit_blocks_the_result_whatever_the_agent_says():
-    sink = MemoryAuditSink()
+    sink = live_sink()
     g, _ = gate(sink)
     o = rig(g)
     sink.record(AuditEvent(AuditEventType.BUDGET_EXHAUSTED, tool="agent", action="business", status="blocked", extra={"task_id": "child", "limit": "tool_calls"}))
     r = run(o, "business", BIZ, MARKET)
     assert r.status is S.BLOCKED and r.error_code == "quality_rejected" and "budgets" in r.output["quality"]["failed"]
-    other = MemoryAuditSink()
+    other = live_sink()
     other.record(AuditEvent(AuditEventType.BUDGET_EXHAUSTED, tool="agent", action="business", status="blocked", extra={"task_id": "anderer", "limit": "tool_calls"}))
     assert run(rig(gate(other)[0]), "business", BIZ, MARKET).status is S.SUCCEEDED          # nur die eigene Aufgabe zaehlt
 
@@ -235,7 +242,7 @@ def test_the_factory_hands_the_audit_tail_to_the_gate_and_without_it_the_typed_a
     settings = load_settings(env=env)
     core = build_core(settings)
     plan = {"kind": "business_plan", "plan": PLAN}
-    sink = MemoryAuditSink()
+    sink = live_sink()
     with_audit = build_agents(settings, core.tools, core.memory, core.tasks, core.subsystems, audit_tail=sink.tail)
     r = with_audit.delegate("Plan", plan, agent_id="business", required_capabilities=frozenset({"business.analyze"}))
     assert r.status is S.SUCCEEDED
@@ -244,3 +251,79 @@ def test_the_factory_hands_the_audit_tail_to_the_gate_and_without_it_the_typed_a
     r2 = without.delegate("Plan", plan, agent_id="business", required_capabilities=frozenset({"business.analyze"}))
     assert r2.status is S.BLOCKED and r2.error_code == "quality_audit_unavailable"
     assert core.subsystems["agents"].orchestrator._quality_gate is not None                      # wie in bootstrap gebaut: Gate ja, Audit-Quelle noch nicht (bewusst)
+
+
+# ---- Audit ohne jedes Ereignis / mit beschaedigten Zeilen gilt nicht als Evidenz -------------------------------------------------------------------------------------
+def test_an_audit_without_any_event_is_unavailable_not_clean():
+    g = QualityGate(("business",), calculators={"break_even": calc_be}, audit_events=lambda: [])
+    r = run(rig(g), "business", BIZ, MARKET)
+    assert r.status is S.BLOCKED and r.error_code == "quality_audit_unavailable"            # unlesbare/fehlende Datei und "nichts passiert" sind von aussen nicht zu unterscheiden
+
+
+def test_an_unreadable_audit_line_makes_the_audit_inconsistent():
+    g = QualityGate(("business",), calculators={"break_even": calc_be}, audit_events=lambda: [{"type": "tool_registered"}, {"type": "unreadable_line"}])
+    r = run(rig(g), "business", BIZ, MARKET)
+    assert r.status is S.BLOCKED and r.error_code == "quality_audit_inconsistent"
+
+
+# ---- Ende zu Ende ueber build_core mit dem ECHTEN Audit-Protokoll (bootstrap-Verdrahtung) --------------------------------------------------------------------
+def gated_core(tmp_path, **extra):
+    from jarvis.bootstrap import build_core
+    from jarvis.config import load_settings
+    from test_computer_integration import env_for
+    env = env_for(tmp_path, JARVIS_AGENTS_ENABLED="true", JARVIS_BROWSER_ENABLED="true", JARVIS_BROWSER_PROVIDER="fake", JARVIS_SECURITY_CONFIRMATION="deny", JARVIS_CODING_ENABLED="false",
+                  JARVIS_COMPUTER_ENABLED="false", JARVIS_BUSINESS_ENABLED="true", JARVIS_AGENTS_QUALITY_GATE="true", JARVIS_AGENTS_QUALITY_GATE_AGENTS="business", **extra)
+    settings = load_settings(env=env)
+    return build_core(settings), settings
+
+
+def delegate(core, task_id):
+    return core.subsystems["agents"].delegate("Plan", {"kind": "business_plan", "plan": PLAN}, agent_id="business", required_capabilities=frozenset({"business.analyze"}), task_id=task_id)
+
+
+def test_with_the_real_audit_wired_by_bootstrap_a_clean_result_is_accepted(tmp_path):
+    core, _ = gated_core(tmp_path)
+    assert core.subsystems["agents"].orchestrator._quality_gate is not None
+    assert delegate(core, "ok1").status is S.SUCCEEDED
+
+
+def test_with_the_audit_switched_off_the_typed_agents_stay_blocked(tmp_path):
+    core, _ = gated_core(tmp_path, JARVIS_SECURITY_AUDIT_ENABLED="false", JARVIS_SECURITY_AUDIT_STRICT="false")
+    r = delegate(core, "x1")
+    assert r.status is S.BLOCKED and r.error_code == "quality_audit_unavailable"
+
+
+def test_a_damaged_audit_line_blocks(tmp_path):
+    core, settings = gated_core(tmp_path)
+    with open(settings.effective_audit_path, "a", encoding="utf-8") as fh:
+        fh.write("{das ist kein json\n")
+    r = delegate(core, "x2")
+    assert r.status is S.BLOCKED and r.error_code == "quality_audit_inconsistent"
+
+
+def test_contradicting_confirmations_recorded_in_the_real_audit_block(tmp_path):
+    core, _ = gated_core(tmp_path)
+    for t in (AuditEventType.CONFIRMATION_ACCEPTED, AuditEventType.CONFIRMATION_REJECTED):
+        assert core.permissions.audit.record(AuditEvent(t, request_id="q9", tool="mail", action="send"))
+    r = delegate(core, "x3")
+    assert r.status is S.BLOCKED and r.error_code == "quality_audit_inconsistent"
+
+
+def test_a_budget_exhaustion_recorded_for_exactly_this_task_blocks_and_no_secret_leaks(tmp_path):
+    core, _ = gated_core(tmp_path)
+    secret = "sk-" + "a1" * 12
+    core.permissions.audit.record(AuditEvent(AuditEventType.BUDGET_EXHAUSTED, tool="agent", action="business", status="blocked", detail="x " + secret, extra={"task_id": "x4", "limit": "tool_calls"}))
+    r = delegate(core, "x4")
+    assert r.status is S.BLOCKED and r.error_code == "quality_rejected" and "budgets" in r.output["quality"]["failed"]
+    assert secret not in json.dumps([r.error, r.summary, r.output])
+    assert delegate(core, "x5").status is S.SUCCEEDED                                  # eine andere Aufgabe ist davon nicht betroffen
+
+
+def test_the_gate_stays_off_without_the_switch_even_with_the_audit_wired(tmp_path):
+    from jarvis.bootstrap import build_core
+    from jarvis.config import load_settings
+    from test_computer_integration import env_for
+    core = build_core(load_settings(env=env_for(tmp_path, JARVIS_AGENTS_ENABLED="true", JARVIS_BROWSER_ENABLED="true", JARVIS_BROWSER_PROVIDER="fake", JARVIS_SECURITY_CONFIRMATION="deny",
+                                                 JARVIS_CODING_ENABLED="false", JARVIS_COMPUTER_ENABLED="false", JARVIS_BUSINESS_ENABLED="true")))
+    assert core.subsystems["agents"].orchestrator._quality_gate is None
+    assert delegate(core, "free").status is S.SUCCEEDED

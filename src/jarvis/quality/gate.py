@@ -76,6 +76,10 @@ class QualityGate:
             return GateDecision(False, "quality_audit_unavailable", unknown=("audit_unreadable",))
         if not isinstance(raw, (list, tuple)) or not all(isinstance(e, dict) for e in raw):
             return GateDecision(False, "quality_audit_inconsistent", unknown=("audit_malformed",))
+        if not raw:                                                 # a working audit always holds events (every tool registration is logged): none = not readable / not running
+            return GateDecision(False, "quality_audit_unavailable", unknown=("audit_empty",))
+        if any(e.get("type") == "unreadable_line" for e in raw):    # the JSONL tail marks a damaged line this way: the log cannot be trusted as evidence
+            return GateDecision(False, "quality_audit_inconsistent", unknown=("audit_line_unreadable",))
         accepted: dict[str, int] = {}
         rejected: set[str] = set()
         for e in raw:

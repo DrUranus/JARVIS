@@ -57,7 +57,8 @@ def build_core(settings: Settings) -> JarvisCore:
     # Multi-agent orchestration sits ABOVE those subsystems: agents only use their tools through the registry (and so the permission engine).
     from jarvis.agents.factory import build_agents
     core.subsystems["agents"] = build_agents(settings, tools, memory, core.tasks, core.subsystems, budget_audit=agent_budget_audit(permissions.audit),
-                                              stop_guard=emergency_guard(core))      # V2.1: the orchestrator only READS the latch and accepts nothing new while it is engaged
+                                              stop_guard=emergency_guard(core),      # V2.1: the orchestrator only READS the latch and accepts nothing new while it is engaged
+                                              audit_tail=permissions.audit.tail if settings.security.audit_enabled else None)   # V2.1: read-only audit tail as independent evidence for the (OFF by default) quality gate; no audit = gate stays closed
     # Assistant (assistant-e2e, off by default): the agent router decides per goal step. It only SELECTS (rules; no LLM call); decisions become `routing`
     # events and audit entries. Without assistant.enabled and agents.router.enabled the goal layer uses the AgentPlanner exactly as before.
     from jarvis.interface.assistant import RoutingSink

@@ -62,15 +62,25 @@ def _without_docstring(fn: ast.FunctionDef) -> ast.FunctionDef:
     return ast.FunctionDef(fn.name, fn.args, body, fn.decorator_list, fn.returns)            # nur die Felder, die zaehlen (keine Zeilen)
 
 
+WIRED = ("stop_guard", "audit_tail")                        # die beiden Schluesselwoerter, die V2.1 an build_agents ergaenzt; Wert und Ort sind unten EXAKT gepinnt
+
+
 class _DropStopGuard(ast.NodeTransformer):
     def visit_Call(self, node: ast.Call) -> ast.AST:
         self.generic_visit(node)
-        node.keywords = [k for k in node.keywords if k.arg != "stop_guard"]
+        node.keywords = [k for k in node.keywords if k.arg not in WIRED]
         return node
 
 
+AUDIT_TAIL_EXPR = "permissions.audit.tail if settings.security.audit_enabled else None"     # nur wenn das Audit eingeschaltet ist; sonst bleibt das Tor fuer business/strategist zu
+
+
+def expr_digest(expr: str) -> str:
+    return digest(canonical(ast.parse(expr, mode="eval").body))
+
+
 def fingerprint(source: str) -> str:
-    """Fingerabdruck von bootstrap.py OHNE `emergency_guard`, `speech_guard` und das Schluesselwort `stop_guard`: der vollstaendige kanonische AST (jede Aenderung - Bedingung, Operator,
+    """Fingerabdruck von bootstrap.py OHNE `emergency_guard`, `speech_guard` und die Schluesselwoerter `stop_guard` und `audit_tail`: der vollstaendige kanonische AST (jede Aenderung - Bedingung, Operator,
     Argument, Reihenfolge, Konstante, Docstring, Import, Funktion - aendert ihn). Die ausgenommenen Teile werden unten einzeln und ebenso genau gepinnt."""
     tree = ast.parse(source)
     tree.body = [n for n in tree.body if not (isinstance(n, ast.FunctionDef) and n.name in EXEMPT)]
@@ -98,11 +108,12 @@ def wiring_problems(source: str) -> list[str]:
     else:
         if any(isinstance(n, ast.Call) for n in ast.walk(guard)) or {n.attr for n in ast.walk(guard) if isinstance(n, ast.Attribute)} - {"permissions", "emergency", "engaged", "reason"}:
             problems.append("emergency_guard ist keine reine Lesefunktion")
-    uses = [n for n in ast.walk(t) if isinstance(n, ast.keyword) and n.arg == "stop_guard"]
-    ok = len(uses) == 1 and any(isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id == "build_agents" and uses[0] in c.keywords for c in ast.walk(t))
-    v = uses[0].value if uses else None
-    if not (ok and isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id == "emergency_guard" and [a.id for a in v.args if isinstance(a, ast.Name)] == ["core"]):
-        problems.append("stop_guard ist nicht genau einmal als emergency_guard(core) an build_agents gebunden")
+    expected = {"stop_guard": expr_digest("emergency_guard(core)"), "audit_tail": expr_digest(AUDIT_TAIL_EXPR)}
+    for name in WIRED:
+        uses = [n for n in ast.walk(t) if isinstance(n, ast.keyword) and n.arg == name]
+        ok = len(uses) == 1 and any(isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id == "build_agents" and uses[0] in c.keywords for c in ast.walk(t))
+        if not (ok and digest(canonical(uses[0].value)) == expected[name]):
+            problems.append(f"{name} ist nicht genau einmal, nur an build_agents und mit genau dem geprueften Wert gebunden")
     return problems
 
 
@@ -207,3 +218,42 @@ def test_comments_blank_lines_and_formatting_are_not_changes():
 def test_the_canonical_form_is_complete_and_independent_of_ast_dump_formatting():
     a, b = ast.parse("x = f(1, y=2)\n"), ast.parse("x   =   f( 1 ,\n y = 2 )  # c\n")
     assert canonical(a) == canonical(b) and canonical(a) != canonical(ast.parse("x = f(1, y=3)\n")) and canonical(a) != canonical(ast.parse("x = f(1, z=2)\n"))
+
+
+# ---- Audit-Verdrahtung (V2.1 Freigabe): jede Abweichung oder Umgehung wird gefunden -------------------------------------------------------------------------
+def _with(expr: str | None) -> str:
+    """Der echte Quelltext, in dem der Wert von `audit_tail` ersetzt (oder, bei None, das Schluesselwort samt Zeile entfernt) ist."""
+    import re
+    src = real()
+    pattern = re.compile(r"audit_tail=" + re.escape(AUDIT_TAIL_EXPR) + r"\)[^\n]*")
+    assert pattern.search(src), "the approved wiring is part of bootstrap.py"
+    return pattern.sub(")" if expr is None else lambda m: "audit_tail=" + expr + m.group(0)[len("audit_tail=" + AUDIT_TAIL_EXPR):], src, count=1)
+
+
+@pytest.mark.parametrize("name,expr", [
+    ("audit_tail missing", None),
+    ("audit_tail None", "None"),
+    ("unconditional", "permissions.audit.tail"),
+    ("condition always true", "permissions.audit.tail if True else None"),
+    ("condition negated", "permissions.audit.tail if not settings.security.audit_enabled else None"),
+    ("other switch", "permissions.audit.tail if settings.security.audit_strict else None"),
+    ("branches swapped", "None if settings.security.audit_enabled else permissions.audit.tail"),
+    ("other attribute", "permissions.audit.record if settings.security.audit_enabled else None"),
+    ("fixed fake audit", "(lambda n: [{'type': 'tool_registered'}]) if settings.security.audit_enabled else None"),
+    ("other object", "core.tasks.tail if settings.security.audit_enabled else None"),
+    ("wrapped", "list if settings.security.audit_enabled else None"),
+])
+def test_the_audit_source_wiring_is_pinned_exactly(name, expr):
+    assert wiring_problems(real()) == [], "the exact approved wiring must pass"
+    assert wiring_problems(_with(expr)) != [], name
+
+
+def test_audit_tail_bound_twice_or_to_another_call_is_found():
+    twice = real().replace("    return core\n", "    build_agents(audit_tail=" + AUDIT_TAIL_EXPR + ")\n    return core\n", 1)
+    moved = _with(None).replace("agent_budget_audit(permissions.audit)", "agent_budget_audit(permissions.audit, audit_tail=" + AUDIT_TAIL_EXPR + ")", 1)
+    assert "audit_tail=" in moved and moved != _with(None)
+    assert wiring_problems(twice) != [] and wiring_problems(moved) != []
+
+
+def test_removing_stop_guard_while_keeping_audit_tail_is_found():
+    assert wiring_problems(real().replace("stop_guard=emergency_guard(core),", "", 1)) != []
