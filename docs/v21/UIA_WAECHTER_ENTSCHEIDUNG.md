@@ -37,3 +37,29 @@ Negativtests (grün, d. h. der Vorschlag bleibt streng): alle anderen geschützt
 
 ## 6. Auswirkung auf Sicherheitsgrenzen
 Keine: Berechtigungsengine, Not-Aus, X0, Konfiguration und die Sicherheitstests sind weder verändert noch von der Anpassung betroffen. **Freigabe nötig für B oder C.**
+
+---
+
+## 7. Nachtrag: Prüfung von Option B (Branch `claude/v21-uia-guard-b`, nicht im Integrationsbranch)
+
+**Befund bei der Prüfung:** Die in Abschnitt 3 beschriebene Zusatzprüfung war **schwächer** als das ursprüngliche „keine Änderung an `bootstrap.py`“: der damalige Fingerabdruck erfasste nur Aufrufnamen, Textkonstanten, Importe und Definitionen. Eine umgedrehte Bedingung (`is not` → `is`), vertauschte Argumente oder `ToolRegistry(permissions or None)` wären unentdeckt geblieben. Für Option B reichte das nicht.
+
+**Korrektur (red-first, 7 zuvor nicht gefundene Mutationen):** `fingerprint` bildet jetzt den **vollständigen kanonischen AST** ab (Knotenarten, alle Felder, Operatoren, Namen, Konstanten, Docstrings, Reihenfolge; nur Kommentare/Formatierung sind frei; eigenes Format, kein `ast.dump`, leere Felder ausgelassen → unabhängig von der Python-Version). Ausgenommen sind nur `emergency_guard`, `speech_guard` und das Schlüsselwort `stop_guard`; **diese drei Teile sind einzeln auf ihre exakte Form gepinnt** (`EMERGENCY_GUARD_SHAPE`, `SPEECH_GUARD_SHAPE`, Bindung genau einmal an `build_agents` als `emergency_guard(core)`).
+
+**Änderung am historischen Test (exakt vier Zeilen, Verbotsliste und alle übrigen Zeilen unverändert, kein Skip hinzugefügt):**
+```diff
+@@ def test_the_ui_tool_only_touches_computer_and_documentation_files():
+     forbidden = [f for f in changed if ... bootstrap.py ... ]
++    if "src/jarvis/bootstrap.py" in forbidden:      # V2.1 (Option B): ...
++        from test_v21_bootstrap_wiring import SOURCE, wiring_problems     # fehlt die Pruefung, schlaegt der Test fehl (kein Skip)
++        if wiring_problems(SOURCE.read_text(encoding="utf-8")) == []:
++            forbidden.remove("src/jarvis/bootstrap.py")
+     assert forbidden == [], forbidden
+```
+
+**Gegenbeweis am echten, angepassten Test** (jede Mutation einzeln committet gegen `origin/main`, Wegwerf-Worktree): unverändert → grün; bootstrap-Bedingung gedreht, Argument erweitert, `speech_guard` delegiert nicht, `emergency.py`, `engine.py`, `config/jarvis.toml`, neues `.github/`, `tests/test_emergency_stop.py`, `pyproject.toml` → **jeweils rot**.
+
+**Was Option B ausdrücklich NICHT zeigt / Grenzen (ehrlich):**
+1. Die Basis der Prüfung ist der **geprüfte V2.0-Stand `7c2b4b7`**. Die 63 Zeilen, um die `bootstrap.py` dort von `main` abweicht, werden **nicht neu bewertet**, sondern als Baseline akzeptiert (sie sind Teil der V2.0-Abnahme). Gegenüber der V2.0-Basis ist die Prüfung strenger als der historische Test (jede Abweichung wird gefunden); gegenüber `main` ist die V2.0-Differenz vertraut.
+2. Wer `BASELINE_7C2B4B7` oder die Form-Pins im Testfile ändert, kann die Prüfung selbst aufweichen. Empfehlung (Besitzeraktion, `protected_manifest.json` ist geschützt): `tests/test_v21_bootstrap_wiring.py` und `tests/test_computer_uia_tools.py` in das Hash-Manifest N3-D aufnehmen, damit diese Änderung nur gemeinsam mit einem Manifestwechsel möglich ist.
+3. Option B ändert weder `PermissionEngine` noch Not-Aus noch X0.

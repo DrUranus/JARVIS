@@ -5,7 +5,7 @@ Dieser Waechter bleibt UNVERAENDERT. Weil der Not-Aus-Guard laut Projektregel nu
 die lesende Guard-Verdrahtung ist - der Sicherheitszweck des Waechters (keine stille Aenderung der Verdrahtung, kein Umgehen der PermissionEngine) bleibt damit vollstaendig erhalten:
 
   1. Alles ausser `emergency_guard`, `speech_guard` und dem Schluesselwort `stop_guard` ist STRUKTURGLEICH zum geprueften V2.0-Stand (Commit 7c2b4b7): gleiche Funktionen,
-     gleiche Aufrufe in gleicher Reihenfolge, gleiche Textkonstanten (Fingerabdruck unten; versionsunabhaengig, nur Namen und Konstanten, keine ast.dump-Formatierung).
+     der VOLLSTAENDIGE kanonische AST ist gleich (jede Bedingung, jeder Operator, jedes Argument, jede Reihenfolge, Konstante, Docstring, jeder Import); nur Kommentare und Formatierung sind frei. Eigene Kanonform, kein ast.dump.
   2. `emergency_guard` ist reine Lesefunktion (nur `.engaged` und `.reason`, kein Aufruf ausser dem Guard selbst) und `speech_guard` liefert dasselbe wie vorher.
   3. `stop_guard` kommt genau einmal vor, als Schluesselwort von `build_agents`, mit dem Wert `emergency_guard(core)`.
 Aendert jemand bootstrap.py legitim, schlaegt dieser Test an und der Fingerabdruck wird bewusst vom Owner neu gesetzt (wie das Manifest N3-D)."""
@@ -19,28 +19,67 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "src" / "jarvis" / "bootstrap.py"
-BASELINE_7C2B4B7 = "883d2ab65ed0d615a3bfa73b9d67740be5d45ac9250668c6a45b04abc2240a94"
+BASELINE_7C2B4B7 = "cff1cd58e8462dfe6071bdc8e64d1ade5da28651476af5971ea6fc930a7f78e8"
 EXEMPT = ("emergency_guard", "speech_guard")
+EMERGENCY_GUARD_SHAPE = "1401caeba54bd28e0f83228929f424dc2ceb69d7a2377490d11b88bd4f5d20c1"
+SPEECH_GUARD_SHAPE = "61689cda645c4cf3e8a8305e0aee63250a87ae0c2223ecb86fbc6df1634d137a"
+
+
+def canonical(node: object) -> str:
+    """Vollstaendige, formatunabhaengige Form eines AST: Knotenart, alle Felder (Namen, Operatoren, Konstanten, Reihenfolge) - ohne Zeilen, Spalten, Kommentare. Leere Felder
+    (None, []) werden ausgelassen, damit Python-Versionen mit zusaetzlichen leeren Feldern (z. B. type_params) dasselbe ergeben. Eigenes Format, kein ast.dump."""
+    out: list[str] = []
+
+    def walk(n: object) -> None:
+        if isinstance(n, ast.AST):
+            out.append(type(n).__name__ + "(")
+            for name, value in ast.iter_fields(n):
+                if value is None or value == []:
+                    continue
+                out.append(name + "=")
+                walk(value)
+            out.append(")")
+        elif isinstance(n, list):
+            out.append("[")
+            for x in n:
+                walk(x)
+                out.append(",")
+            out.append("]")
+        else:
+            out.append(repr(n))
+    walk(node)
+    return "".join(out)
+
+
+def digest(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _without_docstring(fn: ast.FunctionDef) -> ast.FunctionDef:
+    body = list(fn.body)
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str):
+        body = body[1:]
+    return ast.FunctionDef(fn.name, fn.args, body, fn.decorator_list, fn.returns)            # nur die Felder, die zaehlen (keine Zeilen)
+
+
+class _DropStopGuard(ast.NodeTransformer):
+    def visit_Call(self, node: ast.Call) -> ast.AST:
+        self.generic_visit(node)
+        node.keywords = [k for k in node.keywords if k.arg != "stop_guard"]
+        return node
 
 
 def fingerprint(source: str) -> str:
+    """Fingerabdruck von bootstrap.py OHNE `emergency_guard`, `speech_guard` und das Schluesselwort `stop_guard`: der vollstaendige kanonische AST (jede Aenderung - Bedingung, Operator,
+    Argument, Reihenfolge, Konstante, Docstring, Import, Funktion - aendert ihn). Die ausgenommenen Teile werden unten einzeln und ebenso genau gepinnt."""
     tree = ast.parse(source)
-    parts: list[str] = []
-    for fn in (n for n in tree.body if not (isinstance(n, ast.FunctionDef) and n.name in EXEMPT)):
-        skip = {id(x) for k in ast.walk(fn) if isinstance(k, ast.keyword) and k.arg == "stop_guard" for x in ast.walk(k)}          # das Schluesselwort samt Wert
-        for n in ast.walk(fn):
-            if id(n) in skip:
-                continue
-            if isinstance(n, ast.Call):
-                f = n.func
-                parts.append("call:" + (f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else type(f).__name__) + ":" + ",".join(k.arg or "**" for k in n.keywords if k.arg != "stop_guard"))
-            elif isinstance(n, (ast.FunctionDef, ast.ClassDef)):
-                parts.append(f"def:{n.name}")
-            elif isinstance(n, ast.Constant) and isinstance(n.value, str):
-                parts.append("str:" + n.value)
-            elif isinstance(n, (ast.Import, ast.ImportFrom)):
-                parts.append("import:" + (getattr(n, "module", None) or "") + ":" + ",".join(a.name for a in n.names))
-    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+    tree.body = [n for n in tree.body if not (isinstance(n, ast.FunctionDef) and n.name in EXEMPT)]
+    return digest(canonical(_DropStopGuard().visit(tree)))
+
+
+def shape(source: str, name: str) -> str | None:
+    fn = next((n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == name), None)
+    return None if fn is None else digest(canonical(_without_docstring(fn)))
 
 
 def wiring_problems(source: str) -> list[str]:
@@ -49,6 +88,10 @@ def wiring_problems(source: str) -> list[str]:
     t = ast.parse(source)
     if fingerprint(source) != BASELINE_7C2B4B7:
         problems.append("bootstrap weicht ausserhalb der Guard-Verdrahtung vom V2.0-Stand ab")
+    if shape(source, "emergency_guard") != EMERGENCY_GUARD_SHAPE:
+        problems.append("emergency_guard hat nicht genau die geprueften Form")
+    if shape(source, "speech_guard") != SPEECH_GUARD_SHAPE:
+        problems.append("speech_guard hat nicht genau die geprueften Form")
     guard = next((n for n in t.body if isinstance(n, ast.FunctionDef) and n.name == "emergency_guard"), None)
     if guard is None:
         problems.append("emergency_guard fehlt")
@@ -135,3 +178,32 @@ def test_every_mutation_of_the_wiring_is_found(name, mutate):
     mutated = mutate(real())
     assert mutated != real(), name
     assert wiring_problems(mutated) != [], name
+
+
+# ---- Option B: die Pruefung muss mindestens so streng sein wie "bootstrap.py darf sich nicht aendern" (vollstaendiger AST-Vergleich) -----------------------------------
+@pytest.mark.parametrize("name,mutate", [
+    ("condition flipped", lambda s: s.replace("if provider is not original_provider", "if provider is original_provider", 1)),
+    ("arguments swapped", lambda s: s.replace("build_computer(settings, tools, permissions)", "build_computer(settings, permissions, tools)", 1)),
+    ("argument widened", lambda s: s.replace("ToolRegistry(permissions)", "ToolRegistry(permissions or None)", 1)),
+    ("statement dropped", lambda s: s.replace("    core.history = build_history(settings, core, guard)\n", "", 1)),
+    ("statement reordered", lambda s: s.replace("    register_emergency_components(core)\n    return core", "    return core\n    register_emergency_components(core)", 1)),
+    ("keyword value changed", lambda s: s.replace("budget_audit=agent_budget_audit(permissions.audit)", "budget_audit=None", 1)),
+    ("docstring of another function changed", lambda s: s.replace("Why a microphone recording must not start", "Why a microphone recording may start", 1)),
+    ("guard reads another attribute", lambda s: s.replace("f\"Notaus aktiv ({em.reason})\" if em.engaged else None\n    return guard\n\n\ndef speech_guard", "f\"Notaus aktiv ({em.source})\" if em.engaged else None\n    return guard\n\n\ndef speech_guard", 1)),
+    ("speech_guard no longer delegates", lambda s: s.replace("    return emergency_guard(core)\n", "    return lambda: None\n", 1)),
+    ("operator changed in guard", lambda s: s.replace("if em.engaged else None\n    return guard\n\n\ndef speech_guard", "if not em.engaged else None\n    return guard\n\n\ndef speech_guard", 1)),
+])
+def test_option_b_every_semantic_change_is_found_not_only_additions(name, mutate):
+    mutated = mutate(real())
+    assert mutated != real(), name
+    assert wiring_problems(mutated) != [], name
+
+
+def test_comments_blank_lines_and_formatting_are_not_changes():
+    src = real().replace("    register_emergency_components(core)\n    return core", "    # kommentar\n\n    register_emergency_components(core)   # noch einer\n    return core", 1)
+    assert src != real() and wiring_problems(src) == []
+
+
+def test_the_canonical_form_is_complete_and_independent_of_ast_dump_formatting():
+    a, b = ast.parse("x = f(1, y=2)\n"), ast.parse("x   =   f( 1 ,\n y = 2 )  # c\n")
+    assert canonical(a) == canonical(b) and canonical(a) != canonical(ast.parse("x = f(1, y=3)\n")) and canonical(a) != canonical(ast.parse("x = f(1, z=2)\n"))
