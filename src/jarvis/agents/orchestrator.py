@@ -410,7 +410,7 @@ class AgentOrchestrator:
         try:
             if not gate.applies(rec.agent_id):
                 return None
-            d = gate.check(rec.agent_id, outcome.status.value, outcome.output)
+            d = gate.check(rec.agent_id, outcome.status.value, outcome.output, self._gate_context(rec))
             if d.accepted is True:
                 return None
             code, failed, unknown = str(d.code), [str(x)[:60] for x in d.failed][:20], [str(x)[:60] for x in d.unknown][:20]
@@ -420,6 +420,15 @@ class AgentOrchestrator:
             code, failed, unknown, self_reported = "quality_unavailable", [], ["gate_error"], outcome.status.value
         msg = f"quality gate: the result was not accepted ({code})"
         return msg, {"quality": {"accepted": False, "code": code, "failed": failed, "unknown": unknown, "self_reported": self_reported}}, msg, code
+
+    def _gate_context(self, rec: _Rec) -> dict[str, Any]:
+        """What the gate may use as evidence INDEPENDENT of the agent: this orchestrator's own stored records of the SUCCEEDED parent tasks (plain copies)."""
+        parents = []
+        for ref in dict.fromkeys((*rec.task.dependencies, *(() if rec.task.parent_task_id is None else (rec.task.parent_task_id,)))):
+            p = self._records.get(ref)
+            if p is not None and p.status is TaskStatus.SUCCEEDED:
+                parents.append({"task_id": ref, "agent_id": p.result.agent_id, "status": p.status.value, "output": copy.deepcopy(p.result.output)})
+        return {"task_id": rec.task.task_id, "parents": parents}
 
     # ---- finishing ----------------------------------------------------------------------------------------------------------------------------
     def _finalize(self, rec: _Rec, status: TaskStatus, summary: str, output: Any, error: str | None, code: str | None) -> None:

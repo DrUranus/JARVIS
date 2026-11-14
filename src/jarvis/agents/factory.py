@@ -93,7 +93,8 @@ def _research_agent(settings: Settings, subsystems: dict[str, Any] | None = None
 
 
 def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | None, task_manager: TaskManager,
-                 subsystems: dict[str, Any], budget_audit: Any = None, stop_guard: Callable[[], str | None] | None = None) -> AgentsSubsystem:
+                 subsystems: dict[str, Any], budget_audit: Any = None, stop_guard: Callable[[], str | None] | None = None,
+                 audit_tail: Callable[[int], list[dict[str, Any]]] | None = None) -> AgentsSubsystem:
     cfg = settings.agents
     if not cfg.enabled:
         return AgentsSubsystem("disabled", "multi-agent orchestration is off (agents.enabled = false)")
@@ -112,7 +113,8 @@ def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | 
             from jarvis.business import calc as business_calc
             from jarvis.quality.gate import QualityGate
             gate = QualityGate(cfg.quality_gate_agents, calculators={"break_even": lambda i: (lambda r: r["units"] if r["status"] == "COMPUTED" else None)(
-                business_calc.break_even(i.get("fixed_costs"), i.get("price"), i.get("variable_cost")))})
+                business_calc.break_even(i.get("fixed_costs"), i.get("price"), i.get("variable_cost")))},
+                               audit_events=(lambda: audit_tail(500)) if audit_tail is not None else None)      # read-only audit tail (AuditLogger.tail); None = no audit source -> typed agents stay blocked
         orch = AgentOrchestrator(registry, tools=tools, max_concurrent=cfg.max_concurrent, default_timeout=cfg.task_timeout_seconds,
                                  max_queue=cfg.max_queue, max_history=cfg.max_history, cancel_grace=cfg.cancel_grace_seconds,
                                  tool_call_limit=cfg.tool_call_limit, max_output_chars=cfg.max_output_chars, task_manager=task_manager,

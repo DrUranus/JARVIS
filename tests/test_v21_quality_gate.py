@@ -183,7 +183,7 @@ def test_not_wired_unless_switched_on_and_then_the_business_agent_needs_evidence
     assert ok.status is S.SUCCEEDED
     gated = core_for(tmp_path, JARVIS_AGENTS_QUALITY_GATE="true", JARVIS_AGENTS_QUALITY_GATE_AGENTS="business")
     res = gated.subsystems["agents"].delegate("Analyse", {"kind": "lead_list"}, agent_id="business", required_capabilities=frozenset({"business.analyze"}))
-    assert res.status is S.BLOCKED and res.error_code == "quality_unverified"
+    assert res.status is S.BLOCKED and res.error_code == "quality_audit_unavailable"           # typisierter Agent: ohne unabhaengige Audit-Quelle nie angenommen
 
 
 def test_a_gate_switch_without_agents_or_for_an_unknown_agent_never_silently_gates_nothing(tmp_path):
@@ -201,5 +201,5 @@ def imports(path):
 
 def test_layering_the_orchestrator_knows_no_quality_module_and_the_gate_only_the_engine():
     assert not [m for m in imports(SRC / "agents" / "orchestrator.py") if "quality" in m]
-    assert {m for m in imports(SRC / "quality" / "gate.py") if m.startswith("jarvis")} <= {"jarvis.quality.engine"}
+    assert {m for m in imports(SRC / "quality" / "gate.py") if m.startswith("jarvis")} <= {"jarvis.quality.engine", "jarvis.quality.reports"}
     assert not {m.split(".")[0] for m in imports(SRC / "quality" / "gate.py")} & {"os", "subprocess", "socket", "threading", "pathlib", "sqlite3"}
