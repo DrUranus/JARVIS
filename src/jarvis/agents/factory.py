@@ -93,7 +93,8 @@ def _research_agent(settings: Settings, subsystems: dict[str, Any] | None = None
 
 
 def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | None, task_manager: TaskManager,
-                 subsystems: dict[str, Any], budget_audit: Any = None) -> AgentsSubsystem:
+                 subsystems: dict[str, Any], budget_audit: Any = None, stop_guard: Callable[[], str | None] | None = None,
+                 audit_tail: Callable[[int], list[dict[str, Any]]] | None = None) -> AgentsSubsystem:
     cfg = settings.agents
     if not cfg.enabled:
         return AgentsSubsystem("disabled", "multi-agent orchestration is off (agents.enabled = false)")
@@ -107,15 +108,26 @@ def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | 
         if cfg.agent_budgets_enabled and cfg.agent_budgets:
             budgets = AgentBudgets.from_entries(cfg.agent_budgets, global_timeout=cfg.task_timeout_seconds, global_tool_calls=cfg.tool_call_limit)
             audit = budget_audit                               # numbers-only sink built in bootstrap.py (the permission package is not imported here)
+        gate = None
+        if cfg.quality_gate and cfg.quality_gate_agents:                                 # V2.1 M7, OFF by default; the agents are checked against the registry below (fail closed)
+            from jarvis.business import calc as business_calc
+            from jarvis.quality.gate import QualityGate
+            gate = QualityGate(cfg.quality_gate_agents, calculators={"break_even": lambda i: (lambda r: r["units"] if r["status"] == "COMPUTED" else None)(
+                business_calc.break_even(i.get("fixed_costs"), i.get("price"), i.get("variable_cost")))},
+                               audit_events=(lambda: audit_tail(500)) if audit_tail is not None else None)      # read-only audit tail (AuditLogger.tail); None = no audit source -> typed agents stay blocked
         orch = AgentOrchestrator(registry, tools=tools, max_concurrent=cfg.max_concurrent, default_timeout=cfg.task_timeout_seconds,
                                  max_queue=cfg.max_queue, max_history=cfg.max_history, cancel_grace=cfg.cancel_grace_seconds,
                                  tool_call_limit=cfg.tool_call_limit, max_output_chars=cfg.max_output_chars, task_manager=task_manager,
-                                 memory_lookup=lookup, artifacts=cfg.artifacts, agent_budgets=budgets, audit=audit)
+                                 memory_lookup=lookup, artifacts=cfg.artifacts, agent_budgets=budgets, audit=audit, stop_guard=stop_guard, quality_gate=gate)
         agents: list[Agent] = [_research_agent(settings, subsystems), BrowserAgent(), CodingAgent(interrupt=_interrupt_of(subsystems, "coding")), ComputerAgent(), FilesAgent()]
         if settings.business.enabled:
             from jarvis.business.agent import BusinessAgent
             agents.append(BusinessAgent(max_steps=settings.business.max_steps, timeout=settings.business.timeout_seconds,
                                         max_result_chars=settings.business.max_result_chars))
+        if settings.business.strategist:                 # V2.1, OFF by default: a separate agent with no tools (analysis and drafts only)
+            from jarvis.business.strategist_agent import StrategistAgent
+            agents.append(StrategistAgent(max_steps=settings.business.max_steps, timeout=settings.business.timeout_seconds,
+                                          max_result_chars=settings.business.max_result_chars))
         if settings.finance.enabled:
             from jarvis.finance.agent import FinanceAgent
             from jarvis.finance.models import RiskLimits
@@ -129,6 +141,9 @@ def build_agents(settings: Settings, tools: ToolRegistry, memory: MemoryStore | 
                 agent.state.transition(AgentStatus.DISABLED, f"tool {', '.join(missing)} is not available (subsystem off)")
             elif agent.id == "files" and not any(t in tools for t in agent.tool_names):          # both of its optional tools are off: nothing to work with
                 agent.state.transition(AgentStatus.DISABLED, "neither the files nor the office tool is available (files.enabled / office.enabled are off)")
+        missing_gate = sorted(a for a in (gate.agents if gate is not None else ()) if not registry.has(a))
+        if missing_gate:                                                                  # fail closed: a gate for no real agent is a configuration error
+            raise BudgetError(f"quality gate for unknown agent(s) {missing_gate}")
         unknown = sorted(a for a in (budgets.agents if budgets is not None else ()) if not registry.has(a))
         if unknown:                                                                       # fail closed: a budget that names no real agent is a configuration error
             raise BudgetError(f"agent budget for unknown agent(s) {unknown}")

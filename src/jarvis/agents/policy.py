@@ -13,11 +13,12 @@ CODING_READ, CODING_WRITE, CODING_TEST, CODING_PLAN = "coding.read", "coding.wri
 COMPUTER_SCREEN, COMPUTER_INPUT = "computer.screen", "computer.input"
 RESEARCH_WEB = "research.web"
 BUSINESS_ANALYZE, FINANCE_ANALYZE = "business.analyze", "finance.analyze"
+BUSINESS_STRATEGY = "business.strategy"          # V2.1: the Business Strategist (idea hypotheses, ranking, financial model, 30/90-day blueprint). Never planner-selected, never replan-authorable.
 FILES_READ, FILES_WRITE = "files.read", "files.write"
 OFFICE_READ, OFFICE_CREATE = "office.read", "office.create"
 
 KNOWN_CAPABILITIES = frozenset({BROWSER_READ, BROWSER_INTERACT, CODING_READ, CODING_WRITE, CODING_TEST, CODING_PLAN, COMPUTER_SCREEN,
-                                COMPUTER_INPUT, RESEARCH_WEB, BUSINESS_ANALYZE, FINANCE_ANALYZE, FILES_READ, FILES_WRITE, OFFICE_READ, OFFICE_CREATE})
+                                COMPUTER_INPUT, RESEARCH_WEB, BUSINESS_ANALYZE, BUSINESS_STRATEGY, FINANCE_ANALYZE, FILES_READ, FILES_WRITE, OFFICE_READ, OFFICE_CREATE})
 
 MAX_OBJECTIVE = 2000
 MAX_INPUT_BYTES = 100_000

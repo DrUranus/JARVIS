@@ -82,11 +82,12 @@ class GoalEngine:
     def __init__(self, orchestrator: Any, planner: Planner, *, evaluator: GoalEvaluator | None = None, max_steps: int = 20,
                  max_attempts: int = 2, goal_timeout: float = 1800.0, step_timeout: float = 300.0, max_active: int = 3,
                  max_history: int = 100, cancel_wait: float | None = None, cleanup_timeout: float = 30.0, clock: Clock | None = None,
-                 detector: SecretDetector | None = None) -> None:
+                 detector: SecretDetector | None = None, plan_check: Callable[[Sequence[Any]], str | None] | None = None) -> None:
         if not 1 <= max_steps <= P.MAX_STEPS_HARD or not 1 <= max_attempts <= P.MAX_ATTEMPTS_HARD or not 0 < goal_timeout <= P.MAX_TIMEOUT \
                 or not 0 < step_timeout <= P.MAX_STEP_TIMEOUT or max_active < 1 or max_history < 1:
             raise InvalidGoalError("the goal engine limits must be positive and within the hard limits")
         self._orch, self._planner = orchestrator, planner
+        self._plan_check = plan_check             # V2.1 M1 (goals.plan_analysis, OFF by default): returns None or the reason why the plan must not start
         self._eval = evaluator or GoalEvaluator()
         self.max_steps, self.max_attempts, self.goal_timeout, self.step_timeout = max_steps, max_attempts, goal_timeout, step_timeout
         self.max_active, self.max_history, self.cleanup_timeout = max_active, max_history, cleanup_timeout
@@ -286,6 +287,15 @@ class GoalEngine:
         except GoalError as exc:
             self._finalize(rec, GoalStatus.FAILED, f"planning failed: {P.clip(self._detector.redact(str(exc)), 300)}", "planning_failed")
             return False
+        if self._plan_check is not None:
+            try:
+                problem = self._plan_check(steps)
+            except Exception:  # noqa: BLE001 - a check that fails is a closed check; no internals
+                self._finalize(rec, GoalStatus.BLOCKED, "plan analysis failed: the plan was not started", "plan_analysis_failed")
+                return False
+            if problem:
+                self._finalize(rec, GoalStatus.BLOCKED, f"plan analysis: {P.clip(self._detector.redact(str(problem)), 300)}", "plan_unsolvable")
+                return False
         with self._lock:
             if rec.cancel_requested:
                 self._finalize(rec, GoalStatus.CANCELLED, "cancelled while planning", "cancelled")

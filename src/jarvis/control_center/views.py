@@ -32,10 +32,12 @@ class ViewError(ValueError):
 class ReadViews:
     def __init__(self, journal: Any = None, audit_tail: Callable[[int], list[dict[str, Any]]] | None = None, detector: SecretDetector | None = None, *,
                  default_limit: int = DEFAULT_LIMIT, max_limit: int = MAX_LIMIT, audit_window: int = AUDIT_WINDOW,
-                 doctor: Callable[[], dict[str, Any]] | None = None, agents_source: Callable[[int], Mapping[str, Any]] | None = None) -> None:
+                 doctor: Callable[[], dict[str, Any]] | None = None, agents_source: Callable[[int], Mapping[str, Any]] | None = None,
+                 mission: Any = None) -> None:
         if not 1 <= default_limit <= max_limit:
             raise ValueError("default_limit must be within 1..max_limit")
         self._journal, self._audit_tail, self._doctor, self._agents_source = journal, audit_tail, doctor, agents_source
+        self._mission = mission                                                        # V2.1 M6: ein `MissionView` (nur lesend), sonst keine Mission-Ansicht
         self._detector = detector or SecretDetector.from_environment()
         self._default, self._max, self._window = default_limit, max_limit, max(1, audit_window)
 
@@ -194,6 +196,15 @@ class ReadViews:
         for key in ("timed_out", "cancel_requested"):
             item[key] = task.get(key) is True
         return item
+
+    # ---- Mission Control (V2.1 M6, nur lesend) -------------------------------------------------------------------------------------------------------
+    def mission(self, params: Mapping[str, str]) -> dict[str, Any]:
+        """Abhaengigkeitsgraph, Agentenstatus, Budget, Fortschritt, Qualitaet, Business-Ergebnisse, Projektgedaechtnis in einer Antwort (siehe mission.py). Nur Parameter `limit`."""
+        self._check_keys(params, ())
+        limit = self._limit(params)
+        if self._mission is None:
+            return {"available": False, "limit": limit, "reason": "Mission Control ist nicht angebunden.", "graph": {"available": False, "nodes": [], "waves": [], "edges": []}}
+        return self._mission.snapshot(limit)
 
     # ---- Werkzeugaufrufe (aus dem Audit, ohne Inhalte) ---------------------------------------------------------------------------------------------
     def trace(self, params: Mapping[str, str]) -> dict[str, Any]:
