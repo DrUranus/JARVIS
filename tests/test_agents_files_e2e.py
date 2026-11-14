@@ -120,3 +120,26 @@ def test_a_cancel_command_for_an_unknown_task_is_answered_not_ignored_and_change
         assert core.permissions.emergency.engaged is False
     finally:
         srv.stop()
+
+
+def test_a_missing_file_is_not_retried_and_is_explained_in_plain_words(tmp_path):
+    core, srv, ws = start(tmp_path, (ONCE,) * 20)
+    try:
+        replies = say(srv, "Lies die Datei gibt-es-nicht.txt", "e4")
+        assert replies
+        assert "Versuche" not in replies[-1]                                          # ein Eingabefehler wird nicht wiederholt (kein "(2 Versuche)")
+        assert "existieren nicht" in replies[-1] and "file_not_found" not in replies[-1]
+    finally:
+        srv.stop()
+
+
+def test_a_folder_request_without_a_name_explains_what_is_missing_and_creates_nothing(tmp_path):
+    core, srv, ws = start(tmp_path, (ONCE,) * 20)
+    try:
+        replies = say(srv, "Erstelle einen Ordner auf dem Desktop", "e5")
+        assert replies and "Ordnername" in replies[-1]
+        assert not (ws / "auf").exists()
+        replies = say(srv, "Erstelle einen Ordner namens Projekte", "e6")
+        assert (ws / "Projekte").is_dir() and replies
+    finally:
+        srv.stop()
