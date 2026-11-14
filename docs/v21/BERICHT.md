@@ -133,3 +133,23 @@ Unterschied zur Baseline (CI, `570348c` gegenüber `7c2b4b7`): **+403 bestanden,
 - Wiederverwendet: `permissions.audit` (`AuditSink.tail`, Ereignistypen `confirmation_*`, `budget_exhausted`); nichts Neues im Audit, kein neuer Schreibweg. Die Fabrik nimmt `audit_tail` entgegen; **`bootstrap.py` übergibt ihn bewusst noch nicht** (jede Änderung dort setzt den gepinnten Stand zurück; Owner-Entscheidung). Folge: bei eingeschaltetem Tor bleiben `business`/`strategist` blockiert, bis das entschieden ist – sicher, aber nicht nutzbar.
 - Grenzen: Szenarien/Payback werden nicht neu berechnet (die Engine kennt `break_even`, `sum`, `margin`); eine Ergebnisform, die das Modul nicht kennt, führt zu einem leeren Bericht und damit zur Ablehnung; das Tor bleibt standardmäßig **aus**.
 - Fabrik-Pin: `agents/factory.py` importiert zusätzlich genau `jarvis.quality.gate` (statisch, in einer Bedingung; Test: keine `importlib`/`__import__`/`eval`/`exec`).
+
+
+---
+
+# Nachtrag 3 (Final Security Hardening)
+
+## G. UIA-Wächter Option B – übernommen
+- Diff am historischen Test: genau die vier Zeilen aus `UIA_WAECHTER_ENTSCHEIDUNG.md` §7 (Verbotsliste und `assert forbidden == []` unverändert, kein Skip hinzugefügt; vorhandene Skips unverändert).
+- `bootstrap.py` ist nur erlaubt, wenn `wiring_problems(bootstrap.py) == []`: vollständiger kanonischer AST (jede Bedingung, jeder Operator, jedes Argument, jede Reihenfolge, Konstante, Docstring, Import) ist gleich dem V2.0-Stand `7c2b4b7`, ausgenommen drei einzeln exakt gepinnte Teile: `emergency_guard`, `speech_guard` und die beiden Schlüsselwörter `stop_guard`, `audit_tail` an `build_agents`. Keine pauschale Ausnahme.
+- Gegenbeweis am echten Test mit `origin/main` (Wegwerf-Worktree, jede Mutation einzeln committet): bootstrap-Bedingung gedreht, Argument erweitert, `speech_guard` ohne Delegation, `emergency.py`, `engine.py`, `config/jarvis.toml`, `.github/`, `test_emergency_stop.py`, `pyproject.toml` → jeweils rot; unverändert → grün.
+
+## H. Audit-Quelle in `bootstrap.py`
+- Verdrahtung (eine Zeile): `audit_tail=permissions.audit.tail if settings.security.audit_enabled else None` an `build_agents`. Bestehende Schnittstelle (`AuditLogger.tail`), kein neuer Schreibweg, keine neue Berechtigung, `PermissionEngine`/`emergency.py`/X0 unverändert, Qualitätstor weiter **aus**.
+- Fail-closed: Audit ausgeschaltet → kein `audit_tail` → `business`/`strategist` bleiben bei eingeschaltetem Tor BLOCKED (`quality_audit_unavailable`); Audit ohne jedes Ereignis, beschädigte Zeile (`unreadable_line`), Bestätigung ohne Anfrage-Id, mehrfach angenommen oder angenommen+abgelehnt → BLOCKED (`quality_audit_unavailable` bzw. `quality_audit_inconsistent`); Budgetausschöpfung dieser Aufgabe im Audit → `quality_rejected`.
+- Der Fingerabdruck wurde **nur** um diese exakte Verdrahtung erweitert (`AUDIT_TAIL_EXPR`, per kanonischem AST gepinnt). 14 Mutations-Negativtests: fehlend, `None`, unbedingt, Bedingung immer wahr/negiert/anderer Schalter/vertauscht, anderes Attribut, falsches Audit (Lambda), anderes Objekt, umhüllt, doppelt gebunden, an anderen Aufruf gebunden, `stop_guard` entfernt.
+- Grenzen: Ein leeres Audit lässt sich von „Datei nicht lesbar“ nicht unterscheiden und gilt deshalb als nicht verfügbar. Das Fenster (500 Ereignisse) begrenzt die Rückschau der Budget-Gegenprobe; die Budgetsperre des Orchestrators wirkt unabhängig davon.
+
+## I. N3-D erweitert
+Aufgenommen (Pfade vorher geprüft, beide vorhanden): `tests/test_v21_bootstrap_wiring.py`, `tests/test_computer_uia_tools.py`. Verfahren unverändert (`python -m tests.support.protected_manifest --write --confirm-owner-review --base-commit <SHA von main>`, `base_commit` = `7cc65b0e…`); die Ausgabe nannte ausschließlich die zwei neuen Einträge, alle 32 bisherigen Hashes blieben gleich. Tests: Änderung/Fehlen beider Dateien wird gefunden; Werkzeug, das einen Pfad auslässt, wird gefunden; falscher Manifest-Hash wird gefunden; `MUST_BE_PROTECTED` enthält beide Pfade.
+**Verbleibende Grenze (ehrlich):** Wer Schreibzugriff auf die Testdateien, das Manifest **und** das Werkzeug/den Prüftest (`tests/support/protected_manifest.py`, `tests/test_protected_files.py`) hat, kann alles gemeinsam ändern; lokal ist das nicht erkennbar. Erkennbar ist es nur durch den Vergleich mit dem Manifest einer Referenz außerhalb des Branches (`--verify-against origin/main`, Gate G1) und den Owner-Review (CODEOWNERS deckt `bootstrap.py`, nicht die beiden neuen Testdateien). Das Werkzeug und `test_protected_files.py` selbst sind nicht im Manifest.

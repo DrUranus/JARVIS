@@ -1,4 +1,6 @@
-# Entscheidungsvorlage: historischer UIA-Bereichswächter
+# Entscheidung: historischer UIA-Bereichswächter (Option B umgesetzt)
+
+> **Status:** Option B wurde vom Owner bedingt freigegeben und in `claude/v21-integration` übernommen, nachdem Diff, vollständiger AST-Vergleich, Mutationstests, unveränderte Verbotsliste/Assertion und der Lauf mit `origin/main` geprüft waren (Abschnitt 7 und `BERICHT.md`, Nachtrag 3). Die Abschnitte 1–6 sind die ursprüngliche Vorlage.
 
 Gegenstand: `tests/test_computer_uia_tools.py::test_the_ui_tool_only_touches_computer_and_documentation_files` (eingeführt mit #66, Commit `c239b81`). **Unverändert.** Diese Vorlage ändert nichts am Wächter; die Zusatzdateien sind rein additiv.
 
