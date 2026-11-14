@@ -109,3 +109,27 @@ Nicht geändert: E5-Allowlist, Strategist, `PermissionEngine`, `emergency.py`, X
 - **Qualitätstor:** reine Leseprüfung des Ergebnisses; Agenten-Selbstaussagen (auch `accepted`/`status` im Bericht) werden ignoriert; kein Bericht, unlesbarer Bericht oder fehlerhafte Prüfung = BLOCKED; das eigene Ergebnis des Agenten wird nicht weitergereicht; Budget (`agent_budget_exceeded`) und Not-Aus (`emergency_stop`) wirken **vor** dem Tor. Offen: ohne angebundene Audit-Quelle gelten Aktionen mit Nebenwirkung als nicht freigegeben (fail-closed); Datei-Prüfung nur mit übergebener Funktion.
 - **Plan-Vorabprüfung:** führt nichts aus; ein unlösbarer Plan startet keinen Schritt; Fehler der Prüfung = BLOCKED.
 - **Persistenz:** nur Test; Geheimnisse werden beim Laden erneut geprüft; Isolation je Projekt belegt.
+
+---
+
+# Nachtrag 2 (Security Gate & Draft PR)
+
+## E. Zahlen je Quelle (nicht vermischen)
+| Quelle | Commit | Bestanden | Übersprungen | Fehlgeschlagen |
+|---|---|---|---|---|
+| CI Linux, V2.0-Basis | `7c2b4b7` | 5820 | 120 | 0 |
+| CI Windows, V2.0-Basis | `7c2b4b7` | 5900 | 46 | 0 |
+| CI Linux, V2.1 (vor M7-Audit) | `570348c` | 6223 | 120 | 0 |
+| CI Windows, V2.1 (vor M7-Audit) | `570348c` | 6303 | 46 | 0 |
+| lokaler Volllauf (venv, mit `origin/main`), nach M7-Audit | `68ff2c1` | 6241 | 99 | 1 (UIA-Wächter) |
+Unterschied zur Baseline (CI, `570348c` gegenüber `7c2b4b7`): **+403 bestanden, Skips unverändert** (120 / 46). Die Skip-Obergrenzen der Baseline (`tests/support/skip_baseline.json`) sind nicht erhöht.
+**UIA-Wächter:** In der CI wird `test_the_ui_tool_only_touches_computer_and_documentation_files` **übersprungen** („kein origin/main in diesem Checkout“, Linux und Windows) – die CI-Grünheit sagt über diesen Wächter nichts aus. Lokal mit `origin/main` ist er rot, **auch auf der V2.0-Basis** (V2.0 ändert `bootstrap.py` um 63 Zeilen gegenüber `main`). Option B liegt als eigener Branch `claude/v21-uia-guard-b` (nicht im Integrationsbranch) und ist noch nicht freigegeben.
+„CI grün“ ≠ „lokaler Volllauf“ ≠ „gezielte Tests“ ≠ interaktive Windows-Abnahme (#186, weiterhin offen und vorrangig); keine der genannten Zahlen ersetzt #186.
+
+## F. M7 – unabhängige Evidenz und Audit-Anbindung
+- `quality/reports.py`: typisierte Berichte nur für `business` und `strategist`, **auf der Seite des Tors aus dem Ergebnis abgeleitet**; ein vom Agenten mitgebrachter `quality_report` zählt für diese Agenten nicht.
+- Unabhängige Evidenz: (1) zitierte Quellen müssen von einer erfolgreichen Elternaufgabe tatsächlich gelesen sein (Orchestrator-Aufzeichnung), (2) `break_even` wird neu berechnet, (3) Behauptete Aktionen und Blueprint-Schritte, die keine reinen Vorschläge sind, brauchen eine akzeptierte Bestätigung im Audit, (4) eine im Audit protokollierte Budgetausschöpfung **dieser** Aufgabe sperrt das Ergebnis. `market_analysis`/`competitor_analysis` brauchen mindestens eine gelesene Quelle.
+- Audit fail-closed: ohne Audit-Quelle (`quality_audit_unavailable`), nicht lesbar (`quality_audit_unavailable`), fehlerhaft oder widersprüchlich (`quality_audit_inconsistent`: Bestätigung ohne Anfrage-Id, mehrfach angenommen, angenommen und abgelehnt) → BLOCKED.
+- Wiederverwendet: `permissions.audit` (`AuditSink.tail`, Ereignistypen `confirmation_*`, `budget_exhausted`); nichts Neues im Audit, kein neuer Schreibweg. Die Fabrik nimmt `audit_tail` entgegen; **`bootstrap.py` übergibt ihn bewusst noch nicht** (jede Änderung dort setzt den gepinnten Stand zurück; Owner-Entscheidung). Folge: bei eingeschaltetem Tor bleiben `business`/`strategist` blockiert, bis das entschieden ist – sicher, aber nicht nutzbar.
+- Grenzen: Szenarien/Payback werden nicht neu berechnet (die Engine kennt `break_even`, `sum`, `margin`); eine Ergebnisform, die das Modul nicht kennt, führt zu einem leeren Bericht und damit zur Ablehnung; das Tor bleibt standardmäßig **aus**.
+- Fabrik-Pin: `agents/factory.py` importiert zusätzlich genau `jarvis.quality.gate` (statisch, in einer Bedingung; Test: keine `importlib`/`__import__`/`eval`/`exec`).
