@@ -19,6 +19,7 @@ cd C:\JARVIS-Test\V2
 $env:Path += ";C:\Program Files\nodejs"          # nur nötig, falls diese PowerShell vor der Node-Installation geöffnet wurde
 powershell -ExecutionPolicy Bypass -File scripts\abnahme\run-abnahme.ps1          # Trockenlauf (Bypass gilt nur für diesen Prozess)
 ```
+* **Arbeitsordner einmal anlegen** (sonst scheitert „Erstelle den Ordner …“ mit der Meldung „Arbeitsordner existiert noch nicht“): `New-Item -ItemType Directory -Force workspace | Out-Null` im JARVIS-Ordner. Dateiaufträge wirken nur innerhalb dieses Ordners (`[files] roots = ["workspace"]`); Pfade wie `C:\JARVIS-Test\V2\Ordner` liegen außerhalb und werden abgelehnt.
 * **Normale** (nicht erhöhte) PowerShell verwenden; das Skript bricht sonst ab.
 * Vorher festlegen, welcher Commit der Release-Kandidat ist (`dirty` steht im Protokoll `00-umgebung.json`).
 * Textchat und Sprache starten mit derselben Konfiguration: `jarvis-cc.exe -c config\nexus.voice-test.toml --open` (Whisper-Modell `C:/JARVIS-Test/models/whisper-base`, Windows-TTS). Echtes LLM: Kopie von `config\nexus.live.example.toml` anlegen und `ANTHROPIC_API_KEY` nur in der Sitzung setzen.

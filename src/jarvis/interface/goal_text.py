@@ -17,6 +17,8 @@ _SEARCH_SETUP = ("Websuche einrichten: in der Konfiguration [research] enabled =
 _FILE_ERRORS = (
     ("file_not_found", ("die angegebene Datei oder der Ordner", "sie existieren nicht (oder nicht an diesem Pfad); eine Wiederholung hilft nicht.",
                         "Pfad und Schreibweise prüfen, z. B. mit „Zeige den Ordner <Pfad>“ nachsehen, oder die Datei zuerst neu anlegen.")),
+    ("root_missing", ("der Arbeitsordner", "der in der Konfiguration bestätigte Arbeitsordner (z. B. „workspace“) existiert noch nicht; das ist ein Einrichtungsschritt, kein fehlender Name.",
+                      "den Ordner einmal anlegen: `New-Item -ItemType Directory workspace` im JARVIS-Ordner, dann die Anfrage wiederholen.")),
     ("file_exists", ("ein freier Name", "das Ziel existiert schon; JARVIS überschreibt nichts ohne ausdrücklichen Schreibauftrag.", "einen anderen Namen wählen.")),
     ("outside_roots", ("ein erlaubter Ort", "der Pfad liegt außerhalb der bestätigten Arbeitsordner.", "einen Pfad im Arbeitsordner (workspace) nennen.")),
     ("path_denied", ("ein erlaubter Pfad", "dieser Pfad ist gesperrt.", "einen anderen Pfad im Arbeitsordner wählen.")),

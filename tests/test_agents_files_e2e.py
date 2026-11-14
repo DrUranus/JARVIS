@@ -143,3 +143,18 @@ def test_a_folder_request_without_a_name_explains_what_is_missing_and_creates_no
         assert (ws / "Projekte").is_dir() and replies
     finally:
         srv.stop()
+
+
+def test_s7_a_missing_working_directory_is_explained_as_a_setup_step_and_works_once_it_exists(tmp_path):
+    import shutil
+    core, srv, ws = start(tmp_path, (ONCE,) * 20)
+    try:
+        shutil.rmtree(ws)                                                              # nur der Test-Arbeitsordner in tmp_path: wie auf einem frischen PC
+        replies = say(srv, "Erstelle den Ordner TestAbnahme", "e7")
+        assert replies and "Arbeitsordner" in replies[-1] and "New-Item" in replies[-1]
+        assert "existieren nicht" not in replies[-1] and "Versuche" not in replies[-1]
+        ws.mkdir()                                                                     # der Einrichtungsschritt aus der Fehlermeldung
+        replies = say(srv, "Erstelle einen neuen Ordner namens TestAbnahme", "e8")
+        assert (ws / "TestAbnahme").is_dir() and replies
+    finally:
+        srv.stop()
