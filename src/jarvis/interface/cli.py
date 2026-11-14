@@ -349,7 +349,7 @@ def _assistant(core: JarvisCore, arg: str) -> str:
     return sub.status_text() if sub is not None else "Assistent: nicht konfiguriert."
 
 
-_RESEARCH_START = re.compile(r"^\s*(?:bitte\s+)?(?:recherchier\w*|recherche\b|finde\s+\w*\s*heraus|informier\w*\s+dich|research\b|find\s+out)", re.IGNORECASE)
+_RESEARCH_START = re.compile(r"^\s*(?:bitte\s+)?(?:recherchiere\b|recherchieren\b|recherche\b(?!-)|finde\s+\w*\s*heraus|informier\w*\s+dich|research\b|find\s+out)", re.IGNORECASE)
 
 
 def research_route(core: JarvisCore, text: str) -> str | None:
