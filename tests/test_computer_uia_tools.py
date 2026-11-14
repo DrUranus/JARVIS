@@ -385,4 +385,8 @@ def test_the_ui_tool_only_touches_computer_and_documentation_files():
     changed = [l for l in out.stdout.splitlines() if l]
     forbidden = [f for f in changed if f.startswith(("src/jarvis/permissions/", ".github/", ".claude/", "config/")) or f in ("src/jarvis/bootstrap.py", "CLAUDE.md", "pyproject.toml")
                  or f.startswith("tests/test_security_") or f in ("tests/test_emergency_stop.py", "tests/test_autonomy_invariants.py")]
+    if "src/jarvis/bootstrap.py" in forbidden:      # V2.1 (Option B): nur die exakt geprueften Guard-Verdrahtung ist erlaubt; jede andere Aenderung an bootstrap.py bleibt verboten
+        from test_v21_bootstrap_wiring import SOURCE, wiring_problems     # fehlt die Pruefung, schlaegt der Test fehl (kein Skip)
+        if wiring_problems(SOURCE.read_text(encoding="utf-8")) == []:
+            forbidden.remove("src/jarvis/bootstrap.py")
     assert forbidden == [], forbidden
