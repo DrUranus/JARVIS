@@ -32,3 +32,6 @@ Start: Doppelklick `scripts\abnahme\Sammelabnahme-starten.cmd` (nicht erhöht). 
 4. **Teil D:** S8a NOTAUS während Sprachausgabe (≤1 s); S8b NOTAUS im Auftrag; S9 hartes Schließen, `/resume`, dann `/resume <Nr>`, Audit ohne Schlüssel.
 5. Optional: `JARVIS_NATIVE_GUI=1 python -m pytest tests\test_control_center_native_windows.py` (Hände weg von der Maus, ca. 1 min).
 Ergebnis: `abnahme-v2\sammelabnahme.md` (ignoriert, vor Weitergabe auf Schlüssel prüfen).
+
+## 5. CI-Stand (2026-11-15 ~20:50 UTC, Owner startete die Workflows manuell)
+Lauf auf 3b5d596 (nur Doku-Änderung gegenüber c7192c8): `uia-compat` success; `pr-tests`: `tests-linux` success, `tests-windows` zuletzt `in_progress` (Abfrage danach durch GitHub-Rate-Limit blockiert, Endergebnis **nicht bestätigt**). `Control Center GUI E2E` auf c718353 success. S3b automatisiert: Prozesse 3/3, `datei.txt` nicht vorhanden (Befehlstext nur gesprochen; Höreindruck offen).
