@@ -331,7 +331,7 @@ def test_build_server_wires_journal_and_audit_read_only(tmp_path):
     from jarvis.control_center.launcher import build_server
     from test_computer_integration import env_for
     env = env_for(tmp_path, JARVIS_AGENTS_ENABLED="true", JARVIS_GOALS_ENABLED="true", JARVIS_ASSISTANT_ENABLED="true", JARVIS_CONTROL_CENTER_ENABLED="true",
-                  JARVIS_JOURNAL_ENABLED="true")
+                  JARVIS_JOURNAL_ENABLED="true", JARVIS_JOURNAL_PATH=str(tmp_path / "j.db"))      # eigener Pfad: nie das gemeinsame data/journal.db anderer Tests lesen
     settings = load_settings(env=env)
     core = build_core(settings)
     srv = build_server(settings, core)
