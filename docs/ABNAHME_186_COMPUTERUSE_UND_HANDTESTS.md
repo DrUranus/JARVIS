@@ -13,6 +13,11 @@ Kein Owner-Nachweis: keine J/N/S-Taste wurde stellvertretend gedrückt, die Samm
 
 **Ursache/Fix:** pywebview-Standard `min_size=(200, 100)` klemmte das Fenster; `overlay_options()` setzt `min_size` jetzt gleich der Fenstergröße (Skalierung mit demselben DPI-Faktor). Regressionstest `test_options_min_size_equals_window_size`; nativer Test prüft zusätzlich „quadratisch“.
 
+| B9-3c | **PASS (Beobachtung):** Freigabedialog (Ablehnen vorbelegt) offen, Seite ohne Antwort neu geladen -> `confirmation_rejected`, `permission_denied`, `Abnahme3` nicht angelegt (Neuladen statt Tab-Schließen) |
+| B9-3d | **PASS (Beobachtung):** Frage `Abnahme4` offen, eigener jarvis-cc-Prozess beendet -> `Abnahme4` nicht angelegt (Strg+C-Fenster nicht benutzt) |
+
+**Nicht ausführbar durch Claude:** Aufheben des Not-Aus (nur über Owner-Rückfrage), B9-1b (Konfiguration ohne Browser erzeugt keinen mehrstufigen Auftrag), S2-S4/S8a (Mikrofon/Gehör), S6 (UAC), S5/S9 offen. CI: `pr-tests` und `uia-compat` brauchen manuelles „Run workflow“ (kein Token); für 3b5d596 lief nur `Control Center GUI E2E`.
+
 ## 2. Nur automatisiert
 Overlay-, Not-Aus-, Freigaben-, Abnahme-Skript- und alle `*security*`-Tests lokal ohne Fehler (nur Skips: POSIX-Symlinks/Rechte). Der native GUI-Test (`JARVIS_NATIVE_GUI=1`, bewegt die Maus) lief **nicht**.
 
