@@ -6,7 +6,7 @@ Legende der Nachweisarten: **USER** = vom Owner am echten PC bestätigt (Datum) 
 | # | Kriterium | Stand | Belege / Hinweise |
 |---|---|---|---|
 | B9-1a | Orb ↔ Dashboard manuell | **OFFEN (interaktiv)**; HEADLESS grün | Chromium-E2E (24+3 Tests, lokal grün), Node-DOM grün. Im echten Fenster nicht bestätigt. |
-| B9-1b | automatische Umschaltung nach echter Aufgabenkomplexität | **OFFEN** | nur Node-DOM (Schwellen 3 Schritte / 2 Agenten). Test: mehrstufigen Auftrag starten (z. B. „Liste den Ordner workspace“, danach ein Auftrag mit ≥3 Schritten) und Anzeige beobachten. |
+| B9-1b | automatische Umschaltung nach echter Aufgabenkomplexität | **FAIL im echten Lauf (Owner 2026-11-15, kein Wechsel bei dreischrittigem Ziel `g-b2c474cfab27`; Claude-Reproduktion ohne Freigabe: Modus bleibt `orb`)**. Ursache = Datenlücke, kein Einzelfehler: Routing-Events tragen beim Planen nur `route-…`-IDs, die Arbeitsliste (`activity`) ist während der offenen Freigabe leer, Schritte laufen nacheinander (nie zwei aktive Agenten); die Heuristik (≥3 `plan`-Einträge oder ≥2 aktive geroutete Agenten) wird so nicht erreicht. Behebung braucht eine Vertragsänderung (Plan-/Schrittzahl im UI-Vertrag) und Owner-Entscheidung; nicht umgesetzt. Node-DOM-Test belegt nur die Schwellenlogik | nur Node-DOM (Schwellen 3 Schritte / 2 Agenten). Test: mehrstufigen Auftrag starten (z. B. „Liste den Ordner workspace“, danach ein Auftrag mit ≥3 Schritten) und Anzeige beobachten. |
 | B9-2a | Overlay: Größe, Always-on-Top | **Claude-Computer-Use 2026-11-15 (kein Owner-Nachweis)**: vor Fix 200x101 (FAIL, Ursache pywebview-`min_size`-Standard 200x100), nach Fix `c7192c8` 140x140, Orb sichtbar, `WS_EX_TOPMOST`, Verschieben ok (100 % DPI; 125/150 % nicht gemessen) | CI (Runner, 12.11.): ~140x140, Topmost. Details: `ABNAHME_186_COMPUTERUSE_UND_HANDTESTS.md`. |
 | B9-2b | Overlay: Fokus, Klick öffnet Hauptfenster | **Claude-Computer-Use 2026-11-15**: Klick auf „Öffnen“ -> Edge-Verbindung zum Server; Owner-Bestätigung **OFFEN** | Runner belegt nur den Rückruf. |
 | B9-3 | Freigaben: Sichtbarkeit, Ablehnen = Standard | **USER 2026-11-14** (Dialog erscheint, Genehmigung legt Ordner an, Ablehnung legt nichts an) | „Ablehnen als vorbelegte Standardauswahl“ nicht ausdrücklich bestätigt. |
@@ -43,7 +43,7 @@ Legende der Nachweisarten: **USER** = vom Owner am echten PC bestätigt (Datum) 
 | S2 | 35 PASS + 1 NOT_CHECKED (Test „kein Mikrofon“) | Erkennung/Antwort **USER**, Pegel **USER (nach Korrektur)**; **OFFEN:** 5 Latenzmessungen, Mikrofon abziehen |
 | S3 | PASS (45 Tests) | OFFEN (Hedda, Umlaute, befehlsähnlicher Text) |
 | S4 | MEASURED (Windows-TTS wav: Median warm 466 ms, kalt 737 ms) | hörbar OFFEN |
-| S5 | nicht ausgeführt (Fenster) | OFFEN |
+| S5 | nicht ausgeführt (Fenster) | **Owner-Lauf 2026-11-15 (isolierte Testkonfiguration): bestanden** — Datei- und Fensterfreigabe „Einmal erlauben“ vom Owner, Ziel SUCCEEDED (files, computer, Prüfung), `b9test.txt` erstellt (Audit `execution_result`). Fensterabfrage ist lesend und erzeugt keinen eigenen Audit-Eintrag; keine Eingabe/Klicks |
 | S6 | `whoami /groups` lesend (nicht erhöht, UAC aktiv) | OFFEN (nur Owner) |
 | S7 | PASS (74 + E2E 3) | **USER 2026-11-14 PASS** (Fehler gefunden und behoben: Commit `1c36204`) |
 | S8 | Teilgruppen grün, native GUI nicht ausgeführt | OFFEN |
