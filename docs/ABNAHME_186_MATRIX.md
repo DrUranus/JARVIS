@@ -47,7 +47,7 @@ Legende der Nachweisarten: **USER** = vom Owner am echten PC bestätigt (Datum) 
 | S6 | `whoami /groups` lesend (nicht erhöht, UAC aktiv) | OFFEN (nur Owner) |
 | S7 | PASS (74 + E2E 3) | **USER 2026-11-14 PASS** (Fehler gefunden und behoben: Commit `1c36204`) |
 | S8 | Teilgruppen grün, native GUI nicht ausgeführt | OFFEN |
-| S9 | PASS (68 Tests) | OFFEN |
+| S9 | PASS (68 Tests) | Claude-Computer-Use 2026-11-15 (eingebauter Browser, kein Owner-Nachweis): Auftrag `Abnahme9` mit offener Frage, eigener Prozess hart beendet, Neustart: `/resume` listet nur (`Abnahme9`, `Abnahme4`: WAITING, „brauchen neue Bestätigung“), `/resume <id>` zeigt erneute Freigabefrage `resume_step`; Frage unbeantwortet (Seite verlassen), kein Ordner angelegt; Audit ohne `sk-`/`Bearer `. Owner-Bestätigung OFFEN |
 **Nicht ausgeführt, weil sie die Maus des Owners steuern:** `tests\test_control_center_native_windows.py` (`JARVIS_NATIVE_GUI=1`, bewegt den Cursor und klickt). Gehört in die Sammelabnahme (Hände weg von der Maus, ca. 1 min).
 
 ## 4. Sammelabnahme (gefuehrt, möglichst ohne Tippen)

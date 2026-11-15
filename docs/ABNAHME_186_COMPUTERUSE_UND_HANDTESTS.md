@@ -35,3 +35,8 @@ Ergebnis: `abnahme-v2\sammelabnahme.md` (ignoriert, vor Weitergabe auf Schlüsse
 
 ## 5. CI-Stand (2026-11-15 ~20:50 UTC, Owner startete die Workflows manuell)
 Lauf auf 3b5d596 (nur Doku-Änderung gegenüber c7192c8): `uia-compat` success; `pr-tests`: `tests-linux` success, `tests-windows` zuletzt `in_progress` (Abfrage danach durch GitHub-Rate-Limit blockiert, Endergebnis **nicht bestätigt**). `Control Center GUI E2E` auf c718353 success. S3b automatisiert: Prozesse 3/3, `datei.txt` nicht vorhanden (Befehlstext nur gesprochen; Höreindruck offen).
+
+## 6. S5, S9, B9-1b (2026-11-15, nach CI-Meldung des Owners)
+* **S9: PASS (Beobachtung, kein Owner-Nachweis):** siehe Matrix. Die offene Frage wurde nicht beantwortet.
+* **S5: nicht prüfbar:** `[computer]` ist in `nexus.voice-test.toml` aus; Einschalten wäre eine Berechtigungsänderung (nicht erlaubt). Owner: Konfiguration bewusst aktivieren und Schritt ausführen.
+* **B9-1b: nicht prüfbar:** die Zielvorlagen (Web/Coding/Bildschirm) brauchen Browser-, Coding- oder Computer-Werkzeug, die in dieser Konfiguration aus sind; kein mehrstufiger Auftrag erzeugbar. Nur Node-DOM-Test belegt (Schwellen 3 Schritte/2 Agenten).
