@@ -7,12 +7,12 @@ Legende der Nachweisarten: **USER** = vom Owner am echten PC bestätigt (Datum) 
 |---|---|---|---|
 | B9-1a | Orb ↔ Dashboard manuell | **OFFEN (interaktiv)**; HEADLESS grün | Chromium-E2E (24+3 Tests, lokal grün), Node-DOM grün. Im echten Fenster nicht bestätigt. |
 | B9-1b | automatische Umschaltung nach echter Aufgabenkomplexität | **OFFEN** | nur Node-DOM (Schwellen 3 Schritte / 2 Agenten). Test: mehrstufigen Auftrag starten (z. B. „Liste den Ordner workspace“, danach ein Auftrag mit ≥3 Schritten) und Anzeige beobachten. |
-| B9-2a | Overlay: Größe, Always-on-Top | CI (Runner, 12.11.) | `native-desktop`: ~140x140, `WS_EX_TOPMOST`. Echter PC: **OFFEN**. |
-| B9-2b | Overlay: Fokus, Klick öffnet Hauptfenster | **OFFEN** | Runner belegt nur den Rückruf; tatsächliches Browseröffnen unbelegt. |
+| B9-2a | Overlay: Größe, Always-on-Top | **Claude-Computer-Use 2026-11-15 (kein Owner-Nachweis)**: vor Fix 200x101 (FAIL, Ursache pywebview-`min_size`-Standard 200x100), nach Fix `c7192c8` 140x140, Orb sichtbar, `WS_EX_TOPMOST`, Verschieben ok (100 % DPI; 125/150 % nicht gemessen) | CI (Runner, 12.11.): ~140x140, Topmost. Details: `ABNAHME_186_COMPUTERUSE_UND_HANDTESTS.md`. |
+| B9-2b | Overlay: Fokus, Klick öffnet Hauptfenster | **Claude-Computer-Use 2026-11-15**: Klick auf „Öffnen“ -> Edge-Verbindung zum Server; Owner-Bestätigung **OFFEN** | Runner belegt nur den Rückruf. |
 | B9-3 | Freigaben: Sichtbarkeit, Ablehnen = Standard | **USER 2026-11-14** (Dialog erscheint, Genehmigung legt Ordner an, Ablehnung legt nichts an) | „Ablehnen als vorbelegte Standardauswahl“ nicht ausdrücklich bestätigt. |
 | B9-3b | Timeout = abgelehnt | **USER 2026-11-14** (120 s) | |
 | B9-3c | Schließen / Verbindungsverlust = abgelehnt | **OFFEN (interaktiv)**; HEADLESS/Engine-Tests grün | `test_control_center_approvals`, `_confirmation`, Browser-E2E. |
-| B9-4 | Not-Aus aus Orb, Dashboard, Overlay | **OFFEN (interaktiv)**; Engine/E2E grün | `test_emergency_stop` grün; Overlay-Klick auf Runner CI belegt. |
+| B9-4 | Not-Aus aus Orb, Dashboard, Overlay | Claude-Computer-Use 2026-11-15: Dashboard und Overlay lösten `emergency_stop` im Audit aus; Aufheben und Owner-Bestätigung **OFFEN**; Engine/E2E grün | `test_emergency_stop` grün; Overlay-Klick auf Runner CI belegt. |
 | B9-5 | 3D oder dokumentierter 2D-Fallback, reduzierte Animationen | Animationen reduzieren **USER 2026-11-14**; 2D-Fallback: Doctor dokumentiert „Canvas-2D, kein WebGL/Three.js“ (LOKAL-AUTO) | 3D ist nicht enthalten (Three.js gesperrt); Fallback = 2D, im echten Fenster sichtbar durch S1. |
 
 ## 2. V1-Abnahme (`docs/WINDOWS_V1_ABNAHME.md`, 14 Bereiche)
