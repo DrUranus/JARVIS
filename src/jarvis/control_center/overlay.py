@@ -32,7 +32,8 @@ def webview_available(find_spec: Callable[[str], Any] = importlib.util.find_spec
 def overlay_options(on_top: bool = False) -> dict[str, Any]:
     """Fensteroptionen. Absichtlich ohne `js_api`, `transparent`, `debug`: keine Bruecke, kein Click-through, keine Entwicklerwerkzeuge."""
     width, height = OVERLAY_SIZE
-    return {"width": width, "height": height, "frameless": True, "easy_drag": True, "resizable": False,
+    # min_size ausdruecklich setzen: pywebview-Standard (200, 100) klemmt sonst das Fenster (Windows: 200x101 statt 140x140, Orb abgeschnitten).
+    return {"width": width, "height": height, "min_size": (width, height), "frameless": True, "easy_drag": True, "resizable": False,
             "on_top": bool(on_top), "transparent": False}
 
 
