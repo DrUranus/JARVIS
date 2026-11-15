@@ -14,6 +14,7 @@ from typing import Any, Callable, Sequence
 
 from jarvis.bootstrap import build_core
 from jarvis.config import Settings, load_settings
+from jarvis.control_center.mission import MissionView
 from jarvis.control_center.overlay import OverlayUnavailable, start_overlay, webview_available
 from jarvis.control_center.server import ControlCenterServer
 from jarvis.control_center.views import ReadViews
@@ -50,7 +51,9 @@ def build_views(core: Any, assistant: Any, settings: Settings | None = None) -> 
     if settings is not None:
         from jarvis.control_center.setup_view import build_report
         doctor = lambda: build_report(core, settings)                                  # noqa: E731 - nur lesend, bei jedem Abruf frisch
-    return ReadViews(journal=store, audit_tail=getattr(audit, "tail", None), doctor=doctor, agents_source=_agents_source(core))
+    agents = _agents_source(core)
+    mission = MissionView(agents_source=agents, budget_source=_budget_source(core), business_source=_business_source(core)) if agents is not None else None   # M7 (Qualitaet) und M3 (Gedaechtnis): erst nach der Integration
+    return ReadViews(journal=store, audit_tail=getattr(audit, "tail", None), doctor=doctor, agents_source=agents, mission=mission)
 
 
 def _agents_source(core: Any) -> Callable[[int], dict[str, Any]] | None:
@@ -63,6 +66,42 @@ def _agents_source(core: Any) -> Callable[[int], dict[str, Any]] | None:
         agents = [{"id": a.id, "status": getattr(getattr(a, "status", None), "value", str(getattr(a, "status", ""))), "capabilities": sorted(getattr(a, "capabilities", ())),
                    "reason": getattr(a, "status_reason", "")} for a in orch.registry.list()]
         return {"agents": agents, "tasks": [orch.describe(r.task_id) for r in orch.list(limit=limit)]}
+    return read
+
+
+def _budget_source(core: Any) -> Callable[[], dict[str, Any]] | None:
+    """Nur lesende Quelle: `SessionBudget.usage()` (Zahlen, kein Buchen, kein Zuruecksetzen). Ohne Sitzungsbudget keine Quelle."""
+    budget = getattr(getattr(core, "permissions", None), "budget", None)
+    if budget is None or not hasattr(budget, "usage"):
+        return None
+
+    def read() -> dict[str, Any]:
+        u = budget.usage()
+        return {k: getattr(u, k, None) for k in ("calls", "max_calls", "elapsed", "max_seconds", "exhausted", "started")}
+    return read
+
+
+def _business_source(core: Any) -> Callable[[int], list[dict[str, Any]]] | None:
+    """Nur lesende Quelle: Zusammenfassungen erfolgreicher Business-/Strategist-Ergebnisse aus `orchestrator.list()` (nie die ganze Ausgabe)."""
+    orch = getattr(core.subsystems.get("agents"), "orchestrator", None)
+    if orch is None:
+        return None
+
+    def read(limit: int) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for r in reversed(orch.list()):
+            out = getattr(r, "output", None)
+            if getattr(r, "agent_id", None) not in ("business", "strategist") or getattr(getattr(r, "status", None), "value", "") != "SUCCEEDED" or not isinstance(out, dict):
+                continue
+            if out.get("kind") not in ("business_result", "strategist_result"):
+                continue
+            conf = out.get("confidence")
+            rows.append({"task_id": r.task_id, "agent_id": r.agent_id, "kind": out.get("task"), "summary": getattr(r, "summary", ""),
+                         "confidence": conf.get("level") if isinstance(conf, dict) else None,
+                         "unknowns": len(out["unknowns"]) if isinstance(out.get("unknowns"), list) else 0, "sources": len(out["sources"]) if isinstance(out.get("sources"), list) else 0})
+            if len(rows) >= limit:
+                break
+        return rows
     return read
 
 

@@ -195,8 +195,8 @@ def test_reading_the_views_creates_no_event_on_the_ui_channel(srv):
     assert list(srv.backend.events_since(0)) == before
 
 
-def test_view_paths_are_exactly_the_five_read_only_views():
-    assert VIEW_PATHS == {"/view/history": "history", "/view/audit": "audit", "/view/doctor": "doctor", "/view/agents": "agents", "/view/trace": "trace"}
+def test_view_paths_are_exactly_the_six_read_only_views():            # V2.1 M6: /view/mission ist die einzige Ergaenzung (nur GET, siehe test_control_center_mission.py)
+    assert VIEW_PATHS == {"/view/history": "history", "/view/audit": "audit", "/view/doctor": "doctor", "/view/agents": "agents", "/view/trace": "trace", "/view/mission": "mission"}
 
 
 def test_server_view_failure_is_500_generic():

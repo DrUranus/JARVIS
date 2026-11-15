@@ -24,6 +24,11 @@ PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple((name, re.compile(rx, 
     ("JWT", r"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}", False),
     ("private key", r"-----BEGIN [A-Z ]*PRIVATE KEY-----", False),
     ("credentials in URL", r"://[^/\s:@]+:[^/\s@]+@", False),
+    # V2.1: Bearer tokens (RFC 6750 token68 characters). Placed BEFORE "credential statement": that rule treats the word "Bearer" as a value and would otherwise
+    # redact only the keyword and leave the token behind. (1) explicit header form, any token of 8+ characters; (2) free text "Bearer <token>": 12+ characters
+    # AND at least one digit, so that prose such as "Bearer authentication-scheme" or "bearer of bad news" is not flagged.
+    ("Bearer token", r"\bauthorization[\"']?\s*[:=]\s*[\"']?bearer\s+[A-Za-z0-9\-._~+/]{8,}={0,2}", True),
+    ("Bearer token", r"\bbearer\s+(?=[A-Za-z0-9\-._~+/]*\d)[A-Za-z0-9\-._~+/]{12,}={0,2}", True),
     ("credential statement",
      rf"(?:{_ASSIGN_KEYS})\s*(?:=|:|\bis\b|\bist\b|\blautet\b|\bare\b)\s*[\"'`]?[^\s\"'`]{{4,}}", True),
     ("long random token", r"\b(?=[A-Za-z0-9_\-]*\d)(?=[A-Za-z0-9_\-]*[a-z])(?=[A-Za-z0-9_\-]*[A-Z])[A-Za-z0-9_\-]{32,}\b", False),

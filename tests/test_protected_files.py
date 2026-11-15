@@ -24,7 +24,8 @@ spec.loader.exec_module(pm)
 
 MUST_BE_PROTECTED = ["src/jarvis/permissions/engine.py", "src/jarvis/permissions/emergency.py", "src/jarvis/permissions/audit.py", "src/jarvis/permissions/budget.py",
                      "src/jarvis/permissions/factory.py", "src/jarvis/permissions/policy.py", "config/jarvis.toml", "tests/test_emergency_stop.py", "tests/test_autonomy_invariants.py",
-                     "tests/test_security_engine.py", "tests/test_security_bypass.py"]
+                     "tests/test_security_engine.py", "tests/test_security_bypass.py",
+                     "tests/test_v21_bootstrap_wiring.py", "tests/test_computer_uia_tools.py"]            # V2.1 (Owner-Freigabe): Wirings-Pin von bootstrap.py und der historische UIA-Waechter
 
 
 def load_manifest():
@@ -73,7 +74,8 @@ def test_line_endings_and_bom_do_not_change_the_digest():
 def make_tree(tmp_path):
     for rel, text in {"src/jarvis/permissions/engine.py": "engine = 1\n", "src/jarvis/permissions/audit.py": "audit = 1\n", "src/jarvis/permissions/__init__.py": "",
                       "config/jarvis.toml": "[x]\nenabled = false\n", "tests/test_emergency_stop.py": "def test_a(): pass\n", "tests/test_autonomy_invariants.py": "x = 1\n",
-                      "tests/test_security_engine.py": "y = 1\n", "src/jarvis/other.py": "free = 1\n"}.items():
+                      "tests/test_security_engine.py": "y = 1\n", "src/jarvis/other.py": "free = 1\n",
+                      "tests/test_v21_bootstrap_wiring.py": "pin = 1\n", "tests/test_computer_uia_tools.py": "guard = 1\n"}.items():
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text, encoding="utf-8")
@@ -95,6 +97,10 @@ def test_scan_finds_only_the_protected_set_and_ignores_caches(tmp_path):
     (lambda r: (r / "src/jarvis/permissions/new_bypass.py").write_text("x = 1\n"), "neu: src/jarvis/permissions/new_bypass.py"),
     (lambda r: (r / "tests/test_security_new.py").write_text("x = 1\n"), "neu: tests/test_security_new.py"),
     (lambda r: (r / "tests/test_emergency_stop.py").write_text("def test_a(): assert True\n"), "geaendert: tests/test_emergency_stop.py"),
+    (lambda r: (r / "tests/test_v21_bootstrap_wiring.py").write_text("pin = 2\n"), "geaendert: tests/test_v21_bootstrap_wiring.py"),
+    (lambda r: (r / "tests/test_computer_uia_tools.py").write_text("guard = 2\n"), "geaendert: tests/test_computer_uia_tools.py"),
+    (lambda r: (r / "tests/test_v21_bootstrap_wiring.py").unlink(), "fehlt: tests/test_v21_bootstrap_wiring.py"),
+    (lambda r: (r / "tests/test_computer_uia_tools.py").unlink(), "fehlt: tests/test_computer_uia_tools.py"),
 ])
 def test_any_change_deletion_or_addition_in_the_protected_set_is_found(tmp_path, mutation, expect):
     root = make_tree(tmp_path)

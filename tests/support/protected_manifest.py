@@ -26,7 +26,8 @@ MANIFEST_PATH = Path(__file__).resolve().with_suffix(".json")
 VERSION = 1
 ALGORITHM = "sha256-lf"
 GENERATED_BY = "python -m tests.support.protected_manifest --write --confirm-owner-review"
-PATHS_DOC = ["src/jarvis/permissions/**/*.py", "src/jarvis/ui_contract/**", "config/jarvis.toml", "tests/test_emergency_stop.py", "tests/test_autonomy_invariants.py", "tests/test_security_*.py"]
+PATHS_DOC = ["src/jarvis/permissions/**/*.py", "src/jarvis/ui_contract/**", "config/jarvis.toml", "tests/test_emergency_stop.py", "tests/test_autonomy_invariants.py", "tests/test_security_*.py",
+             "tests/test_v21_bootstrap_wiring.py", "tests/test_computer_uia_tools.py"]
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 
@@ -51,7 +52,7 @@ def protected_paths(root: Path) -> list[Path]:
         base = root / sub
         if base.is_dir():
             found += [p for p in base.rglob(pattern) if p.is_file() and not _skip(p)]
-    for rel in ("config/jarvis.toml", "tests/test_emergency_stop.py", "tests/test_autonomy_invariants.py"):
+    for rel in ("config/jarvis.toml", "tests/test_emergency_stop.py", "tests/test_autonomy_invariants.py", "tests/test_v21_bootstrap_wiring.py", "tests/test_computer_uia_tools.py"):
         if (root / rel).is_file():
             found.append(root / rel)
     tests = root / "tests"

@@ -2,7 +2,7 @@
   "version": 1,
   "algorithm": "sha256-lf",
   "base_commit": "7cc65b0e9fcda545f784d887e71c28a279669b04",
-  "generated_at": "2026-11-12T16:10:31Z",
+  "generated_at": "2026-11-14T03:18:42Z",
   "generated_by": "python -m tests.support.protected_manifest --write --confirm-owner-review",
   "paths": [
     "src/jarvis/permissions/**/*.py",
@@ -10,7 +10,9 @@
     "config/jarvis.toml",
     "tests/test_emergency_stop.py",
     "tests/test_autonomy_invariants.py",
-    "tests/test_security_*.py"
+    "tests/test_security_*.py",
+    "tests/test_v21_bootstrap_wiring.py",
+    "tests/test_computer_uia_tools.py"
   ],
   "files": {
     "config/jarvis.toml": "b2a0e23f3cfa0bc45674740ac6baee2b8bd59964f251b7823977e5efccc04fdd",
@@ -37,6 +39,7 @@
     "src/jarvis/ui_contract/schema/ui-commands.schema.json": "1a2d290758141420b7fc57f020a87080b73ef0b67c6b9bd64b654c42ebf262e3",
     "src/jarvis/ui_contract/schema/ui-events.schema.json": "479ea68a02b236d8f9712b8faf80789f3db096e78b0daec051ef201c4d206c0c",
     "tests/test_autonomy_invariants.py": "f0ad478ee4fd7710b30a829ae69fae82734f2e01dc3a40b79d7a562dabbeb876",
+    "tests/test_computer_uia_tools.py": "402c794e30e43cc557e3ff1fd5357675d02a795a2cb6a411444fd12f1a4dfb4e",
     "tests/test_emergency_stop.py": "8de6fe4003798a50e3435393bcb908874467096d562d10ea9b6429a4ab7ef18b",
     "tests/test_security_bypass.py": "8bcf1f0431fe1a640961d4c13b2ccbf51bdccec93a32938a289e6c3aabeaa0ff",
     "tests/test_security_config.py": "d9a64717242b9a0dccc220a1c8ef4a8bef14ac3dc3e7779cb08fcc08ee767e26",
@@ -44,6 +47,7 @@
     "tests/test_security_paths.py": "fe6946114f5a8762a24c3bb688bca98d1fba8e0341114f683a7f655684909ef4",
     "tests/test_security_paths_windows.py": "44deb4056c2d5c5027c07a342da60c3408f41ffb84e5c3071705d7b01bb22158",
     "tests/test_security_policy.py": "11aa2550d28ac565a9e6ce07f88e3dbb554d7b0630691d08573b72c3e1877fc8",
-    "tests/test_security_tools.py": "9bf757cf0eb11f9a8643a9c99640826858582bc5053642b593cc8f045e7d5866"
+    "tests/test_security_tools.py": "9bf757cf0eb11f9a8643a9c99640826858582bc5053642b593cc8f045e7d5866",
+    "tests/test_v21_bootstrap_wiring.py": "415108042ffef43d99d26401dd9c83c81ffabc960dc95b50aebf31eb3e206c89"
   }
 }
