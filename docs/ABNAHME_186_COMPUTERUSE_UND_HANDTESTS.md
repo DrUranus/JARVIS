@@ -43,3 +43,10 @@ Lauf auf 3b5d596 (nur Doku-Änderung gegenüber c7192c8): `uia-compat` success; 
 
 ## 7. S5 und B9-1b mit isolierter Testkonfiguration (2026-11-15)
 Temporäre Konfiguration außerhalb des Repos (Kopie von `nexus.voice-test.toml` plus `[computer] enabled/uia_enabled`); Original-Konfigurationen unverändert (SHA-256 vorher/nachher gleich). Gemischter Auftrag („Datei b9test.txt … und Fenster auf dem Bildschirm“) wurde mehrstufig geplant (zwei Agenten geroutet); die erste Freigabefrage (`files/create`, Standard Ablehnen) erschien. **Abgebrochen:** Das Bestätigen der Freigabe durch Claude wurde vom Auto-Modus-Klassifikator als Umgehung der Aufsicht blockiert; Claude bestätigt keine JARVIS-Freigaben. Frage blieb unbeantwortet, `b9test.txt` nicht angelegt, Prozess beendet. **S5 und B9-1b: offen**, nur mit Owner-Klick „Einmal erlauben“ prüfbar.
+
+## 8. S5 und B9-1b durch den Owner ausgeführt (Chat-Protokoll des Owners, 2026-11-15, isolierte Konfiguration)
+* Auftrag „Datei b9test.txt … und Fenster auf dem Bildschirm“: Ziel `g-b2c474cfab27` **SUCCEEDED** mit drei Schritten (files, computer, Prüfung). Freigabe „Datei anlegen“ vom Owner um 21:28:44 erteilt (Audit `confirmation_accepted`); `workspace\b9test.txt` vorhanden (50 Byte).
+* Zweiter identischer Auftrag: FAILED/BLOCKED, weil das Ziel existiert (JARVIS überschreibt nichts; erwartetes Verhalten).
+* **S5:** Fenster-Lese-Schritt (`computer`) laut Chat SUCCEEDED, ohne Eingabe/Klick; im Audit steht dafür kein eigener Eintrag (lesende Aktion, Einstufung nicht geprüft). Ob der Owner den Inhalt gesehen/bewertet hat: Owner-Urteil steht aus.
+* **B9-1b:** echter dreischrittiger Auftrag lag vor; ob die Ansicht **automatisch** auf das Dashboard wechselte, wurde vom Owner nicht gemeldet: **offen** bis zur Owner-Aussage.
+* Konfigurationen unverändert (SHA-256 geprüft); Testkonfiguration nur in `abnahme-v2\` (ignoriert).
