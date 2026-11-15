@@ -11,6 +11,7 @@ import time
 
 from jarvis.errors import VoiceUnavailableError
 from jarvis.voice.base import AudioClip, AudioPlayer, AudioSource, rms
+from jarvis.voice.meter import METER, level_from_rms
 from jarvis.voice.vad import SpeechDetector, record_utterance
 
 log = logging.getLogger("jarvis.voice")
@@ -72,25 +73,37 @@ class SoundDeviceSource(AudioSource):
                 while True:
                     data, _overflow = stream.read(frames)
                     raw = bytes(data)
-                    stop = ep.feed(rms(raw), self._chunk)
+                    level = rms(raw)
+                    METER.push(level_from_rms(level))                       # nur Anzeige (NEXUS-Pegel); beeinflusst die Aufnahme nicht
+                    stop = ep.feed(level, self._chunk)
                     if ep.heard_speech:
                         chunks.append(raw)
                     if stop:
                         break
         except Exception as exc:  # PortAudioError etc.: no device, busy, permission denied
             raise VoiceUnavailableError(f"cannot record from microphone: {exc}") from exc
+        finally:
+            METER.clear()
         return AudioClip(b"".join(chunks), self._rate) if ep.heard_speech else None
 
     def _record_vad(self, frames: int) -> AudioClip | None:
         try:
             with self._sd.RawInputStream(samplerate=self._rate, channels=1, dtype="int16", device=2) as stream:
-                return record_utterance(lambda: bytes(stream.read(frames)[0]), self._detector, sample_rate=self._rate,
+                return record_utterance(lambda: self._read_metered(stream, frames), self._detector, sample_rate=self._rate,
                                         chunk_seconds=self._chunk, silence_seconds=self._silence, max_seconds=self._max,
                                         min_speech_seconds=self._min_speech, guard=self.guard)
         except VoiceUnavailableError:
             raise                                           # guard (Notaus/Budget) and library messages pass through unchanged
         except Exception as exc:  # PortAudioError etc.: no device, busy, permission denied
             raise VoiceUnavailableError(f"cannot record from microphone: {exc}") from exc
+        finally:
+            METER.clear()
+
+    @staticmethod
+    def _read_metered(stream, frames: int) -> bytes:
+        raw = bytes(stream.read(frames)[0])
+        METER.push(level_from_rms(rms(raw)))                # nur Anzeige (NEXUS-Pegel)
+        return raw
 
 
 _PLAYERS = (("afplay", []), ("paplay", []), ("aplay", ["-q"]), ("ffplay", ["-nodisp", "-autoexit", "-loglevel", "quiet"]))

@@ -13,12 +13,14 @@ import copy
 import datetime as dt
 import logging
 import threading
+import time
 from typing import Any
 
 from jarvis.redaction import SecretDetector
 from jarvis.interface.gui_model import (ActivityEvent, ActivitySnapshot, ChatEvent, EmergencyEvent, GuiController, StateEvent, SubmitResult)
 from jarvis.ui_contract.backend import UiBackend
 from jarvis.ui_contract.bus import Clock, EventLog
+from jarvis.voice.meter import METER
 from jarvis.ui_contract.schema import ID, MAX_ITEMS, MAX_TEXT, VERSION, ContractError, validate_command
 
 log = logging.getLogger("jarvis.interface.ui_events")
@@ -58,9 +60,13 @@ class UiConfirmationProvider:
             return self._adapter._deny
 
 
+MIN_LEVEL_INTERVAL_S = 0.2           # hoechstens 5 Pegel-Ereignisse je Sekunde
+
+
 class ControllerUiBackend(UiBackend):
     def __init__(self, controller: GuiController, *, choice_enum: Any, clock: Clock | None = None, name: str = "jarvis", log_capacity: int = 1000,
-                 confirmation_timeout_s: float = DEFAULT_CONFIRMATION_TIMEOUT_S, event_log: EventLog | None = None) -> None:
+                 confirmation_timeout_s: float = DEFAULT_CONFIRMATION_TIMEOUT_S, event_log: EventLog | None = None,
+                 level_clock: Any = None) -> None:
         self._ctl = controller
         self._deny = choice_enum.DENY                                  # die Aufzaehlung der Engine (ConfirmationChoice): nur ihre Mitglieder zaehlen als Antwort
         self._allow = {"allow_once": choice_enum.ALLOW_ONCE, "allow_session": choice_enum.ALLOW_SESSION}
@@ -71,6 +77,8 @@ class ControllerUiBackend(UiBackend):
         self._next_id = 0
         self._attached = True
         self._voice_seen = False
+        self._level_clock = level_clock or time.monotonic
+        self._level_seen, self._level_at = 0.0, float("-inf")
         self._pump_hooks: list[Any] = []
         self._emergency_reason = ""
         self.confirmation_provider = UiConfirmationProvider(self, confirmation_timeout_s)
@@ -146,7 +154,16 @@ class ControllerUiBackend(UiBackend):
         active = self._ctl.voice_active
         if active != self._voice_seen:
             self._voice_seen = active
+            self._level_seen, self._level_at = 0.0, self._level_clock()
             self._log.emit("voice_level", {"level": 0, "active": active})
+            return
+        if not active:
+            return
+        now = self._level_clock()
+        level = round(METER.read(), 1)                                       # Anzeigepegel aus der Aufnahmeschleife, in 0,1-Schritten (kein Ereignis-Strom)
+        if level != self._level_seen and now - self._level_at >= MIN_LEVEL_INTERVAL_S:
+            self._level_seen, self._level_at = level, now
+            self._log.emit("voice_level", {"level": level, "active": True})
 
     def _publish_activity(self, snap: ActivitySnapshot) -> None:
         items, mapping = [], {}
