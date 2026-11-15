@@ -27,7 +27,7 @@ class LLMSettings:
 @dataclass(frozen=True)
 class VoiceSettings:
     """Voice interface. Defaults ('console') need no hardware and no API key."""
-    stt_provider: str = "console"      # console | mock | openai | local
+    stt_provider: str = "console"      # console | mock | openai | local | auto (auto = lokal, dann Fallback-Modell, Cloud NUR mit stt_cloud_enabled)
     tts_provider: str = "console"      # console | mock | system | openai | windows (Windows PowerShell + System.Speech, lokal; Standard bleibt console)
     audio_input: str = "sounddevice"   # microphone backend (used by non-console STT)
     audio_output: str = "system"       # playback backend (used by openai TTS)
@@ -42,10 +42,15 @@ class VoiceSettings:
     silence_threshold: int = 500       # RMS of 16-bit samples below which audio counts as silence
     vad_provider: str = "none"         # none (bisheriger Pegel-Endpointer) | energy | silero (Extra 'stt-local'); Aufnahme endet nach Sprechpause, hoechstens max_record_seconds
     vad_min_speech_seconds: float = 0.2  # vad_provider != none: Sprache zaehlt erst nach dieser Dauer am Stueck (Klicks nicht)
-    stt_model: str = "whisper-1"
+    stt_model: str = "gpt-transcribe"  # stt_provider "openai"/auto-Cloud: aktuelles OpenAI-Modell (whisper-1 und gpt-4o-*-transcribe sind dort als veraltet angekuendigt)
     stt_model_dir: str | None = None   # stt_provider "local": lokales Modellverzeichnis (kein Download; Extra 'stt-local')
     stt_device: str = "cpu"            # stt_provider "local": cpu | cuda
     stt_compute_type: str = "int8"     # stt_provider "local": CTranslate2-Rechengenauigkeit
+    stt_fallback_model_dir: str | None = None  # zweites lokales Modell (z. B. whisper-base), falls das erste fehlt/scheitert; nie Cloud
+    stt_cloud_enabled: bool = False    # stt_provider "auto": NUR wenn true darf Audio an OpenAI gesendet werden (kostet Geld, Audio verlaesst den PC); Standard aus
+    stt_keywords: tuple[str, ...] = ("JARVIS", "NEXUS", "Windows", "PowerShell", "Ordner")  # Stichworthinweise fuer die Erkennung (keine Befehle, nur Schreibweisen)
+    stt_prompt: str | None = None      # optionaler Kontexthinweis (OpenAI "prompt"/lokal "initial_prompt"); keine Geheimnisse eintragen
+    audio_device: str | None = None    # Mikrofon: None = Windows-Standardgeraet; Zahl (Index) oder Namensteil, z. B. "Razer" (Gross-/Kleinschreibung egal)
     tts_model: str = "tts-1"
     tts_voice: str = "alloy"
     tts_command: str | None = None     # override for the 'system' TTS (e.g. "espeak-ng -v de")
@@ -483,6 +488,12 @@ class Settings:
             raise ConfigError("voice.silence_threshold must be >= 0")
         if not v.wake_word.strip():
             raise ConfigError("voice.wake_word must not be empty")
+        if v.stt_provider.lower() not in ("console", "mock", "openai", "local", "auto"):
+            raise ConfigError(f"voice.stt_provider must be one of console, mock, openai, local, auto, got {v.stt_provider!r}")
+        if any((any(c in k for c in "\r\n<>") or not k.strip() or len(k) > 60) for k in v.stt_keywords) or len(v.stt_keywords) > 30:
+            raise ConfigError("voice.stt_keywords: up to 30 single-line terms (no < > or line breaks, at most 60 characters)")
+        if v.stt_prompt is not None and len(v.stt_prompt) > 500:
+            raise ConfigError("voice.stt_prompt must be at most 500 characters")
         sec = self.security
         if sec.mode not in SECURITY_MODES:
             raise ConfigError(f"security.mode must be one of {SECURITY_MODES}, got {sec.mode!r}")
@@ -724,7 +735,7 @@ def load_settings(path: str | Path | None = None, env: Mapping[str, str] | None 
     llm_key_var = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "openai_compatible": "OPENAI_COMPATIBLE_API_KEY"}.get(settings.llm.provider)
     if settings.llm.api_key is None and llm_key_var and env.get(llm_key_var):
         settings = replace(settings, llm=replace(settings.llm, api_key=env[llm_key_var]))
-    if settings.voice.api_key is None and env.get("OPENAI_API_KEY") and "openai" in (
-            settings.voice.stt_provider, settings.voice.tts_provider):
+    cloud_stt = settings.voice.stt_provider.lower() == "openai" or (settings.voice.stt_provider.lower() == "auto" and settings.voice.stt_cloud_enabled)
+    if settings.voice.api_key is None and env.get("OPENAI_API_KEY") and (cloud_stt or settings.voice.tts_provider.lower() == "openai"):
         settings = replace(settings, voice=replace(settings.voice, api_key=env["OPENAI_API_KEY"]))
     return settings.validate()

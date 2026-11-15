@@ -11,6 +11,7 @@ import time
 
 from jarvis.errors import VoiceUnavailableError
 from jarvis.voice.base import AudioClip, AudioPlayer, AudioSource, rms
+from jarvis.voice.audio_device import resolve_input_device
 from jarvis.voice.meter import METER, level_from_rms
 from jarvis.voice.vad import SpeechDetector, record_utterance
 
@@ -45,7 +46,8 @@ class SoundDeviceSource(AudioSource):
 
     def __init__(self, sample_rate: int = 16000, threshold: float = 500, silence_seconds: float = 1.0,
                  max_seconds: float = 15.0, chunk_seconds: float = 0.1, detector: SpeechDetector | None = None,
-                 min_speech_seconds: float = 0.2) -> None:
+                 min_speech_seconds: float = 0.2, device: "str | int | None" = None) -> None:
+        self._device_setting = device                     # None = Windows-Standardgeraet; Index oder Namensteil siehe audio_device.resolve_input_device
         self._detector, self._min_speech = detector, min_speech_seconds   # detector None = bisheriger Pegel-Endpointer
         self._rate, self._threshold = sample_rate, threshold
         self._silence, self._max, self._chunk = silence_seconds, max_seconds, chunk_seconds
@@ -62,6 +64,9 @@ class SoundDeviceSource(AudioSource):
             raise VoiceUnavailableError(f"PortAudio library unavailable: {exc}") from exc
         return sounddevice
 
+    def _device(self) -> "int | None":
+        return resolve_input_device(self._sd, self._device_setting)   # bei jeder Aufnahme neu: ein neu angestecktes Mikrofon funktioniert; verstaendlicher Fehler sonst
+
     def record(self) -> AudioClip | None:
         frames = int(self._rate * self._chunk)
         if self._detector is not None:
@@ -69,7 +74,7 @@ class SoundDeviceSource(AudioSource):
         ep = Endpointer(self._threshold, self._silence, self._max)
         chunks: list[bytes] = []
         try:
-            with self._sd.RawInputStream(samplerate=self._rate, channels=1, dtype="int16", device=2) as stream:
+            with self._sd.RawInputStream(samplerate=self._rate, channels=1, dtype="int16", device=self._device()) as stream:
                 while True:
                     data, _overflow = stream.read(frames)
                     raw = bytes(data)
@@ -80,6 +85,8 @@ class SoundDeviceSource(AudioSource):
                         chunks.append(raw)
                     if stop:
                         break
+        except VoiceUnavailableError:
+            raise                                           # Geraeteauswahl/Notaus-Meldungen unveraendert durchreichen
         except Exception as exc:  # PortAudioError etc.: no device, busy, permission denied
             raise VoiceUnavailableError(f"cannot record from microphone: {exc}") from exc
         finally:
@@ -88,7 +95,7 @@ class SoundDeviceSource(AudioSource):
 
     def _record_vad(self, frames: int) -> AudioClip | None:
         try:
-            with self._sd.RawInputStream(samplerate=self._rate, channels=1, dtype="int16", device=2) as stream:
+            with self._sd.RawInputStream(samplerate=self._rate, channels=1, dtype="int16", device=self._device()) as stream:
                 return record_utterance(lambda: self._read_metered(stream, frames), self._detector, sample_rate=self._rate,
                                         chunk_seconds=self._chunk, silence_seconds=self._silence, max_seconds=self._max,
                                         min_speech_seconds=self._min_speech, guard=self.guard)

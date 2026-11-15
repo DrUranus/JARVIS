@@ -13,6 +13,7 @@ from typing import Callable, Protocol
 from jarvis.core.core import Response, ResponseKind
 from jarvis.errors import EndOfInput, STTError, TTSError, VoiceError, VoiceUnavailableError
 from jarvis.voice.base import Listener, Speaker
+from jarvis.voice.postprocess import is_risky, split_confirmation
 
 log = logging.getLogger("jarvis.voice")
 
@@ -110,7 +111,15 @@ class VoiceSession:
             log.debug("ignored (no wake word): %r", text)
             return True
         self._awake = False
+        confirmed, text = split_confirmation(text)
+        if confirmed and not text:
+            self._reply("Was soll ich bestätigen? Sag die Anweisung bitte noch einmal, z. B. „Bestätige lösche …“.")
+            return True
         self._display(f"Du: {text}")
+        if is_risky(text) and not confirmed:                # Spracherkennung kann Woerter vertauschen: riskante Anweisungen nie ungefragt weitergeben
+            self._reply(f"Ich habe verstanden: „{text}“. Das klingt nach einer riskanten Anweisung. Sag zur Bestätigung „Bestätige“ und dann die Anweisung, "
+                        "oder gib sie im Textchat ein. Ich habe nichts ausgeführt.")
+            return True
         if _norm(text) in EXIT_PHRASES:
             self._reply("Sprachmodus beendet.")
             return False
