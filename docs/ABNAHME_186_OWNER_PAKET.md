@@ -36,3 +36,11 @@ Voraussetzung: NEXUS mit Mikrofon-Konfiguration (`config/nexus.voice-test.toml`)
 4. **S8a:** Antwort sprechen lassen und NOTAUS drücken: Stimme in höchstens 1 s weg.
 5. **S6 (nur Owner):** UAC-Dialog selbst auslösen und selbst entscheiden; Ergebnis melden.
 Claude simuliert kein Mikrofon und keine UAC-Eingabe.
+
+## 5. Sprachtest-Umgebung (2026-11-18) und Korrektur der Testbezeichnungen
+Instanz: `.venv\Scripts\python.exe`, `config/nexus.voice-test.toml` (unverändert, SHA-256 geprüft), Whisper-base lokal, Windows-TTS (Hedda de-DE), Mikrofon laut Konfiguration „Auna“ (Windows-Standard ist das Razer-Headset). Korrektur: **S3a = deutsche Stimme (Hörprobe, Umlaute)**, **S3b = befehlsähnlicher Text wird nur gesprochen, nicht ausgeführt** (die Zuordnung in Abschnitt 4 oben war vertauscht).
+**S3b-Hinweis:** Es gibt keinen reinen „Nur-Transkription“-Modus. Ein gesprochener Satz läuft wie eingetippter Text durch den normalen Weg (Ziel -> Berechtigungs-Engine). Es gibt kein Lösch-Werkzeug; Dateierstellung fragt immer. Der sichere Test ist daher: harmloser befehlsähnlicher Satz, erwartet wird höchstens eine Freigabefrage, die abgelehnt wird; keine Datei, keine Ausführung.
+
+## 6. F-S9-1 – minimaler Lösungsvorschlag (NICHT umgesetzt, braucht Freigabe)
+Problem: `cli._resume.confirm` ruft `provider.confirm(...)` direkt auf; die Frage `resume_step` und die Antwort erscheinen nicht im Audit.
+Vorschlag: im selben `confirm`-Closure nach der Entscheidung zwei Auditereignisse über das vorhandene `core.permissions.audit` schreiben (`confirmation_requested` vorher, `confirmation_accepted`/`confirmation_rejected` nachher; Werkzeug `jarvis`, Aktion `resume_step`, Ressource `journal`, ohne Ziel-Inhalt). Keine Änderung an Entscheidungslogik, PermissionEngine, X0 oder Notaus; Audit-Fehler = Frage gilt als abgelehnt (fail-closed). Tests zuerst: (1) Ablehnen schreibt requested+rejected, (2) allow_once schreibt requested+accepted, (3) Auditfehler = abgelehnt, (4) kein Schlüssel/Zieltext im Eintrag.
