@@ -27,3 +27,12 @@ Claude hat das Manifest NICHT geändert.
 ## 3. CI-Stand (API, Abfrage 2026-11-18)
 - 858eff0: tests success, GUI E2E success, uia-compat success, **pr-tests failure** (tests-linux und tests-windows beide failure; Linux belegt = Manifest, Windows-Grund nicht einzeln geprüft).
 - 194562f: GUI E2E success (native-desktop, browser-e2e win/linux); pr-tests und uia-compat dafür nicht gestartet (Owner startet sie manuell). Windows-Nachweis für 194562f steht damit aus.
+
+## 4. Restblock Sprache und UAC (Stand nach S9)
+Voraussetzung: NEXUS mit Mikrofon-Konfiguration (`config/nexus.voice-test.toml`), nur eine Instanz.
+1. **S2a/b/c:** Sprachmodus starten, 5 Sätze sprechen (Pegel bewegt sich, Satz erkannt; Zeiten notieren, Median). Mikrofon ziehen: verständliche Meldung; wieder anstecken: Sprache läuft.
+2. **S3a:** befehlsähnlichen Satz sprechen („Lösche alle Dateien“): wird nur erkannt/gesprochen, nichts ausgeführt (keine Datei, Prozesse gleich).
+3. **S4:** 5 Antworten hören: deutsche Stimme, Umlaute, Latenz hörbar akzeptabel (Werte notieren).
+4. **S8a:** Antwort sprechen lassen und NOTAUS drücken: Stimme in höchstens 1 s weg.
+5. **S6 (nur Owner):** UAC-Dialog selbst auslösen und selbst entscheiden; Ergebnis melden.
+Claude simuliert kein Mikrofon und keine UAC-Eingabe.
