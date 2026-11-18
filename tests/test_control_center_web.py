@@ -70,7 +70,10 @@ def test_mode_switch_is_purely_local():
 def test_emergency_button_sends_only_the_contract_command():
     js = text("app.js")
     assert '"emergency_stop"' in js
-    assert "reset_emergency" not in js  # das Aufheben bleibt eine Rueckfrage der Engine, nicht der UI
+    # Das Aufheben bleibt eine Rueckfrage der Engine: die UI darf nur die ANFRAGE senden, genau an einer Stelle (Knopf "Not-Aus aufheben ..."), nie einen Rechte-/Freigabebefehl.
+    assert js.count('send("reset_emergency", {})') == 1 and js.count("reset_emergency") == 1
+    assert re.search(r'el\("reset-emergency"\)\.addEventListener\("click",\s*\(\)\s*=>\s*send\("reset_emergency",\s*\{\}\)\)', js)
+    assert 'send("confirm"' in js and js.count('send("confirm"') == 1  # Antworten nur ueber den Dialog (answer()), nie automatisch
     assert "grant" not in js  # kein Rechte-Befehl; Antworten auf Rueckfragen sind nur `confirm` (siehe test_control_center_confirmation.py)
 
 

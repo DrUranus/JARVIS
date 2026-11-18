@@ -514,6 +514,7 @@ document.addEventListener("keydown", (e) => {
 
 function setEmergency(engaged) {
   el("emergency-banner").hidden = !engaged;
+  el("reset-emergency").hidden = !engaged;  // der Knopf existiert nur bei aktivem Notaus
   emergencyOn = engaged === true;
   if (emergencyOn) { voiceActive = false; level = 0; waveHistory.length = 0; }  // der Notaus beendet den Sprachmodus: kein "Mikrofon an" anzeigen
   renderVoice();
@@ -951,6 +952,7 @@ el("mode-toggle").addEventListener("click", () => { manualMode = true; setMode(d
 el("voice-start").addEventListener("click", () => send("start_voice", {}));  // einzige Stelle, die das Mikrofon anfordert: ausdruecklicher Knopfdruck
 el("voice-stop").addEventListener("click", () => send("stop_voice", {}));
 el("emergency").addEventListener("click", () => send("emergency_stop", {}));
+el("reset-emergency").addEventListener("click", () => send("reset_emergency", {}));  // nur die ANFRAGE: die Berechtigungs-Engine fragt den Menschen ("Notaus aufheben?"); nichts wird hier aufgehoben oder bestaetigt
 el("input-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const text = el("input").value.trim();

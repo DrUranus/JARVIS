@@ -112,7 +112,7 @@ def test_dashboard_texts_are_never_inserted_as_html():
 def test_cancel_command_is_wired_with_contract_fields_only():
     js = text("app.js")
     assert re.search(r'send\("cancel",\s*\{\s*kind:\s*\w+(\.\w+)?,\s*id:\s*\w+(\.\w+)?\s*\}', js)
-    assert "reset_emergency" not in js and "grant" not in js
+    assert js.count("reset_emergency") == 1 and 'send("reset_emergency", {})' in js and "grant" not in js  # nur die Anfrage, kein Rechte-Befehl
 
 
 def test_premium_v2_layout_agents_left_orb_center_tasks_right():
@@ -299,3 +299,35 @@ def test_dom_result_links_back_to_its_task_as_a_button_not_a_hyperlink(tmp_path)
     ])
     assert "Titel: Zweite" in snaps["x"]["text"]["task-detail"]
     assert 'href=' not in text("app.js").split("function renderResults")[1].split("function renderDashboard")[0]
+
+
+# ---- Not-Aus aufheben (B9-4-Reset): nur die ANFRAGE, die Engine fragt den Menschen ---------------------------------------------------------------
+@pytestmark_node
+def test_dom_reset_button_only_visible_while_the_stop_is_engaged_and_sends_only_the_request(tmp_path):
+    snaps = run_scenario(tmp_path, [
+        ev("emergency", {"engaged": False, "reason": ""}),
+        {"snap": "vorher"},
+        ev("emergency", {"engaged": True, "reason": "Notaus per UI"}),
+        {"snap": "aktiv"},
+        {"clickId": "reset-emergency"},
+        {"snap": "geklickt"},
+        ev("emergency", {"engaged": False, "reason": ""}),
+        {"snap": "aufgehoben"},
+    ])
+    assert snaps["vorher"]["props"]["emergency-banner"]["hidden"] is True
+    assert snaps["aktiv"]["props"]["emergency-banner"]["hidden"] is False and snaps["aktiv"]["props"]["reset-emergency"]["hidden"] is False
+    assert snaps["aufgehoben"]["props"]["emergency-banner"]["hidden"] is True and snaps["aufgehoben"]["props"]["reset-emergency"]["hidden"] is True
+    sent = snaps["geklickt"]["sent"]
+    assert [c["type"] for c in sent] == ["reset_emergency"] and sent[0]["data"] == {}      # genau die Anfrage; kein confirm, kein grant, kein emergency_stop
+
+
+@pytestmark_node
+def test_dom_reset_button_stays_hidden_while_no_stop_is_engaged(tmp_path):
+    snaps = run_scenario(tmp_path, [ev("emergency", {"engaged": False, "reason": ""}), {"snap": "s"}])
+    assert snaps["s"]["props"]["reset-emergency"]["hidden"] is True and snaps["s"]["sent"] == []
+
+
+def test_reset_button_markup_is_inside_the_banner_and_not_a_separate_path():
+    html, css = text("index.html"), text("styles.css")
+    assert re.search(r'<div id="emergency-banner"[^>]*hidden>.*<button id="reset-emergency"[^>]*>Not-Aus aufheben \.\.\.</button>.*</div>', html, re.S)
+    assert "pointer-events: none" not in css
