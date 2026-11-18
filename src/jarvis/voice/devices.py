@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import shutil
 import subprocess
 import tempfile
@@ -41,6 +42,10 @@ class Endpointer:
         return self.elapsed >= self.initial_wait  # nobody spoke: give up (-> None)
 
 
+class _Cancelled(Exception):
+    """Internal: the recording was cancelled by `SoundDeviceSource.cancel()`."""
+
+
 class SoundDeviceSource(AudioSource):
     """Microphone via the optional `sounddevice` package (pip install 'jarvis-ai[voice]')."""
 
@@ -52,6 +57,10 @@ class SoundDeviceSource(AudioSource):
         self._rate, self._threshold = sample_rate, threshold
         self._silence, self._max, self._chunk = silence_seconds, max_seconds, chunk_seconds
         self._sd = self._import()
+        self._cancel = threading.Event()                  # "Sprache beenden": bricht das laufende Warten/Aufnehmen sofort ab (Aufnahme wird verworfen)
+
+    def cancel(self) -> None:
+        self._cancel.set()
 
     @staticmethod
     def _import():
@@ -76,6 +85,9 @@ class SoundDeviceSource(AudioSource):
         try:
             with self._sd.RawInputStream(samplerate=self._rate, channels=1, dtype="int16", device=self._device()) as stream:
                 while True:
+                    if self._cancel.is_set():
+                        self._cancel.clear()
+                        return None                                         # abgebrochen: nichts wird weitergegeben
                     data, _overflow = stream.read(frames)
                     raw = bytes(data)
                     level = rms(raw)
@@ -99,6 +111,9 @@ class SoundDeviceSource(AudioSource):
                 return record_utterance(lambda: self._read_metered(stream, frames), self._detector, sample_rate=self._rate,
                                         chunk_seconds=self._chunk, silence_seconds=self._silence, max_seconds=self._max,
                                         min_speech_seconds=self._min_speech, guard=self.guard)
+        except _Cancelled:
+            self._cancel.clear()
+            return None                                     # abgebrochen: nichts wird weitergegeben
         except VoiceUnavailableError:
             raise                                           # guard (Notaus/Budget) and library messages pass through unchanged
         except Exception as exc:  # PortAudioError etc.: no device, busy, permission denied
@@ -106,8 +121,9 @@ class SoundDeviceSource(AudioSource):
         finally:
             METER.clear()
 
-    @staticmethod
-    def _read_metered(stream, frames: int) -> bytes:
+    def _read_metered(self, stream, frames: int) -> bytes:
+        if self._cancel.is_set():
+            raise _Cancelled()
         raw = bytes(stream.read(frames)[0])
         METER.push(level_from_rms(rms(raw)))                # nur Anzeige (NEXUS-Pegel)
         return raw

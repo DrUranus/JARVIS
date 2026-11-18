@@ -137,6 +137,13 @@ class VoiceSession:
         return True
 
     # -- main loop ------------------------------------------------------------------------------
+    def cancel_listening(self) -> None:
+        """"Sprache beenden": ein laufendes Warten auf Sprache sofort abbrechen (statt bis zu voice.max_record_seconds). Ohne Listener-Unterstuetzung: nichts, nie ein Fehler."""
+        try:
+            getattr(self._listener, "cancel", lambda: None)()
+        except Exception:                                   # noqa: BLE001 - Abbrechen darf das Beenden nie verhindern
+            log.debug("listener cancel failed", exc_info=True)
+
     def run(self, max_turns: int | None = None, stop: threading.Event | None = None) -> int:
         """Run until an exit phrase, end of input, repeated device failures or `stop` is set. Returns utterances processed.
         `stop` is checked between utterances: a recording that is already running is finished first (at most voice.max_record_seconds)."""

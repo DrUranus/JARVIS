@@ -16,6 +16,9 @@ class SpeechListener(Listener):
         self._source, self._stt, self._language = source, stt, language
         self.last_original: str | None = None            # Originaltranskript der letzten Erkennung (Diagnose; kein Audio)
 
+    def cancel(self) -> None:
+        self._source.cancel()
+
     def listen(self) -> str | None:
         clip = self._source.record()
         if clip is None or clip.is_empty:

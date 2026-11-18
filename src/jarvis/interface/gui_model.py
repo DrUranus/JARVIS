@@ -425,6 +425,7 @@ class GuiController:
                 return f"Sprachmodus konnte nicht gestartet werden ({type(exc).__name__}) – Texteingabe bleibt aktiv."
             self.tracker.clear_error()
             self._voice_stop.clear()
+            self._voice_session = session
             self._voice_running = True
             threading.Thread(target=self._work_voice, args=(session,), name="jarvis-gui-voice", daemon=True).start()
         self.say("System", "Sprachmodus gestartet. Das Mikrofon ist jetzt aktiv.")
@@ -434,7 +435,10 @@ class GuiController:
     def stop_voice(self) -> None:
         if self.voice_active:
             self._voice_stop.set()
-            self.say("System", "Sprachmodus wird beendet (nach der laufenden Aufnahme).")
+            interrupt = getattr(getattr(self, "_voice_session", None), "cancel_listening", None)
+            if interrupt is not None:
+                interrupt()                                 # bricht das Warten auf Sprache sofort ab (nur Aufnahme; Berechtigungen und Notaus unberuehrt)
+            self.say("System", "Sprachmodus wird beendet.")
 
     def _work_voice(self, session: Any) -> None:
         try:
