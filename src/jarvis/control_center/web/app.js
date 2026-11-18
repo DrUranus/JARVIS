@@ -80,11 +80,26 @@ function upsertTask(kind, id, patch) {
   return t;
 }
 
+// Die Arbeitsliste kommt nur auf Anfrage (`request_snapshot`, nur lesend). Waehrend der Bearbeitung fragt die Seite deshalb selbst nach, damit die belegte Schrittzahl
+// eines neuen Ziels fuer den automatischen Wechsel verfuegbar wird; im Ruhezustand wird nichts angefragt.
+const BUSY_STATES = new Set(["processing", "awaiting_confirmation"]);
+let pollTimer = null;
+function pollActivityWhileBusy() {
+  if (!BUSY_STATES.has(document.body.dataset.state) || pollTimer) return;
+  const tick = () => {
+    pollTimer = null;
+    if (!BUSY_STATES.has(document.body.dataset.state)) return;
+    send("request_snapshot", {});
+    pollTimer = setTimeout(tick, 1500);
+  };
+  tick();
+}
+
 function renderActivity(d) {
   const listed = new Set();
   for (const it of d.items) {
     listed.add(taskKey(it.kind, it.id));
-    upsertTask(it.kind, it.id, { title: it.title, status: it.status, note: it.note, cancellable: it.cancellable, listed: true });
+    upsertTask(it.kind, it.id, { title: it.title, status: it.status, note: it.note, cancellable: it.cancellable, steps: it.steps || 0, listed: true });
   }
   for (const [key, t] of tasks) if (!listed.has(key)) { t.listed = false; t.cancellable = false; }  // nicht mehr in der Arbeitsliste: nicht abbrechbar
   el("problems").textContent = d.problems.length ? "Probleme: " + d.problems.map((p) => (typeof p === "string" ? p : JSON.stringify(p))).join("; ") : "";
@@ -291,15 +306,16 @@ async function cancelTask(kind, id) {
 // Automatischer Wechsel in das Dashboard: nur mit belegbaren Vertragsdaten (siehe MIN_*), nie nach manueller Wahl, nie zurueck zum Orb. Rein lokal.
 function maybeAutoSwitch() {
   if (manualMode || document.body.dataset.mode === "dashboard") return;
-  let planned = 0;
+  let planned = 0, goalSteps = 0;
   const agents = new Set();
   for (const t of tasks.values()) {
     if (!t.listed || isFinal(t)) continue;
     if (t.kind === "plan") planned += 1;
+    if (t.kind === "goal") goalSteps = Math.max(goalSteps, t.steps || 0);   // belegte Schrittzahl des gespeicherten Plans (activity.items[].steps), getrennt gezaehlt
     const r = routes.get(t.id);
     if (r) agents.add(r.agent);
   }
-  if (planned >= MIN_PLANNED_STEPS || agents.size >= MIN_AGENTS) setMode("dashboard");
+  if (planned >= MIN_PLANNED_STEPS || goalSteps >= MIN_PLANNED_STEPS || agents.size >= MIN_AGENTS) setMode("dashboard");
 }
 
 // ---- Rueckfragen (cc-confirmation) ------------------------------------------------------------------------------------------------------
@@ -570,7 +586,7 @@ function handle(ev) {
   addItem(el("log"), "#" + ev.seq + " " + ev.type);
   const d = ev.data;
   switch (ev.type) {
-    case "state": setState(d.state, d.detail); break;
+    case "state": setState(d.state, d.detail); pollActivityWhileBusy(); break;
     case "chat": addItem(el("chat"), d.sender + ": " + d.text, d.sender); break;
     case "activity": renderActivity(d); break;
     case "task_update": onTaskUpdate(d); scheduleTimeline(); break;

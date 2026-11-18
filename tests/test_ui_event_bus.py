@@ -422,3 +422,11 @@ def test_the_adapter_does_not_import_the_permission_package():
     tree = ast.parse(Path(ui_events.__file__).read_text(encoding="utf-8"))
     mods = [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names] + [n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]
     assert not [m for m in mods if m.startswith("jarvis.permissions") or m.startswith("jarvis.tools") or m.startswith("jarvis.core")], mods
+
+
+def test_activity_publishes_goal_steps_only_when_known():
+    b, ctl, _ = make()
+    ctl._emit(ActivityEvent(ActivitySnapshot((ActivityItem("goal", "g1", "RUNNING", "Ziel", steps=3), ActivityItem("goal", "g2", "PENDING", "Ziel"),
+                                              ActivityItem("agent_task", "t1", "RUNNING", "x")), (), ())))
+    items = {i["id"]: i for i in [e for e in b.snapshot() if e["type"] == "activity"][0]["data"]["items"]}
+    assert items["g1"]["steps"] == 3 and "steps" not in items["g2"] and "steps" not in items["t1"]       # nie ein erfundener Wert

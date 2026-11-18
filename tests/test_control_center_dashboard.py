@@ -237,6 +237,22 @@ def test_dom_auto_switch_needs_three_planned_steps_or_two_agents(tmp_path):
 
 
 @pytestmark_node
+def test_dom_auto_switch_uses_the_real_step_count_of_a_goal_and_polls_while_busy(tmp_path):
+    """B9-1b: ein Ziel mit >=3 geplanten Schritten (activity.items[].steps) schaltet ins Dashboard, eines mit 1-2 Schritten nicht;
+    waehrend der Bearbeitung (processing/awaiting_confirmation) fragt die Seite die Arbeitsliste selbst nach (request_snapshot), danach nicht mehr."""
+    goal = lambda n: {**item("g-1", kind="goal"), "steps": n}  # noqa: E731
+    snaps = run_scenario(tmp_path, [activity(goal(2)), {"snap": "two"}, activity(goal(3)), {"snap": "three"}])
+    assert snaps["two"]["mode"] == "orb" and snaps["three"]["mode"] == "dashboard"
+    snaps = run_scenario(tmp_path, [activity(goal(2), item("p1", kind="plan")), {"snap": "mixed"}])
+    assert snaps["mixed"]["mode"] == "orb"                                                  # 2 Schritte + 1 gespeicherter Plan sind keine 3 geplanten Schritte (Echtlauf: einfacher Auftrag)
+    snaps = run_scenario(tmp_path, [activity({**item("g-2", kind="goal", status="SUCCEEDED"), "steps": 5}), {"snap": "final"}])
+    assert snaps["final"]["mode"] == "orb"                                                  # beendetes Ziel zaehlt nicht
+    snaps = run_scenario(tmp_path, [{"snap": "start"}, ev("state", {"state": "processing"}), {"snap": "busy"}])
+    assert not any(c["type"] == "request_snapshot" for c in snaps["start"]["sent"])
+    assert any(c["type"] == "request_snapshot" for c in snaps["busy"]["sent"])                # sofort beim Start der Bearbeitung, danach per Zeitgeber, bis die Arbeit endet
+
+
+@pytestmark_node
 def test_dom_manual_choice_wins_over_auto_switch(tmp_path):
     plan = [item(f"p{i}", kind="plan") for i in range(4)]
     snaps = run_scenario(tmp_path, [{"toggle": True}, {"toggle": True}, {"snap": "manual_orb"}, activity(*plan), {"snap": "after"}])

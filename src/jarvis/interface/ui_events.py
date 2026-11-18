@@ -173,8 +173,11 @@ class ControllerUiBackend(UiBackend):
                 continue
             cancellable = _NO_CANCEL_NOTE not in it.note
             mapping[f"{it.kind}:{cid}"] = (it.kind, it.ident, cancellable)
-            items.append({"kind": it.kind, "id": cid, "title": self._log.clean(it.text, 200), "status": self._log.clean(it.status, 32), "note": self._log.clean(it.note, 200),
-                          "cancellable": cancellable})
+            item = {"kind": it.kind, "id": cid, "title": self._log.clean(it.text, 200), "status": self._log.clean(it.status, 32), "note": self._log.clean(it.note, 200),
+                    "cancellable": cancellable}
+            if it.kind == "goal" and it.steps > 0:
+                item["steps"] = min(int(it.steps), 200)                       # nur die belegte Schrittzahl des gespeicherten Plans
+            items.append(item)
         self._activity = {k: v for k, v in mapping.items()}
         self._log.emit("activity", {"items": items, "problems": [self._log.clean(p, 200) for p in snap.problems[:20]],
                                     "inactive": [self._log.clean(p, 64) for p in snap.inactive[:20]]})

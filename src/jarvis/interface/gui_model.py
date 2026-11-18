@@ -171,6 +171,7 @@ class ActivityItem:
     status: str
     text: str
     note: str = ""                  # known limits before cancelling (for example: the agent does not support cancellation)
+    steps: int = 0                  # goals only: number of steps of the stored plan (read from the goal engine, 0 = no plan yet or unreadable; never estimated)
 
 
 @dataclass(frozen=True)
@@ -661,8 +662,16 @@ class GuiController:
         engine = getattr(self.core.subsystems.get("goals"), "engine", None)
         if engine is None:
             return [], True
-        return [ActivityItem("goal", g.goal_id, str(g.status.value), self._act_short(g.objective)) for g in self.core.list_goals(limit=ACTIVITY_LIMIT * 2)
-                if self._act_open(g.status)], False
+        return [ActivityItem("goal", g.goal_id, str(g.status.value), self._act_short(g.objective), steps=self._act_steps(engine, g.goal_id))
+                for g in self.core.list_goals(limit=ACTIVITY_LIMIT * 2) if self._act_open(g.status)], False
+
+    @staticmethod
+    def _act_steps(engine: Any, goal_id: str) -> int:
+        """Read-only: the length of the stored plan (GoalEngine.steps). Any failure means 'unknown' (0), never a guess."""
+        try:
+            return max(0, len(engine.steps(goal_id)))
+        except Exception:  # noqa: BLE001 - display only
+            return 0
 
     def _act_agent_tasks(self) -> tuple[list[ActivityItem], bool]:
         sub = self.core.subsystems.get("agents")
