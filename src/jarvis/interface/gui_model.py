@@ -236,6 +236,23 @@ class SubmitResult(str, Enum):
     EMERGENCY = "emergency"         # the emergency stop is engaged: nothing new starts
 
 
+class VoiceTextHandler:
+    """Handler der Sprachsitzung: derselbe Weg wie der Textchat (`GuiController._work_text`). Recherche-/Dateisaetze werden zum Ziel der Goal Engine (Agenten,
+    ToolRegistry, PermissionEngine, Freigabedialog), alles andere geht wie bisher an `core.handle`. Keine eigene Ausfuehrungslogik; bei Notaus und bei Saetzen mit
+    `/` nie ein Befehl."""
+
+    def __init__(self, core: Any, route: Callable[[str], str | None], run: Callable[[str], str | None]) -> None:
+        self._core, self._route, self._run = core, route, run
+
+    def handle(self, text: str) -> Any:
+        from jarvis.core.core import Response, ResponseKind
+        engaged = bool(getattr(getattr(self._core.permissions, "emergency", None), "engaged", False))
+        routed = None if engaged or text.startswith("/") else self._route(text)
+        if routed:
+            return Response(self._run(routed) or "", ResponseKind.CHAT)
+        return self._core.handle(text)
+
+
 class GuiController:
     def __init__(self, core: Any, settings: Any = None, *, voice_factory: Callable[..., Any] | None = None,
                  command_runner: Callable[..., str | None] | None = None) -> None:
@@ -412,8 +429,9 @@ class GuiController:
                         "Für die GUI wird eine echte Spracherkennung gebraucht (z. B. stt_provider = \"openai\" mit Mikrofon) – Texteingabe bleibt aktiv.")
             factory = self._voice_factory
             if factory is None:
+                from functools import partial
                 from jarvis.bootstrap import build_voice_session
-                factory = build_voice_session
+                factory = partial(build_voice_session, handler=VoiceTextHandler(self.core, self._research_route, self._run_command))   # gleicher Weg wie der Textchat
             try:
                 session = factory(self.settings, self.core, self._voice_line, _no_input, self._voice_state)
             except VoiceError as exc:
