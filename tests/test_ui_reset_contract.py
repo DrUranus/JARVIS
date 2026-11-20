@@ -114,7 +114,8 @@ def test_deadline_and_detach_consume_the_reset(endpoint):
         clock = FakeClock()
         backend._log._clock = clock
     rid = reset(server)
-    clock.advance(600)  # no explicit cleanup before the incoming answer
+    timeout = next(e["data"]["timeout_s"] for e in backend.snapshot() if e["type"] == "confirmation_request")
+    clock.advance(timeout)  # Exactly at the deadline, without a separate cleanup call.
     assert answer(server, rid, "allow_once")["ok"] is False
     assert engaged(backend)
     second = reset(server)
@@ -204,3 +205,28 @@ def test_provider_metadata_alone_cannot_open_a_reset_and_cli_is_preserved(tmp_pa
         assert open_id(backend) == rid and core.permissions.emergency.engaged
         assert backend.send(cmd("confirm", {"request_id": rid, "choice": "allow_once"}))["data"]["ok"]
         assert result.result(timeout=5) and not core.permissions.emergency.engaged
+
+
+def test_shutdown_refuses_a_queued_snapshot_after_restart(endpoint, monkeypatch):
+    from jarvis.control_center import server as transport
+
+    waiting, resume = threading.Event(), threading.Event()
+    parse = transport.parse_command
+
+    def delay(body):
+        command = parse(body)
+        waiting.set()
+        assert resume.wait(5)
+        return command
+
+    monkeypatch.setattr(transport, "parse_command", delay)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        response = pool.submit(post, endpoint, cmd("request_snapshot"))
+        try:
+            assert waiting.wait(5)
+            endpoint.stop()
+            endpoint.start()
+        finally:
+            resume.set()
+        assert response.result(timeout=5)[0] == 503
+    assert send(endpoint, "request_snapshot")["ok"]
