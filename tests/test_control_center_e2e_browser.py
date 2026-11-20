@@ -480,7 +480,7 @@ def test_nexus_ultimate_preview_in_existing_v1_session(tmp_path, monkeypatch, br
                 page.screenshot(path=str(Path(evidence) / (key + ".png")))
         page.get_by_role("button", name="V1-Oberfläche").click()
         sync.expect(page.locator("#orb-view")).to_be_visible()
-        page.get_by_role("button", name="NEXUS Ultimate · Leseansicht").click()
+        page.get_by_role("button", name="NEXUS Ultimate").click()
         assert streams == ["GET"] and not posts
         assert server._clients == 1
         # Existing V1 control reaches the real permission engine.
@@ -598,6 +598,39 @@ def test_premium_text_roundtrip(browser, tmp_path):
         host.locator('a[href="#/core"]').first.click()
         page.locator("#emergency").click()
         playwright_sync.expect(field).to_be_disabled()
+        page.get_by_role("button", name="Not-Aus-Aufhebung anfragen").click(timeout=4000)
+        playwright_sync.expect(page.locator('[data-choice="deny"]')).to_be_focused()
+        page.keyboard.press("Escape")
+        playwright_sync.expect(page.locator("#confirm-dialog")).to_be_hidden()
+        playwright_sync.expect(field).to_be_disabled()
+
     finally:
         page.close()
         srv.stop()
+
+
+def test_premium_cancel_uses_listed_task_and_existing_contract(browser):
+    from jarvis.control_center.nexus_assets import NexusPreviewServer
+    from jarvis.ui_contract.fake import FakeUiBackend
+
+    server = NexusPreviewServer(FakeUiBackend())
+    server.start()
+    page = browser.new_page(reduced_motion="reduce")
+    try:
+        page.goto(server.url + "&view=nexus", wait_until="domcontentloaded")
+        host = page.locator("#nexus-preview-host")
+        field = host.get_by_role("textbox", name="Befehl an JARVIS")
+        submitted = []
+        page.on("request", lambda req: submitted.append(req.post_data_json["type"]) if req.method == "POST" else None)
+        field.fill("!task")
+        field.evaluate("(field) => { field.form.requestSubmit(); field.form.requestSubmit(); }")
+        playwright_sync.expect(host.locator(".live-chat")).to_contain_text("gestartet")
+        host.locator('a[href="#/overview"]').first.click()
+        with page.expect_request(lambda req: req.method == "POST") as request:
+            host.get_by_role("button", name="Abbrechen", exact=True).click()
+        assert submitted == ["submit_text", "cancel"]
+        assert request.value.post_data_json["type"] == "cancel"
+        playwright_sync.expect(host.locator("#task-list")).to_contain_text("CANCELLED")
+    finally:
+        page.close()
+        server.stop()

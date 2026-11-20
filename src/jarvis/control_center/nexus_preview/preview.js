@@ -36,7 +36,24 @@
   download.href = "/nexus/standalone.zip" + query;
   download.download = "NEXUS-Ultimate-1.1.0-lokal.zip";
   download.textContent = "Lokalen Workspace herunterladen";
-  banner.append(statusText, download);
+  const reset = document.createElement("button");
+  reset.type = "button";
+  reset.textContent = "Not-Aus-Aufhebung anfragen";
+  reset.hidden = true;
+  const resetNote = document.createElement("span");
+  banner.append(statusText, reset, resetNote, download);
+  reset.addEventListener("click", async () => {
+    if (!connected || !initialized || emergency !== true || host.inert || reset.disabled) return;
+    const session = generation;
+    reset.disabled = true;
+    try {
+      const ack = await send("reset_emergency", {});
+      if (session === generation && emergency === true)
+        resetNote.textContent = ack?.ok ? "Rückfrage angefordert." : ack?.message || "Empfang unbestätigt.";
+    } finally {
+      reset.disabled = false;
+    }
+  });
   const view = document.createElement("div");
   view.id = "app";
   shadow.append(banner, view);
@@ -61,7 +78,7 @@
   const conversation = document.createElement("ol");
   conversation.className = "live-chat";
   conversation.setAttribute("aria-label", "Gespräch mit JARVIS");
-  let voiceActive = null;
+  let voiceActive = null, activityConfirmed = false;
   // Project the existing V1 panels, retaining their IDs, listeners and controller state.
   const liveTasks = document.createElement("fieldset");
   liveTasks.slot = "live-tasks";
@@ -85,7 +102,7 @@
     return showing && initialized && connected && emergency === false && !host.inert;
   }
   function update() {
-    liveTasks.disabled = !available();
+    liveTasks.disabled = !available() || !activityConfirmed;
     const form = view.querySelector("#command-form");
     if (form) {
       form.querySelector("input").disabled = !available() || sending;
@@ -93,7 +110,9 @@
 
     }
     const note = view.querySelector(".live-receipt");
-    if (note) note.textContent = receipt;
+    if (note && note.textContent !== receipt) note.textContent = receipt;
+    reset.hidden = !connected || !initialized || emergency !== true;
+    if (reset.hidden) resetNote.textContent = "";
     for (const control of view.querySelectorAll("[data-live-voice]")) {
       control.disabled = !available() || sending || (control.dataset.liveVoice === "start" ? voiceActive === true : voiceActive === false);
     }
@@ -144,6 +163,7 @@
     if (summary) summary.textContent = label || "Unbekannt";
   }
   function lost() {
+    activityConfirmed = false;
     voiceActive = null;
     generation++;
     sending = false;
@@ -194,7 +214,10 @@
     }
     if (record.type === "emergency" && typeof d.engaged === "boolean")
       emergency = d.engaged;
-    if (record.type === "activity") working = d.working === true;
+    if (record.type === "activity") {
+      activityConfirmed = true;
+      working = d.working === true;
+    }
     if (record.type === "state")
       state = stateNames.has(d.state) ? d.state : null;
     if (["hello", "emergency", "state", "activity"].includes(record.type))
@@ -213,6 +236,7 @@
     }
     const form = view.querySelector("#command-form");
     if (form || id === "ai-core") {
+      if (form) form.querySelector("input").maxLength = 4000;
       const panel = document.createElement("div");
       panel.className = "live-voice";
       const start = form?.querySelector('[data-action="voice"]') || document.createElement("button");
@@ -253,7 +277,7 @@
     document.dispatchEvent(new Event("nexus:surface"));
     toggle.textContent = open
       ? "V1-Oberfläche"
-      : "NEXUS Ultimate · Leseansicht";
+      : "NEXUS Ultimate";
     toggle.setAttribute("aria-expanded", String(open));
     if (open) render(name, true);
     else restorePanels();

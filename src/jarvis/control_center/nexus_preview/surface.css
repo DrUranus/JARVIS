@@ -48,3 +48,13 @@ textarea:disabled {
 .live-chat, .live-receipt { max-width: min(44rem, 90vw); margin: .4rem auto; color: #dcd8f1; overflow-wrap: anywhere; }
 .live-chat { max-height: 12rem; overflow: auto; text-align: left; }
 .live-chat:empty, .live-receipt:empty { display: none; }
+.live-voice { display: flex; justify-content: center; gap: .6rem; margin: .5rem auto; }
+.live-voice button, .preview-status button {
+  padding: .45rem .8rem;
+  border: 1px solid #574965;
+  border-radius: .5rem;
+  background: #191424;
+  color: #ece6fe;
+  font: inherit;
+}
+.live-voice button:focus-visible, .preview-status button:focus-visible { outline: 2px solid #85dbff; }
