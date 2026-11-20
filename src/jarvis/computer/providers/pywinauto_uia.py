@@ -137,6 +137,13 @@ class PywinautoUiaProvider(UiTreeProvider):
 
         threading.Thread(target=pump, name="uia-worker-reader", daemon=True).start()
 
+    def _halt_error(self, backend_message: str) -> ComputerError:
+        """FAILSAFE when the emergency stop (halt) is the reason a call ends - the same defined error as for a call that starts after halt(); else a backend error."""
+        reason = self._halted
+        if reason is not None:
+            return _fail(ErrorCode.FAILSAFE, f"UI access is halted ({reason}); resume it explicitly")
+        return _fail(ErrorCode.BACKEND_ERROR, backend_message)
+
     def _request(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
             if self._halted is not None:
@@ -147,15 +154,18 @@ class PywinautoUiaProvider(UiTreeProvider):
             if not self.worker_running:
                 self._stop_worker()
                 self._start_worker()
+            proc = self._proc                                                    # local reference: halt() may swap `self._proc` at any moment (it does not take the lock)
+            if self._halted is not None or proc is None or proc.stdin is None:    # halt() came in after the check above and before this point: no worker may run
+                self._stop_worker()
+                raise self._halt_error("the UI worker is not reachable")
             self._next_id += 1
             request_id = self._next_id
-            assert self._proc is not None and self._proc.stdin is not None
             try:
-                self._proc.stdin.write(json.dumps({**payload, "id": request_id}) + "\n")
-                self._proc.stdin.flush()
+                proc.stdin.write(json.dumps({**payload, "id": request_id}) + "\n")
+                proc.stdin.flush()
             except (OSError, ValueError):
                 self._stop_worker()
-                raise _fail(ErrorCode.BACKEND_ERROR, "the UI worker is not reachable") from None
+                raise self._halt_error("the UI worker is not reachable") from None
             while True:
                 try:
                     line = self._lines.get(timeout=self._timeout)
@@ -164,7 +174,7 @@ class PywinautoUiaProvider(UiTreeProvider):
                     raise _fail(ErrorCode.BACKEND_ERROR, f"timeout: the UI worker did not answer within {self._timeout:g} s and was stopped") from None
                 if line is None or len(line) > MAX_LINE_BYTES:
                     self._stop_worker()
-                    raise _fail(ErrorCode.BACKEND_ERROR, "the UI worker ended or sent an invalid answer")
+                    raise self._halt_error("the UI worker ended or sent an invalid answer")
                 try:
                     answer = json.loads(line)
                 except ValueError:
