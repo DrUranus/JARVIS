@@ -122,6 +122,7 @@ class ControllerUiBackend(UiBackend):
         """A `task_update` and the `result` of finished work (texts redacted, then cut to the contract limits)."""
         self.publish("task_update", {"kind": kind, "id": ident, "status": self.clean(status, 32), "detail": self.clean(summary, 200)})
         self.publish("result", {"task_id": ident, "summary": self.clean(summary, MAX_TEXT), "artifacts": []})
+        self._ctl.request_activity()                                  # frischer Schnappschuss nach dem Ende: der zuletzt veroeffentlichte (er wird beim Neuladen ausgeliefert) stammte sonst aus der Bearbeitung
 
     def publish(self, type_: str, data: dict[str, Any]) -> dict[str, Any] | None:
         """Add one contract event (redacted and validated by the EventLog). Returns None if it does not fit the contract (nothing is emitted then)."""
@@ -260,6 +261,7 @@ class ControllerUiBackend(UiBackend):
             return self._log.ack(cid, False, "not_cancellable", "this work cannot be cancelled")
         if not self._ctl.request_cancel(kind, ident):
             return self._log.ack(cid, False, "busy", "a cancel request for this work is already running")
+        self.deny_pending()                                           # Abbruch heisst auch: offene Rueckfragen gelten als abgelehnt (fail-closed); ein spaetes „Erlauben“ fuehrte sonst die abgebrochene Aktion noch aus
         return self._log.ack(cid, True, "cancel_requested")
 
     def _do_emergency_stop(self, cid: str, data: dict[str, Any]) -> dict[str, Any]:

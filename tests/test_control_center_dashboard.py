@@ -331,3 +331,20 @@ def test_reset_button_markup_is_inside_the_banner_and_not_a_separate_path():
     html, css = text("index.html"), text("styles.css")
     assert re.search(r'<div id="emergency-banner"[^>]*hidden>.*<button id="reset-emergency"[^>]*>Not-Aus aufheben \.\.\.</button>.*</div>', html, re.S)
     assert "pointer-events: none" not in css
+
+
+# ---- Status nach Abschluss (Livebefund 2026-11-20) ---------------------------------------------------------------------------------------------------
+@pytestmark_node
+def test_dom_requests_one_more_snapshot_when_the_busy_state_ends(tmp_path):
+    snaps = run_scenario(tmp_path, [ev("state", {"state": "processing", "detail": ""}), activity(item("t1")), {"snap": "busy"},
+                                    ev("state", {"state": "ready", "detail": ""}), {"snap": "ready"}])
+    n = lambda k: len([c for c in snaps[k]["sent"] if c["type"] == "request_snapshot"])  # noqa: E731
+    assert n("ready") > n("busy")                                # ein letzter Schnappschuss nach dem Ende statt des veralteten aus der Bearbeitung
+
+
+@pytestmark_node
+def test_dom_task_missing_from_the_latest_snapshot_is_shown_as_no_longer_active_without_cancel(tmp_path):
+    snaps = run_scenario(tmp_path, [activity(item("t1")), {"snap": "a"}, activity(), {"snap": "b"}])
+    a, b = snaps["a"]["text"]["task-list"], snaps["b"]["text"]["task-list"]
+    assert "Abbrechen" in a and "[RUNNING]" in a
+    assert "Abbrechen" not in b and "[RUNNING]" not in b and "nicht mehr aktiv" in b       # ehrlich: Status unbekannt, kein erfundenes SUCCEEDED

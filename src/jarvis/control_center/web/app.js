@@ -132,7 +132,7 @@ function renderTasks() {
     li.className = (key === selected ? "sel " : "") + (isFinal(t) || !t.listed ? "final" : "");
     const pick = document.createElement("button");
     pick.type = "button";
-    pick.textContent = t.title + " [" + t.status + "]";
+    pick.textContent = t.title + " [" + (!t.listed && !isFinal(t) ? "nicht mehr aktiv" : t.status) + "]";
     pick.addEventListener("click", () => { selected = key; renderDashboard(); });
     li.appendChild(pick);
     if (t.cancellable) {
@@ -588,7 +588,7 @@ function handle(ev) {
   addItem(el("log"), "#" + ev.seq + " " + ev.type);
   const d = ev.data;
   switch (ev.type) {
-    case "state": setState(d.state, d.detail); pollActivityWhileBusy(); break;
+    case "state": { const wasBusy = BUSY_STATES.has(document.body.dataset.state); setState(d.state, d.detail); pollActivityWhileBusy(); if (wasBusy && !BUSY_STATES.has(d.state)) send("request_snapshot", {}); break; }  // ein letzter Schnappschuss nach dem Ende der Bearbeitung
     case "chat": addItem(el("chat"), d.sender + ": " + d.text, d.sender); break;
     case "activity": renderActivity(d); break;
     case "task_update": onTaskUpdate(d); scheduleTimeline(); break;

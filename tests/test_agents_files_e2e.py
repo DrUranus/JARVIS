@@ -46,7 +46,7 @@ def say(srv, text, cid, wait=20.0):
     while time.monotonic() < end:
         evs = srv.backend.events_since(0, 1000)
         replies = [e for e in evs if e["type"] == "chat" and e["data"]["sender"] == "jarvis"]
-        if len(replies) > seen and evs[-1]["type"] != "activity":
+        if len(replies) > seen and (evs[-1]["type"] != "activity" or not evs[-1]["data"]["items"]):
             time.sleep(0.3)
             return [e["data"]["text"] for e in srv.backend.events_since(0, 1000) if e["type"] == "chat" and e["data"]["sender"] == "jarvis"]
         time.sleep(0.1)
