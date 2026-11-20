@@ -62,10 +62,30 @@
   conversation.className = "live-chat";
   conversation.setAttribute("aria-label", "Gespräch mit JARVIS");
   let voiceActive = null;
+  // Project the existing V1 panels, retaining their IDs, listeners and controller state.
+  const liveTasks = document.createElement("fieldset");
+  liveTasks.slot = "live-tasks";
+  liveTasks.className = "nexus-live-tasks";
+  const legend = document.createElement("legend");
+  legend.textContent = "JARVIS · Aufgaben und Agenten";
+  liveTasks.append(legend);
+  const panels = ["agent-list", "task-list", "task-detail", "results-list", "history-list"].map(id => {
+    const panel = document.getElementById(id).closest(".panel");
+    const marker = document.createComment(id);
+    panel.before(marker);
+    return { panel, marker };
+  });
+  function restorePanels() {
+    for (const { panel, marker } of panels) {
+      if (panel.parentNode === liveTasks) marker.after(panel);
+    }
+    liveTasks.remove();
+  }
   function available() {
     return showing && initialized && connected && emergency === false && !host.inert;
   }
   function update() {
+    liveTasks.disabled = !available();
     const form = view.querySelector("#command-form");
     if (form) {
       form.querySelector("input").disabled = !available() || sending;
@@ -182,6 +202,7 @@
   });
   function render(id, focus) {
     if (!templates.has(id)) id = "core";
+    restorePanels();
     name = id;
     view.replaceChildren(templates.get(id).content.cloneNode(true));
     for (const el of view.querySelectorAll("button,input,select,textarea")) {
@@ -211,6 +232,13 @@
       if (form) form.after(panel, note, conversation);
       else view.querySelector("main").append(panel, note, conversation);
     }
+    if (["overview", "agent-center", "live-workspace"].includes(id)) {
+      for (const {panel} of panels) liveTasks.append(panel);
+      host.append(liveTasks);
+      const slot = document.createElement("slot");
+      slot.name = liveTasks.slot;
+      view.querySelector("main").firstElementChild.after(slot);
+    }
     view.querySelector("[data-core-slot]").append(core?.canvas || canvas);
     update();
     if (focus && !host.inert) {
@@ -228,6 +256,7 @@
       : "NEXUS Ultimate · Leseansicht";
     toggle.setAttribute("aria-expanded", String(open));
     if (open) render(name, true);
+    else restorePanels();
   }
   shadow.addEventListener("submit", async (event) => {
     event.preventDefault();
