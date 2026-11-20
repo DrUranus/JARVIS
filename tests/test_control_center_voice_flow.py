@@ -136,3 +136,32 @@ def test_emergency_stop_ends_the_voice_mode_and_blocks_a_restart(browser, tmp_pa
         r.gui.shot("voice_emergency")
     finally:
         r.close()
+
+
+def test_premium_starts_and_stops_real_voice_session(browser, tmp_path, monkeypatch):
+    from playwright.sync_api import expect
+    from jarvis.control_center.launcher import build_server
+    from test_control_center_binding import wait_for
+
+    settings = load_settings(env=real_env(tmp_path, JARVIS_VOICE_STT_PROVIDER="mock", JARVIS_VOICE_TTS_PROVIDER="mock"))
+    listener, speaker = ScriptedListener(["Hallo JARVIS"]), RecordingSpeaker()
+    def factory(settings, core, display, input_fn, on_state):
+        return VoiceSession(core, listener, speaker, display=display, on_state=on_state, require_wake_word=False)
+    monkeypatch.setattr("jarvis.bootstrap.build_voice_session", factory)
+    server = build_server(settings, build_core(settings), nexus_preview=True)
+    server.start()
+    page = browser.new_page(reduced_motion="reduce")
+    try:
+        page.goto(server.url + "&view=nexus", wait_until="domcontentloaded")
+        start = page.get_by_role("button", name="Sprachmodus starten", exact=True)
+        expect(start).to_be_enabled()
+        assert listener.lines == ["Hallo JARVIS"] and not speaker.said
+        start.click()
+        expect(page.locator(".live-chat")).to_contain_text("Hallo JARVIS", timeout=15000)
+        assert wait_for(lambda: bool(speaker.said))
+        page.get_by_role("button", name="Sprachmodus beenden").click()
+        expect(page.locator(".live-chat")).to_contain_text("Mikrofon ist aus", timeout=15000)
+        expect(start).to_be_enabled()
+    finally:
+        page.close()
+        server.stop()
