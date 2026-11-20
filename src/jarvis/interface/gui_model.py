@@ -22,6 +22,7 @@ from enum import Enum
 from typing import Any, Callable
 
 from jarvis.errors import JarvisError, VoiceError
+from jarvis.interface._reset_prompt import reset_prompt_from
 
 log = logging.getLogger("jarvis.interface.gui")
 
@@ -550,7 +551,12 @@ class GuiController:
 
     def _work_reset(self) -> None:
         try:
-            res = self.core.permissions.reset_emergency_stop("gui")
+            engine = self.core.permissions
+            with reset_prompt_from(engine) as available:
+                if not available:
+                    self.say("System", "Eine Reset-Anfrage läuft bereits.")
+                    return
+                res = engine.reset_emergency_stop("gui")
             if not self._closed and not res.ok:
                 self.say("System", f"Notaus bleibt aktiv: {res.detail}")
             elif not self._closed and res.problems:

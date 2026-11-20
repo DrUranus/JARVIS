@@ -302,6 +302,45 @@ def test_emergency_button_works_in_every_mode_and_blocks_further_input(gui, mode
     gui.shot(f"emergency_{mode}")
 
 
+def test_two_windows_share_engine_reset_and_last_disconnect_denies(browser, tmp_path):
+    from jarvis.bootstrap import build_core
+    from jarvis.config import load_settings
+    from jarvis.control_center.launcher import build_server
+    from test_control_center_binding import cmd, post, real_env, wait_for
+
+    settings = load_settings(env={**real_env(tmp_path), "JARVIS_ASSISTANT_CONFIRMATION_TIMEOUT_SECONDS": "30"})
+    core = build_core(settings)
+    server = build_server(settings, core)
+    server.start()
+    context = browser.new_context(reduced_motion="reduce")
+    try:
+        first, second = context.new_page(), context.new_page()
+        for page in (first, second):
+            page.goto(server.url, wait_until="domcontentloaded")
+            until(page, "document.body.dataset.conn === 'open'")
+        first.click("#emergency")
+        assert wait_for(lambda: core.permissions.emergency.engaged)
+        assert post(server, cmd("reset_emergency"))[1]["data"]["code"] == "confirmation_requested"
+        for page in (first, second):
+            playwright_sync.expect(page.locator("#confirm-dialog")).to_be_visible()
+            playwright_sync.expect(page.locator('[data-choice="deny"]')).to_be_focused()
+        first.close()
+        assert wait_for(lambda: server._clients == 1)
+        second.locator('[data-choice="deny"]').click()
+        playwright_sync.expect(second.locator("#confirm-dialog")).to_be_hidden()
+        assert core.permissions.emergency.engaged
+        assert post(server, cmd("reset_emergency"))[1]["data"]["code"] == "confirmation_requested"
+        playwright_sync.expect(second.locator("#confirm-dialog")).to_be_visible()
+        second.close()
+        def outcomes():
+            return [e["data"]["outcome"] for e in server.backend.events_since(0) if e["type"] == "confirmation_closed"]
+        assert wait_for(lambda: outcomes() == ["denied", "cancelled"])
+        assert core.permissions.emergency.engaged
+    finally:
+        context.close()
+        server.stop()
+
+
 def test_emergency_button_engages_the_real_engine_from_the_browser(browser, tmp_path):
     from jarvis.bootstrap import build_core
     from jarvis.config import load_settings

@@ -4,6 +4,7 @@ Control Center against it, strand A runs the same conformance suite against the 
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 from typing import Any
 
 from jarvis.ui_contract.backend import UiBackend
@@ -24,8 +25,9 @@ class FakeClock:
 class FakeUiBackend(UiBackend):
     TIMEOUT_S = 30
 
-    def __init__(self, clock: FakeClock | None = None, name: str = "fake") -> None:
+    def __init__(self, clock: FakeClock | None = None, name: str = "fake", *, session_id: uuid.UUID | None = None) -> None:
         self._clock = clock or FakeClock()
+        self._session_id = session_id or uuid.uuid4()
         self._name = name
         self._log: list[dict[str, Any]] = []
         self._seq = 0
@@ -92,6 +94,9 @@ class FakeUiBackend(UiBackend):
     def advance(self, seconds: float) -> None:
         """Test helper: time passes; confirmations that nobody answered close as timeout (fail closed)."""
         self._clock.advance(seconds)
+        self._expire()
+
+    def _expire(self) -> None:
         now = self._clock.now()
         for rid, rec in list(self._pending.items()):
             if rec["deadline"] <= now:
@@ -99,6 +104,10 @@ class FakeUiBackend(UiBackend):
 
     def _refuse_in_emergency(self, command: dict[str, Any]) -> dict[str, Any] | None:
         if self._emergency_on and command["type"] not in ("emergency_stop", "reset_emergency", "request_snapshot"):
+            if command["type"] == "confirm":
+                pending = self._pending.get(command["data"]["request_id"])
+                if pending is not None and pending["kind"] == "emergency_reset":
+                    return None
             return self._ack(command["id"], False, "emergency", "the emergency stop is engaged")
         return None
 
@@ -109,6 +118,7 @@ class FakeUiBackend(UiBackend):
             raw_id = command.get("id") if isinstance(command, dict) else None
             return self._ack(raw_id if isinstance(raw_id, str) and 0 < len(raw_id) <= 64 and raw_id.replace("-", "x").replace("_", "x").replace(".", "x").replace(":", "x").isalnum() else "invalid",
                              False, "invalid_command", "the command does not follow the contract")
+        self._expire()
         refused = self._refuse_in_emergency(cmd)
         if refused is not None:
             return refused
@@ -136,7 +146,7 @@ class FakeUiBackend(UiBackend):
 
     def _request(self, *, tool: str, action: str, resource: str, level: str, reason: str, context: list[dict[str, str]], choices: list[str], reply: bool,
                  kind: str = "text") -> str:
-        rid = self._id("r")
+        rid = f"{self._session_id.hex}.{self._id('r')}"
         event = self._emit("confirmation_request", {"request_id": rid, "tool": tool, "action": action, "resource": resource, "level": level, "reason": reason,
                                                     "context": context, "choices": choices, "timeout_s": self.TIMEOUT_S})
         self._pending[rid] = {"event": event, "choices": choices, "deadline": self._clock.now() + dt.timedelta(seconds=self.TIMEOUT_S), "reply": reply, "kind": kind}
@@ -148,7 +158,7 @@ class FakeUiBackend(UiBackend):
         self._emit("confirmation_closed", {"request_id": rid, "outcome": outcome})
         allowed = outcome in ("allow_once", "allow_session")
         if rec["kind"] == "emergency_reset":
-            if allowed:
+            if outcome == "allow_once":
                 self._emergency_on = False
                 self._emit("emergency", {"engaged": False, "reason": "", "report": []})
         elif rec["reply"]:
