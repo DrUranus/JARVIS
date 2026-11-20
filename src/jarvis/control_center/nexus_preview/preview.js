@@ -61,6 +61,7 @@
   const conversation = document.createElement("ol");
   conversation.className = "live-chat";
   conversation.setAttribute("aria-label", "Gespräch mit JARVIS");
+  let voiceActive = null;
   function available() {
     return showing && initialized && connected && emergency === false && !host.inert;
   }
@@ -69,7 +70,12 @@
     if (form) {
       form.querySelector("input").disabled = !available() || sending;
       form.querySelector('[type="submit"]').disabled = !available() || sending;
-      view.querySelector(".live-receipt").textContent = receipt;
+
+    }
+    const note = view.querySelector(".live-receipt");
+    if (note) note.textContent = receipt;
+    for (const control of view.querySelectorAll("[data-live-voice]")) {
+      control.disabled = !available() || sending || (control.dataset.liveVoice === "start" ? voiceActive === true : voiceActive === false);
     }
     const confirmed = connected && initialized;
     const label = confirmed
@@ -118,6 +124,7 @@
     if (summary) summary.textContent = label || "Unbekannt";
   }
   function lost() {
+    voiceActive = null;
     generation++;
     sending = false;
     receipt = "";
@@ -158,6 +165,7 @@
       state = null;
     }
     if (!initialized) return;
+    if (record.type === "voice_level") { voiceActive = d.active; update(); }
     if (record.type === "chat" || record.type === "error") {
       const item = document.createElement("li");
       item.textContent = record.type === "chat" ? d.sender + ": " + d.text : "Fehler: " + d.message;
@@ -183,11 +191,25 @@
       } else el.disabled = true;
     }
     const form = view.querySelector("#command-form");
-    if (form) {
+    if (form || id === "ai-core") {
+      const panel = document.createElement("div");
+      panel.className = "live-voice";
+      const start = form?.querySelector('[data-action="voice"]') || document.createElement("button");
+      start.type = "button";
+      start.dataset.liveVoice = "start";
+      start.setAttribute("aria-label", "Sprachmodus starten");
+      start.title = "Sprachmodus starten";
+      if (!form) { start.textContent = "Sprachmodus starten"; panel.append(start); }
+      const stop = document.createElement("button");
+      stop.type = "button";
+      stop.dataset.liveVoice = "stop";
+      stop.textContent = "Sprachmodus beenden";
+      panel.append(stop);
       const note = document.createElement("p");
       note.className = "live-receipt";
       note.setAttribute("role", "status");
-      form.after(note, conversation);
+      if (form) form.after(panel, note, conversation);
+      else view.querySelector("main").append(panel, note, conversation);
     }
     view.querySelector("[data-core-slot]").append(core?.canvas || canvas);
     update();
@@ -224,7 +246,21 @@
     if (ack?.ok) field.value = "";
     update();
   });
-  shadow.addEventListener("click", (event) => {
+  shadow.addEventListener("click", async (event) => {
+    const voice = event.target.closest("[data-live-voice]");
+    if (voice && available() && !sending) {
+      const session = generation;
+      sending = true;
+      receipt = "Warte auf Sprachdienst …";
+      update();
+      const ack = await send(voice.dataset.liveVoice === "start" ? "start_voice" : "stop_voice", {});
+      if (session === generation) {
+        sending = false;
+        receipt = ack?.ok ? "Sprachanfrage angenommen." : ack?.message || "Sprachdienst nicht bestätigt.";
+        update();
+      }
+      return;
+    }
     const link = event.target.closest("a");
     if (link === download) return;
     if (link) {
