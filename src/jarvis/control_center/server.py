@@ -86,6 +86,16 @@ class ControlCenterServer:
         self._httpd = self._thread = None
 
     # ---- Hilfen ---------------------------------------------------------------------------------------------------------------------------
+    def static_resource(self, path: str, query: dict[str, list[str]]) -> tuple[bytes, str] | None:
+        """Resolve a fixed local asset only after the authenticated GET guard."""
+        if path not in STATIC:
+            return None
+        name, ctype = STATIC[path]
+        body = (WEB_DIR / name).read_bytes()
+        if name == "index.html":
+            body = body.replace(b"__TOKEN__", self.token.encode())
+        return body, ctype
+
     def _allowed_hosts(self) -> set[str]:
         return {f"127.0.0.1:{self.port}", f"localhost:{self.port}"}
 
@@ -205,18 +215,16 @@ def _make_handler(srv: ControlCenterServer):
                 self._events(query)
             elif path in VIEW_PATHS and srv.views is not None:
                 self._view(path, query)
-            elif path in STATIC:
-                name, ctype = STATIC[path]
-                try:
-                    body = (WEB_DIR / name).read_bytes()
-                except OSError:
-                    self._reply(404, b"not found")
-                    return
-                if name == "index.html":
-                    body = body.replace(b"__TOKEN__", srv.token.encode())
-                self._reply(200, body, ctype)
             else:
-                self._reply(404, b"not found")
+                try:
+                    resource = srv.static_resource(path, query)
+                except OSError:
+                    resource = None
+                if resource is None:
+                    self._reply(404, b"not found")
+                else:
+                    body, ctype = resource
+                    self._reply(200, body, ctype)
 
         def _view(self, path: str, query: dict[str, list[str]]) -> None:
             """Lesende Ansicht (GET): Filter aus der Query, Antwort als JSON. Keine Wirkung ausser dem Lesen."""
