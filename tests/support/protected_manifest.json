@@ -1,8 +1,8 @@
 {
   "version": 1,
   "algorithm": "sha256-lf",
-  "base_commit": "04fd87b6626aeb09edd2592653d114939f38a1bf",
-  "generated_at": "2026-11-20T10:11:46Z",
+  "base_commit": "94bd1915386cd1164fa3e8de336b4f1e1d97bc93",
+  "generated_at": "2026-11-20T21:07:57Z",
   "generated_by": "python -m tests.support.protected_manifest --write --confirm-owner-review",
   "paths": [
     "src/jarvis/permissions/**/*.py",
@@ -32,7 +32,7 @@
     "src/jarvis/ui_contract/backend.py": "89a6bd3a2855027fc0e14a071226893f9e6e742979a2ebeac74c6d10ed88245f",
     "src/jarvis/ui_contract/bus.py": "2032334305be80a454a57d3bcfb1963fbbf81a49b9a3bf57b50efa2731fe4641",
     "src/jarvis/ui_contract/conformance.py": "16ce9ddcfcddc755ba0791db9c9ffb7afb0b9b57ba31271f41d012752bb7204c",
-    "src/jarvis/ui_contract/fake.py": "bbf6c3fc3ef1c79ef84da30c36370ff830216a008cc9af6f035a08d2c91ec017",
+    "src/jarvis/ui_contract/fake.py": "93ae46e78ecf98c04958b5aba5f903f7ec0e58b6e523940f859b932ab04b4885",
     "src/jarvis/ui_contract/schema.py": "4f62913fde9faf34b265c0fd280d2477f5769f83999d482014ce5d74a1fa50eb",
     "src/jarvis/ui_contract/schema/ui-commands.schema.json": "f6ab4c645b3359aab6a82f7481d7051b723c9c05ef4229e718175caa400fe899",
     "src/jarvis/ui_contract/schema/ui-events.schema.json": "1eff6665bb5217345cb9695e50fbd73ba3ec961229ebf0a81dafe970d3066ddf",
