@@ -57,7 +57,20 @@
     lastSeq = 0,
     name = "core",
     showing = false;
+  let sending = false, receipt = "", generation = 0;
+  const conversation = document.createElement("ol");
+  conversation.className = "live-chat";
+  conversation.setAttribute("aria-label", "Gespräch mit JARVIS");
+  function available() {
+    return showing && initialized && connected && emergency === false && !host.inert;
+  }
   function update() {
+    const form = view.querySelector("#command-form");
+    if (form) {
+      form.querySelector("input").disabled = !available() || sending;
+      form.querySelector('[type="submit"]').disabled = !available() || sending;
+      view.querySelector(".live-receipt").textContent = receipt;
+    }
     const confirmed = connected && initialized;
     const label = confirmed
       ? emergency === true
@@ -83,7 +96,7 @@
           : "Verbindung unbestätigt") +
       " · Not-Aus " +
       stop +
-      " · Lesemodus. Projektdaten sind lokale Beispiele.";
+      " · Projektdaten sind lokale Beispiele.";
     if (statusText.textContent !== status) statusText.textContent = status;
     view.dataset.coreState = label || "unknown";
     const rate = view.querySelector("[data-fps]");
@@ -105,6 +118,9 @@
     if (summary) summary.textContent = label || "Unbekannt";
   }
   function lost() {
+    generation++;
+    sending = false;
+    receipt = "";
     connected = false;
     initialized = false;
     working = false;
@@ -138,10 +154,16 @@
       typeof d.emergency === "boolean"
     ) {
       initialized = true;
-      emergency = d.emergency;
+      emergency = null;
       state = null;
     }
     if (!initialized) return;
+    if (record.type === "chat" || record.type === "error") {
+      const item = document.createElement("li");
+      item.textContent = record.type === "chat" ? d.sender + ": " + d.text : "Fehler: " + d.message;
+      conversation.append(item);
+      if (conversation.children.length > 80) conversation.firstChild.remove();
+    }
     if (record.type === "emergency" && typeof d.engaged === "boolean")
       emergency = d.engaged;
     if (record.type === "activity") working = d.working === true;
@@ -159,6 +181,13 @@
         el.setAttribute("aria-label", "Navigation öffnen");
         el.setAttribute("aria-expanded", "false");
       } else el.disabled = true;
+    }
+    const form = view.querySelector("#command-form");
+    if (form) {
+      const note = document.createElement("p");
+      note.className = "live-receipt";
+      note.setAttribute("role", "status");
+      form.after(note, conversation);
     }
     view.querySelector("[data-core-slot]").append(core?.canvas || canvas);
     update();
@@ -178,7 +207,23 @@
     toggle.setAttribute("aria-expanded", String(open));
     if (open) render(name, true);
   }
-  shadow.addEventListener("submit", (event) => event.preventDefault());
+  shadow.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (event.target.id !== "command-form" || sending || !available()) return;
+    const field = event.target.querySelector("input");
+    const text = field.value.trim();
+    if (!text) return;
+    const session = generation;
+    sending = true;
+    receipt = "Warte auf Empfangsbestätigung …";
+    update();
+    const ack = await send("submit_text", { text });
+    if (session !== generation) return;
+    sending = false;
+    receipt = ack?.ok ? "Auftrag angenommen." : ack ? "Abgelehnt: " + (ack.message || ack.code) : "Empfang unbestätigt.";
+    if (ack?.ok) field.value = "";
+    update();
+  });
   shadow.addEventListener("click", (event) => {
     const link = event.target.closest("a");
     if (link === download) return;
