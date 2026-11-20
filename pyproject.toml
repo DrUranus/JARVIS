@@ -30,7 +30,7 @@ jarvis-cc = "jarvis.control_center.launcher:main"   # Control Center (local web 
 where = ["src"]
 
 [tool.setuptools.package-data]
-"jarvis.control_center" = ["web/*"]   # local HTML/JS/CSS of the control center (cc-shell)
+"jarvis.control_center" = ["web/*", "nexus_preview/*", "nexus_ultimate/*", "nexus_ultimate/fonts/*"]   # local HTML/JS/CSS of the control center (cc-shell)
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

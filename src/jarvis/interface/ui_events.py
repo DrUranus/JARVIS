@@ -14,8 +14,10 @@ import datetime as dt
 import logging
 import threading
 import time
+import uuid
 from typing import Any
 
+from jarvis.interface._reset_prompt import ResetPromptOrigin
 from jarvis.redaction import SecretDetector
 from jarvis.interface.gui_model import (ActivityEvent, ActivitySnapshot, ChatEvent, EmergencyEvent, GuiController, StateEvent, SubmitResult)
 from jarvis.ui_contract.backend import UiBackend
@@ -42,6 +44,7 @@ class UiConfirmationProvider:
     def __init__(self, adapter: "ControllerUiBackend", timeout_s: float = DEFAULT_CONFIRMATION_TIMEOUT_S) -> None:
         self._adapter = adapter
         self.timeout_s = timeout_s
+        self.reset_prompt_origin = ResetPromptOrigin()
 
     def confirm(self, request: Any) -> Any:
         try:
@@ -74,7 +77,6 @@ class ControllerUiBackend(UiBackend):
         self._lock = threading.RLock()
         self._pending: dict[str, dict[str, Any]] = {}
         self._activity: dict[str, tuple[str, str, bool]] = {}        # Vertrags-ID -> (Art, echte ID, abbrechbar)
-        self._next_id = 0
         self._attached = True
         self._voice_seen = False
         self._level_clock = level_clock or time.monotonic
@@ -221,7 +223,7 @@ class ControllerUiBackend(UiBackend):
         self._attached = True
         self.pump()
         cid = cmd["id"]
-        if self._ctl.emergency_engaged and cmd["type"] not in _ALLOWED_IN_EMERGENCY and not self._is_reset_answer(cmd):
+        if self._ctl.emergency_engaged and cmd["type"] not in _ALLOWED_IN_EMERGENCY and cmd["type"] != "confirm":
             return self._log.ack(cid, False, "emergency", "the emergency stop is engaged")
         try:
             ack = getattr(self, "_do_" + cmd["type"])(cid, cmd["data"])
@@ -276,6 +278,9 @@ class ControllerUiBackend(UiBackend):
     def _do_reset_emergency(self, cid: str, data: dict[str, Any]) -> dict[str, Any]:
         if not self._ctl.emergency_engaged:
             return self._log.ack(cid, False, "not_engaged", "the emergency stop is not engaged")
+        with self._lock:
+            if any(rec["reset"] for rec in self._pending.values()):
+                return self._log.ack(cid, False, "busy", "the question is already open")
         if not self._ctl.reset_emergency():
             return self._log.ack(cid, False, "busy", "the question is already open")
         return self._log.ack(cid, True, "confirmation_requested")        # nichts wird durch die Nachricht aufgehoben: der Mensch entscheidet
@@ -286,30 +291,31 @@ class ControllerUiBackend(UiBackend):
 
     def _do_confirm(self, cid: str, data: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
+            # Recheck deadline, latch and ownership under the same lock that consumes the ID.
+            self.expire()
             rec = self._pending.get(data["request_id"])
+            engaged = self._ctl.emergency_engaged
+            if engaged and (rec is None or not rec["reset"]):
+                return self._log.ack(cid, False, "emergency", "the emergency stop is engaged")
             if rec is None:
                 return self._log.ack(cid, False, "unknown_request", "no such open confirmation")
+            if rec["reset"] and not engaged:
+                self._close(data["request_id"], "cancelled")
+                return self._log.ack(cid, False, "not_engaged", "the emergency stop is not engaged")
             if data["choice"] not in rec["choices"]:
                 return self._log.ack(cid, False, "choice_not_offered", "this choice was not offered")
             self._close(data["request_id"], "denied" if data["choice"] == "deny" else data["choice"])
         return self._log.ack(cid, True)
 
     # ---- Rueckfragen -------------------------------------------------------------------------------------------------------------------------
-    def _is_reset_answer(self, cmd: dict[str, Any]) -> bool:
-        """Beim Notaus ist `confirm` gesperrt, ausser fuer die Frage der Engine, ob er aufgehoben werden soll: sonst waere die Aufhebung ueber die Oberflaeche nie
-        beantwortbar. Die Entscheidung trifft auch dann der Mensch; `deny` und jeder Fehler lassen den Notaus bestehen."""
-        if cmd["type"] != "confirm":
-            return False
-        with self._lock:
-            rec = self._pending.get(cmd["data"]["request_id"])
-            return bool(rec and rec["reset"])
-
     def _open_confirmation(self, request: Any, timeout_s: float) -> dict[str, Any] | None:
         with self._lock:
             if not self._attached:
                 return None                                              # niemand da, den man fragen koennte: abgelehnt
-            self._next_id += 1
-            rid = f"r{self._next_id}"
+            reset = self.confirmation_provider.reset_prompt_origin.claim(request)
+            if self._ctl.emergency_engaged != reset:
+                return None
+            rid = uuid.uuid4().hex
             choices = ["allow_once"] + (["allow_session"] if request.session_allowed else []) + ["deny"]
             timeout = min(600.0, max(1.0, float(timeout_s)))
             clean = self._log.clean
@@ -318,7 +324,7 @@ class ControllerUiBackend(UiBackend):
                 "level": request.level.value, "reason": clean(request.reason, 300),
                 "context": [{"key": clean(k, 64), "value": clean(v, 300)} for k, v in list(request.context.items())[:10]], "choices": choices, "timeout_s": timeout})
             rec = {"event": event, "choices": choices, "deadline": self._log.now_utc() + dt.timedelta(seconds=timeout), "done": threading.Event(),
-                   "choice": self._deny, "reset": request.tool == "jarvis" and request.action == "emergency_reset"}
+                   "choice": self._deny, "reset": reset}
             self._pending[rid] = rec
             return rec
 

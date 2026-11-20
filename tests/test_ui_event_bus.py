@@ -125,6 +125,10 @@ class FakePermissions:
         self.emergency = EmergencyStop()
         self.provider = None
 
+    @property
+    def confirmation(self):
+        return self.provider
+
     def reset_emergency_stop(self, source="user"):
         def authorize():
             req = ConfirmationRequest(request_id="emergency-reset", tool="jarvis", action="emergency_reset", level=PermissionLevel.YELLOW, resource="emergency stop",
@@ -363,7 +367,7 @@ CONTROLLER_API = {"submit", "start_voice", "stop_voice", "stop_speech", "request
                   "confirmation_waiting", "emergency_engaged", "emergency_available", "voice_active", "settings", "tracker"}
 COMMAND_TARGETS = {"submit_text": {"submit"}, "start_voice": {"start_voice"}, "stop_voice": {"voice_active", "stop_voice"}, "stop_speech": {"voice_active", "stop_speech"}, "cancel": {"request_cancel"},
                    "emergency_stop": {"emergency_engaged", "emergency_available", "emergency_stop"}, "reset_emergency": {"emergency_engaged", "reset_emergency"},
-                   "request_snapshot": {"request_activity"}, "confirm": set()}
+                   "request_snapshot": {"request_activity"}, "confirm": {"emergency_engaged"}}
 
 
 def _controller_attrs(node):
