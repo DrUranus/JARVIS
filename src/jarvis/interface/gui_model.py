@@ -256,6 +256,11 @@ class VoiceTextHandler:
         routed = None if engaged or text.startswith("/") else self._route(text)
         if routed:
             return Response(self._run(routed) or "", ResponseKind.CHAT)
+        if not engaged and not text.startswith("/"):
+            from jarvis.voice.postprocess import FILE_CREATE_ATTEMPT
+            if FILE_CREATE_ATTEMPT.search(text):                          # ein Dateiauftrag, der nicht eindeutig erkannt wurde: nachfragen statt Allgemeinplan
+                return Response(f"Ich habe den Dateiauftrag nicht eindeutig verstanden: „{text.strip()[:200]}“. Sag zum Beispiel „Erstelle die Datei notizen Punkt TXT mit "
+                                "dem Inhalt: Hallo“ (Dateiname mit Endung) oder tippe den Auftrag. Es wurde nichts ausgeführt.", ResponseKind.CHAT)
         return self._core.handle(text)
 
 

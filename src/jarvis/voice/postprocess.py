@@ -45,29 +45,35 @@ def split_confirmation(text: str) -> tuple[bool, str]:
 _EXTS = "txt|md|csv|json|docx|xlsx"
 _CONNECTORS = {"strich": "-", "bindestrich": "-", "unterstrich": "_"}
 _DICTATED_NAME = re.compile(rf"\bdatei[,\s]+(?P<name>[\w\-]+(?:[,\s]+[\w\-]+)*?)[,\s]+punkt[,\s]+(?P<ext>{_EXTS})\b", re.IGNORECASE)
-_AFTER_CONTENT = re.compile(r"\b(inhalt|text)\s*,\s*", re.IGNORECASE)
+_AFTER_CONTENT = re.compile(r"\b(inhalt|text)\s*[,.]\s*", re.IGNORECASE)
+_ER_STELLE = re.compile(r"(^|[.!?,]\s*)er\s+stelle\b", re.IGNORECASE)                   # haeufige Fehlhoerung von „Erstelle“
+_HAS_DATEI = re.compile(r"\bdatei\b", re.IGNORECASE)
+FILE_CREATE_ATTEMPT = re.compile(r"\b(?:erstell\w*|lege|leg|schreib\w*|speicher\w*)\b.*?\bdatei\b", re.IGNORECASE | re.DOTALL)
 
 
 def normalize_dictated_filename(text: str) -> tuple[str, bool]:
-    """Diktierter Dateiname („Datei, Dashboard, Strich, Test, Punkt, TXT“) -> `dashboard-test.txt` (klein geschrieben), nur wenn EINDEUTIG: Woerter muessen durch
-    „Strich/Bindestrich/Unterstrich“ verbunden sein; zwei Woerter ohne Verbinder, ein Verbinder am Rand oder doppelte Verbinder sind mehrdeutig -> (text, True),
-    nichts wird erraten. Das Diktier-Komma nach „Inhalt“ wird zum Doppelpunkt. Ohne diktierten Namen bleibt der Text unveraendert: (text, False)."""
-    m = _DICTATED_NAME.search(text or "")
-    if m is None:
+    """Diktierte Dateiauftraege fuer die Sprache (nur wenn „Datei“ vorkommt): „Er stelle“ -> „Erstelle“; diktierter Dateiname („Datei, Dashboard, Strich, Test, Punkt,
+    TXT“) -> `dashboard-test.txt` (klein geschrieben), nur wenn EINDEUTIG: Woerter muessen durch „Strich/Bindestrich/Unterstrich“ verbunden sein; zwei Woerter ohne
+    Verbinder, ein Verbinder am Rand oder doppelte Verbinder sind mehrdeutig -> (text, True), nichts wird erraten. Das Diktier-Komma/-Punkt nach „Inhalt“ wird zum
+    Doppelpunkt. Ohne „Datei“ bleibt der Text unveraendert: (text, False)."""
+    if not _HAS_DATEI.search(text or ""):
         return text, False
-    tokens = [t for t in re.split(r"[,\s]+", m.group("name")) if t]
-    name, expect_word = "", True
-    for tok in tokens:
-        sep = _CONNECTORS.get(tok.lower())
-        if sep is not None:
-            if expect_word:
-                return text, True                             # Verbinder am Anfang oder doppelt
-            name, expect_word = name + sep, True
-        else:
-            if not expect_word:
-                return text, True                             # zwei Woerter ohne Verbinder: Leerzeichen, Strich oder zusammen?
-            name, expect_word = name + tok, False
-    if expect_word:
-        return text, True                                     # endet auf einen Verbinder
-    out = text[:m.start("name")] + f"{name}.{m.group('ext')}".lower() + text[m.end("ext"):]
-    return _AFTER_CONTENT.sub(lambda c: c.group(1) + ": ", out, count=1), False
+    text = _ER_STELLE.sub(lambda m: m.group(1) + "Erstelle", text)
+    m = _DICTATED_NAME.search(text)
+    if m is not None:
+        tokens = [t for t in re.split(r"[,\s]+", m.group("name")) if t]
+        name, expect_word = "", True
+        for tok in tokens:
+            sep = _CONNECTORS.get(tok.lower())
+            if sep is not None:
+                if expect_word:
+                    return text, True                         # Verbinder am Anfang oder doppelt
+                name, expect_word = name + sep, True
+            else:
+                if not expect_word:
+                    return text, True                         # zwei Woerter ohne Verbinder: Leerzeichen, Strich oder zusammen?
+                name, expect_word = name + tok, False
+        if expect_word:
+            return text, True                                 # endet auf einen Verbinder
+        text = text[:m.start("name")] + f"{name}.{m.group('ext')}".lower() + text[m.end("ext"):]
+    return _AFTER_CONTENT.sub(lambda c: c.group(1) + ": ", text, count=1), False

@@ -80,3 +80,42 @@ def test_an_ambiguous_spoken_name_asks_back_and_runs_nothing(tmp_path):
     core, handler, prompts, ws = make(tmp_path, [ONCE])
     reply = handler.handle("erstelle die Datei Dashboard Test Punkt TXT mit dem Inhalt x")
     assert prompts.requests == [] and not list(ws.glob("*")) and "Dateiname" in reply.text
+
+
+# ---- Echte Transkripte des Windows-Livetests (logs/jarvis.log, 2026-11-20) -----------------------------------------------------------------------
+REAL_OK = "Er stelle die Datei test.txt mit dem Inhalt Hallo JARVIS."                       # Whisper hoert „Er stelle“ statt „Erstelle“
+REAL_PERIOD = "Erstelle die Datei test.txt mit dem Inhalt. Hallo."                          # Punkt statt Doppelpunkt nach „Inhalt“
+REAL_UNCLEAR = [
+    "Erstelle die Datei, Testpunkt, TX-Theme, dem Inhalt, hallo, JARVIS.",                  # „Test.txt mit“ als „Testpunkt, TX-Theme“ erkannt
+    "Erstelle eine Datei. Namens. Hallo. Mit dem Inhalt. Test.",                            # ohne Endung
+    "Nein, er stelle eine Datei, namens Hallo, mit dem Inhalt, Test.",
+]
+
+
+def test_known_mishearing_er_stelle_and_period_after_inhalt_are_normalised():
+    t, amb = normalize_dictated_filename(REAL_OK)
+    assert not amb and t.startswith("Erstelle die Datei") and t.endswith("Inhalt Hallo JARVIS.")
+    t, _ = normalize_dictated_filename(REAL_PERIOD)
+    assert "Inhalt: Hallo." in t
+    assert normalize_dictated_filename("Er stelle fest, dass es regnet")[0] == "Er stelle fest, dass es regnet"        # ohne „Datei“ unveraendert
+
+
+def test_the_mishearing_sentence_becomes_a_goal_with_a_question_and_creates_nothing_when_declined(tmp_path):
+    core, handler, prompts, ws = make(tmp_path, [NO])
+    handler.handle(REAL_OK)
+    assert len(prompts.requests) == 1 and not list(ws.glob("*"))
+
+
+@pytest.mark.parametrize("spoken", REAL_UNCLEAR)
+def test_an_unclear_file_request_by_voice_gets_a_clarification_and_never_a_generic_plan(tmp_path, spoken):
+    core, handler, prompts, ws = make(tmp_path, [ONCE])
+    reply = handler.handle(spoken)
+    assert prompts.requests == [] and not list(ws.glob("*"))                        # nichts gefragt, nichts erstellt
+    assert "Plan" not in reply.text and "Ausführung folgt" not in reply.text
+    assert "Dateiauftrag" in reply.text and "nichts ausgeführt" in reply.text.lower()
+
+
+def test_non_file_sentences_still_go_to_core_handle(tmp_path):
+    core, handler, prompts, ws = make(tmp_path, [ONCE])
+    handler.handle("Erzähle mir eine lange Geschichte")
+    assert prompts.requests == []
