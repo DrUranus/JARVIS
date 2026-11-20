@@ -52,6 +52,7 @@ class VoiceSession:
         self._display = display
         self._awake = False  # True after a bare wake word: the next utterance needs no wake word
         self._speaker_ok = True
+        self._mute = False                          # "Antwort stoppen": the reply of the request in progress is not spoken
         self._stop: threading.Event | None = None    # set by run(): after a stop request nothing more is spoken (a late reply is dropped)
         self._wake_re = re.compile(rf"^\W*{re.escape(self._wake)}\b[\s,.:;!?\-]*", re.IGNORECASE)
 
@@ -65,7 +66,7 @@ class VoiceSession:
 
     # -- output -----------------------------------------------------------------------------
     def _say(self, text: str) -> None:
-        if not (self._speak_responses and self._speaker_ok and text) or (self._stop is not None and self._stop.is_set()):
+        if not (self._speak_responses and self._speaker_ok and text) or (self._stop is not None and self._stop.is_set()) or self._mute:
             return
         self._state("speaking")
         try:
@@ -83,6 +84,12 @@ class VoiceSession:
             self._state("error", "Sprachausgabe fehlgeschlagen")
         finally:
             self._state("idle")
+
+    def stop_speaking(self) -> None:
+        """"Antwort stoppen": die Ausgabe in Arbeit abbrechen und die noch nicht gesprochene Antwort der laufenden Anfrage verwerfen; die Sitzung hoert weiter zu.
+        Die naechste Anfrage spricht wieder (das Flag gilt nur bis zu ihrem Beginn)."""
+        self._mute = True
+        self.interrupt()
 
     def interrupt(self) -> None:
         """Barge-in: cut off the speech in progress. Only stops output; it runs no command and confirms nothing."""
@@ -124,6 +131,7 @@ class VoiceSession:
         if _norm(text) in EXIT_PHRASES:
             self._reply("Sprachmodus beendet.")
             return False
+        self._mute = False
         self._state("processing")
         try:
             response = self._handler.handle(text)

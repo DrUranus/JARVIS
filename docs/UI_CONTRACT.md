@@ -26,7 +26,7 @@ Alles ist streng: genau diese Felder, begrenzte Längen, geschlossene Typmengen,
 | `ack` | Antwort auf einen Befehl | `id`, `ok`, `code`, `message` |
 
 ## Befehle
-`submit_text`, `start_voice`, `stop_voice`, `cancel` (kind, id), `confirm` (request_id, choice), `emergency_stop`, `reset_emergency`, `request_snapshot`.
+`submit_text`, `start_voice`, `stop_voice`, `stop_speech` (nur die laufende Sprachausgabe abbrechen, Sprachmodus bleibt an; additiv ab 2026-11-20), `cancel` (kind, id), `confirm` (request_id, choice), `emergency_stop`, `reset_emergency`, `request_snapshot`.
 **Es gibt absichtlich keinen Befehl**, der Rechte erteilt, Regeln ändert, ein Werkzeug direkt ausführt oder den Notaus aufhebt. `reset_emergency` ist nur eine **Anfrage**: Die Engine fragt den Menschen selbst (ein `confirmation_request`), der Notaus bleibt bis zu dessen Entscheidung bestehen.
 
 ## Verhalten (Regeln, von der Konformitätsprüfung erzwungen)

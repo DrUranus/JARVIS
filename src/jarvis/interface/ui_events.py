@@ -239,6 +239,12 @@ class ControllerUiBackend(UiBackend):
         reason = self._ctl.start_voice()
         return self._log.ack(cid, True) if not reason else self._log.ack(cid, False, "voice_unavailable", self._log.clean(reason, 300))
 
+    def _do_stop_speech(self, cid: str, data: dict[str, Any]) -> dict[str, Any]:
+        if not self._ctl.voice_active:
+            return self._log.ack(cid, False, "not_active", "voice mode is not running")
+        self._ctl.stop_speech()
+        return self._log.ack(cid, True)
+
     def _do_stop_voice(self, cid: str, data: dict[str, Any]) -> dict[str, Any]:
         if not self._ctl.voice_active:
             return self._log.ack(cid, False, "not_active", "voice mode is not running")

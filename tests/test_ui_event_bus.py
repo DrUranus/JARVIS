@@ -359,9 +359,9 @@ def test_an_unrelated_confirmation_cannot_be_answered_during_the_emergency():
 
 
 # ---- Struktur: nur vorhandene GuiController-Methoden -----------------------------------------------------------------------------------------------
-CONTROLLER_API = {"submit", "start_voice", "stop_voice", "request_cancel", "emergency_stop", "reset_emergency", "request_activity", "drain", "set_confirmation_denier",
+CONTROLLER_API = {"submit", "start_voice", "stop_voice", "stop_speech", "request_cancel", "emergency_stop", "reset_emergency", "request_activity", "drain", "set_confirmation_denier",
                   "confirmation_waiting", "emergency_engaged", "emergency_available", "voice_active", "settings", "tracker"}
-COMMAND_TARGETS = {"submit_text": {"submit"}, "start_voice": {"start_voice"}, "stop_voice": {"voice_active", "stop_voice"}, "cancel": {"request_cancel"},
+COMMAND_TARGETS = {"submit_text": {"submit"}, "start_voice": {"start_voice"}, "stop_voice": {"voice_active", "stop_voice"}, "stop_speech": {"voice_active", "stop_speech"}, "cancel": {"request_cancel"},
                    "emergency_stop": {"emergency_engaged", "emergency_available", "emergency_stop"}, "reset_emergency": {"emergency_engaged", "reset_emergency"},
                    "request_snapshot": {"request_activity"}, "confirm": set()}
 

@@ -165,6 +165,7 @@ COMMAND_SPECS: dict[str, Obj] = {
     "submit_text": Obj({"text": Str(MAX_TEXT, 1)}),
     "start_voice": Obj({}),
     "stop_voice": Obj({}),
+    "stop_speech": Obj({}),                # only cuts the speech output in progress; the voice mode stays on (additive, no rights, no tool)
     "cancel": Obj({"kind": Enum(ACTIVITY_KINDS), "id": ID}),
     "confirm": Obj({"request_id": ID, "choice": Enum(CHOICES)}),
     "emergency_stop": Obj({}),

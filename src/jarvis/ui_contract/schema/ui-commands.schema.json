@@ -101,6 +101,35 @@
       "properties": {
         "data": {
           "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "id": {
+          "pattern": "[A-Za-z0-9_.:\\-]{1,64}",
+          "type": "string"
+        },
+        "type": {
+          "const": "stop_speech"
+        },
+        "v": {
+          "pattern": "1\\.\\d{1,3}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "id",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
           "properties": {
             "id": {
               "pattern": "[A-Za-z0-9_.:\\-]{1,64}",

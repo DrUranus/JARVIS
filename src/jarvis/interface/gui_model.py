@@ -456,6 +456,12 @@ class GuiController:
         self._emit(self._input_state())
         return ""
 
+    def stop_speech(self) -> None:
+        """"Antwort stoppen": nur die laufende Sprachausgabe abbrechen (und die noch nicht gesprochene Antwort verwerfen); der Sprachmodus bleibt aktiv."""
+        fn = getattr(getattr(self, "_voice_session", None), "stop_speaking", None)
+        if self.voice_active and fn is not None:
+            fn()
+
     def stop_voice(self) -> None:
         if self.voice_active:
             self._voice_stop.set()

@@ -541,6 +541,7 @@ function renderVoice() {
   el("voice-level-text").textContent = voiceActive === true ? "Pegel " + Math.round(level * 100) + " %" : voiceActive === false ? "kein Pegel (Mikrofon aus)" : "kein Pegel gemeldet";
   el("voice-start").disabled = voiceActive === true || emergencyOn;
   el("voice-stop").disabled = voiceActive !== true;
+  el("speech-stop").disabled = voiceActive !== true;
   renderStatus();
 }
 
@@ -951,6 +952,7 @@ el("effects").addEventListener("change", (e) => setEffects(el("effects").value))
 el("mode-toggle").addEventListener("click", () => { manualMode = true; setMode(document.body.dataset.mode === "orb" ? "dashboard" : "orb"); });
 el("voice-start").addEventListener("click", () => send("start_voice", {}));  // einzige Stelle, die das Mikrofon anfordert: ausdruecklicher Knopfdruck
 el("voice-stop").addEventListener("click", () => send("stop_voice", {}));
+el("speech-stop").addEventListener("click", () => send("stop_speech", {}));  // nur die ANFRAGE: bricht die laufende Ausgabe ab, der Sprachmodus bleibt
 el("emergency").addEventListener("click", () => send("emergency_stop", {}));
 el("reset-emergency").addEventListener("click", () => send("reset_emergency", {}));  // nur die ANFRAGE: die Berechtigungs-Engine fragt den Menschen ("Notaus aufheben?"); nichts wird hier aufgehoben oder bestaetigt
 el("input-form").addEventListener("submit", (e) => {
