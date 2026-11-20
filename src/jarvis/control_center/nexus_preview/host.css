@@ -17,3 +17,16 @@ body.nexus-open #bar #brand-sub {
 #nexus-toggle {
   margin-left: auto;
 }
+.nexus-live-tasks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: .75rem;
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid #403856;
+  border-radius: .75rem;
+  background: #100f1c;
+  color: #eee9ff;
+}
+.nexus-live-tasks legend { color: #a9dffa; padding: 0 .4rem; }
+.nexus-live-tasks .panel { min-width: 0; margin: 0; }

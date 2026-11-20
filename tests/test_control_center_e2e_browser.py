@@ -583,6 +583,19 @@ def test_premium_text_roundtrip(browser, tmp_path):
         ack = response.value.json()["data"]
         assert ack["code"] == "voice_unavailable"
         playwright_sync.expect(page.locator(".live-receipt")).to_contain_text(ack["message"])
+        host = page.locator("#nexus-preview-host")
+        host.locator('a[href="#/overview"]').first.click()
+        host.locator('a[href="#/agent-center"]').first.click()
+        playwright_sync.expect(host.locator("#history-refresh")).to_be_visible(timeout=4000)
+        host.locator("#history-refresh").click()
+        srv.backend.publish("task_update", {"kind": "agent_task", "id": "phase3-qa", "status": "FAILED", "detail": "Isolierter Anzeigetest"})
+        task = host.locator("#task-list").get_by_role("button", name="phase3-qa [FAILED]")
+        task.click()
+        playwright_sync.expect(host.locator("#task-detail")).to_contain_text("Isolierter Anzeigetest")
+        page.locator("#nexus-toggle").click()
+        assert page.locator("main #task-detail").count() == 1
+        page.locator("#nexus-toggle").click()
+        host.locator('a[href="#/core"]').first.click()
         page.locator("#emergency").click()
         playwright_sync.expect(field).to_be_disabled()
     finally:
