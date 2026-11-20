@@ -52,6 +52,7 @@ class VoiceSession:
         self._display = display
         self._awake = False  # True after a bare wake word: the next utterance needs no wake word
         self._speaker_ok = True
+        self._stop: threading.Event | None = None    # set by run(): after a stop request nothing more is spoken (a late reply is dropped)
         self._wake_re = re.compile(rf"^\W*{re.escape(self._wake)}\b[\s,.:;!?\-]*", re.IGNORECASE)
 
     def _state(self, state: str, detail: str = "") -> None:
@@ -64,7 +65,7 @@ class VoiceSession:
 
     # -- output -----------------------------------------------------------------------------
     def _say(self, text: str) -> None:
-        if not (self._speak_responses and self._speaker_ok and text):
+        if not (self._speak_responses and self._speaker_ok and text) or (self._stop is not None and self._stop.is_set()):
             return
         self._state("speaking")
         try:
@@ -148,6 +149,7 @@ class VoiceSession:
         """Run until an exit phrase, end of input, repeated device failures or `stop` is set. Returns utterances processed.
         `stop` is checked between utterances: a recording that is already running is finished first (at most voice.max_record_seconds)."""
         turns = failures = 0
+        self._stop = stop
         try:
             while max_turns is None or turns < max_turns:
                 if stop is not None and stop.is_set():

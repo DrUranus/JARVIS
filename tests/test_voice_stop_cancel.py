@@ -111,3 +111,96 @@ def test_controller_stop_voice_interrupts_the_running_session():
     ctl.stop_voice()
     assert interrupted.wait(2)
     ctl.close()
+
+
+# ---- Sprachausgabe waehrend „Sprache beenden“ (Livebefund 2026-11-20) ----------------------------------------------------------------------------
+class BlockingSpeaker:
+    """say() blockiert wie die echte Windows-Ausgabe, bis stop() kommt (Barge-in)."""
+
+    def __init__(self):
+        self.started, self.stopped, self.said = threading.Event(), threading.Event(), []
+        self._cut = threading.Event()
+
+    def say(self, text):
+        self.said.append(text)
+        self.started.set()
+        self._cut.wait(10)
+
+    def stop(self):
+        self.stopped.set()
+        self._cut.set()
+
+
+class OneShotListener(Listener):
+    def __init__(self, text):
+        self._text, self._done, self._cancel = text, False, threading.Event()
+
+    def listen(self):
+        if not self._done:
+            self._done = True
+            return self._text
+        self._cancel.wait(10)
+        return None
+
+    def cancel(self):
+        self._cancel.set()
+
+
+def make_controller(handler, speaker, text="Hallo"):
+    from jarvis.interface.gui_model import GuiController
+    factory = lambda s, c, d, i, st: VoiceSession(handler, OneShotListener(text), speaker, display=lambda t: None, on_state=st)   # noqa: E731
+    core = SimpleNamespace(permissions=SimpleNamespace(emergency=SimpleNamespace(engaged=False, register=lambda *a, **k: None, add_listener=lambda *a, **k: None)))
+    return GuiController(core, SimpleNamespace(voice=SimpleNamespace(stt_provider="local")), voice_factory=factory)
+
+
+class Handler:
+    def __init__(self, gate=None):
+        self.gate = gate
+
+    def handle(self, text):
+        from jarvis.core.core import Response
+        if self.gate is not None:
+            self.gate.wait(10)
+        return Response("eine sehr lange Antwort", None)
+
+
+def wait_until(pred, timeout=3.0):
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if pred():
+            return True
+        time.sleep(0.02)
+    return pred()
+
+
+def test_stop_voice_during_speech_cuts_the_speech_and_ends_the_session_quickly():
+    speaker = BlockingSpeaker()
+    ctl = make_controller(Handler(), speaker)
+    assert ctl.start_voice() == "" and speaker.started.wait(3)
+    t0 = time.monotonic()
+    ctl.stop_voice()
+    assert speaker.stopped.wait(1) and wait_until(lambda: not ctl.voice_active, 2)
+    assert time.monotonic() - t0 < 2.5
+    ctl.close()
+
+
+def test_a_reply_that_arrives_after_stop_is_never_spoken():
+    gate, speaker = threading.Event(), BlockingSpeaker()
+    ctl = make_controller(Handler(gate), speaker)
+    assert ctl.start_voice() == ""
+    time.sleep(0.3)                                                # Antwort wird noch erzeugt
+    ctl.stop_voice()
+    gate.set()                                                     # die alte Antwort ist jetzt fertig
+    assert wait_until(lambda: not ctl.voice_active, 3)
+    assert speaker.said == []                                      # nichts von der alten Antwort wird nachgesprochen
+    ctl.close()
+
+
+def test_repeated_start_and_stop_during_speech_never_hangs_or_leaks_the_flag():
+    for _ in range(4):
+        speaker = BlockingSpeaker()
+        ctl = make_controller(Handler(), speaker)
+        assert ctl.start_voice() == "" and speaker.started.wait(3)
+        ctl.stop_voice()
+        assert wait_until(lambda: not ctl.voice_active, 3)
+        ctl.close()

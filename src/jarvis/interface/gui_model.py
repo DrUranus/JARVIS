@@ -459,9 +459,11 @@ class GuiController:
     def stop_voice(self) -> None:
         if self.voice_active:
             self._voice_stop.set()
-            interrupt = getattr(getattr(self, "_voice_session", None), "cancel_listening", None)
-            if interrupt is not None:
-                interrupt()                                 # bricht das Warten auf Sprache sofort ab (nur Aufnahme; Berechtigungen und Notaus unberuehrt)
+            session = getattr(self, "_voice_session", None)
+            for name in ("interrupt", "cancel_listening"):   # laufende Sprachausgabe abbrechen (Barge-in) und das Warten auf Sprache sofort beenden
+                fn = getattr(session, name, None)
+                if fn is not None:
+                    fn()                                    # nur Ausgabe/Aufnahme; Berechtigungen und Notaus unberuehrt
             self.say("System", "Sprachmodus wird beendet.")
 
     def _work_voice(self, session: Any) -> None:
