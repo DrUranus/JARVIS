@@ -30,7 +30,7 @@ REPLAN_CODES = frozenset({"target_changed"})
 NEVER_CODES = {
     "not_authorized": "Berechtigung abgelehnt", "permission_denied": "Berechtigung abgelehnt", "tool_access_denied": "Werkzeugzugriff nicht erlaubt",
     "blocked_target": "Ziel blockiert", "failsafe": "Notaus/Failsafe", "halted": "Notaus aktiv", "cancelled": "abgebrochen",
-    "budget_exhausted": "Budget erschoepft",
+    "budget_exhausted": "Budget erschoepft", "agent_budget_exceeded": "Agentenbudget erschoepft", "agent_budget_unavailable": "Agentenbudget nicht lesbar",
 }
 
 

@@ -41,6 +41,14 @@ def test_options_small_rectangular_draggable_not_click_through():
     assert "js_api" not in o and overlay_options(on_top=True)["on_top"] is True
 
 
+def test_options_min_size_equals_window_size():
+    """Ursache des Windows-Fehlers (200x101 statt 140x140): pywebview setzt standardmaessig min_size=(200, 100) und klemmt das Fenster darauf.
+    Die Mindestgroesse muss deshalb ausdruecklich gleich der Fenstergroesse sein (pywebview skaliert Size und MinimumSize mit demselben DPI-Faktor)."""
+    o = overlay_options()
+    assert tuple(o["min_size"]) == OVERLAY_SIZE
+    assert overlay_options(on_top=True)["min_size"] == o["min_size"]
+
+
 def test_overlay_url_loopback_only_and_keeps_token():
     u = overlay_url(URL)
     assert u.startswith("http://127.0.0.1:5555/?") and "view=overlay" in u and "t=" + "x" * 32 in u

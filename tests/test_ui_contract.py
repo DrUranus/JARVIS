@@ -47,7 +47,7 @@ GOOD_EVENTS = {
     "ack": {"id": "c1", "ok": True, "code": "ok", "message": ""},
 }
 GOOD_COMMANDS = {
-    "submit_text": {"text": "Hallo JARVIS"}, "start_voice": {}, "stop_voice": {}, "cancel": {"kind": "goal", "id": "g1"},
+    "submit_text": {"text": "Hallo JARVIS"}, "start_voice": {}, "stop_voice": {}, "stop_speech": {}, "cancel": {"kind": "goal", "id": "g1"},
     "confirm": {"request_id": "r1", "choice": "allow_once"}, "emergency_stop": {}, "reset_emergency": {}, "request_snapshot": {},
 }
 

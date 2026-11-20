@@ -35,3 +35,8 @@ class TaskCancelled(AgentError):
 
 class ToolAccessError(AgentError):
     """An agent tried to use a tool it does not own, or tried to pass a bypass argument."""
+
+
+class AgentBudgetExceeded(ToolAccessError):
+    """The agent's own budget (WP02b: tool calls per task or per session) is used up. A ToolAccessError, so agents that already handle that stop the same way; the orchestrator
+    turns the task into BLOCKED(agent_budget_exceeded) whatever the agent made of it."""

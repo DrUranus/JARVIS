@@ -363,9 +363,9 @@ def test_an_unrelated_confirmation_cannot_be_answered_during_the_emergency():
 
 
 # ---- Struktur: nur vorhandene GuiController-Methoden -----------------------------------------------------------------------------------------------
-CONTROLLER_API = {"submit", "start_voice", "stop_voice", "request_cancel", "emergency_stop", "reset_emergency", "request_activity", "drain", "set_confirmation_denier",
+CONTROLLER_API = {"submit", "start_voice", "stop_voice", "stop_speech", "request_cancel", "emergency_stop", "reset_emergency", "request_activity", "drain", "set_confirmation_denier",
                   "confirmation_waiting", "emergency_engaged", "emergency_available", "voice_active", "settings", "tracker"}
-COMMAND_TARGETS = {"submit_text": {"submit"}, "start_voice": {"start_voice"}, "stop_voice": {"voice_active", "stop_voice"}, "cancel": {"request_cancel"},
+COMMAND_TARGETS = {"submit_text": {"submit"}, "start_voice": {"start_voice"}, "stop_voice": {"voice_active", "stop_voice"}, "stop_speech": {"voice_active", "stop_speech"}, "cancel": {"request_cancel"},
                    "emergency_stop": {"emergency_engaged", "emergency_available", "emergency_stop"}, "reset_emergency": {"emergency_engaged", "reset_emergency"},
                    "request_snapshot": {"request_activity"}, "confirm": {"emergency_engaged"}}
 
@@ -426,3 +426,11 @@ def test_the_adapter_does_not_import_the_permission_package():
     tree = ast.parse(Path(ui_events.__file__).read_text(encoding="utf-8"))
     mods = [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names] + [n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]
     assert not [m for m in mods if m.startswith("jarvis.permissions") or m.startswith("jarvis.tools") or m.startswith("jarvis.core")], mods
+
+
+def test_activity_publishes_goal_steps_only_when_known():
+    b, ctl, _ = make()
+    ctl._emit(ActivityEvent(ActivitySnapshot((ActivityItem("goal", "g1", "RUNNING", "Ziel", steps=3), ActivityItem("goal", "g2", "PENDING", "Ziel"),
+                                              ActivityItem("agent_task", "t1", "RUNNING", "x")), (), ())))
+    items = {i["id"]: i for i in [e for e in b.snapshot() if e["type"] == "activity"][0]["data"]["items"]}
+    assert items["g1"]["steps"] == 3 and "steps" not in items["g2"] and "steps" not in items["t1"]       # nie ein erfundener Wert

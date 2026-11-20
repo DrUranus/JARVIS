@@ -14,6 +14,9 @@ class HotwordGatedSource(AudioSource):
         self._source, self._detector = source, detector
         self._armed = False
 
+    def cancel(self) -> None:
+        self._source.cancel()
+
     def record(self) -> AudioClip | None:
         clip = self._source.record()                       # EndOfInput / VoiceUnavailableError propagate
         if not self._armed:

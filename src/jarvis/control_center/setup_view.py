@@ -28,6 +28,21 @@ def _component(name: str, state: str, text: str) -> dict[str, str]:
     return {"name": name, "state": state, "text": text}
 
 
+def _stt_summary(v: Any) -> str:
+    """Wo die Spracherkennung laeuft (nur Anzeige, keine Schluessel): lokal/Rueckfall/Cloud. Audio geht nur ins Internet, wenn die Cloud ausdruecklich aktiv ist."""
+    name = lambda p: os.path.basename(str(p).rstrip("/\\")) or str(p)                      # noqa: E731
+    prov = str(v.stt_provider).lower()
+    local = f"lokal ({name(v.stt_model_dir)})" if v.stt_model_dir else "lokal (kein Modellordner gesetzt)"
+    fallback = f", Rückfall {name(v.stt_fallback_model_dir)}" if v.stt_fallback_model_dir else ""
+    if prov == "openai":
+        return f"Cloud (OpenAI {v.stt_model}): Audio wird an OpenAI gesendet"
+    if prov == "auto":
+        return local + fallback + (f", danach Cloud (OpenAI {v.stt_model}): Audio darf an OpenAI gesendet werden" if v.stt_cloud_enabled else ", Cloud AUS: kein Audio im Internet")
+    if prov == "local":
+        return local + fallback + ", Audio verlässt den PC nie"
+    return prov
+
+
 def build_report(core: Any, settings: Any, env: Mapping[str, str] | None = None, find_spec: Callable[[str], Any] = importlib.util.find_spec) -> dict[str, Any]:
     env = os.environ if env is None else env
     d = diagnose(settings=settings, env=env, find_spec=find_spec)
@@ -43,7 +58,8 @@ def build_report(core: Any, settings: Any, env: Mapping[str, str] | None = None,
     elif not have("sounddevice"):
         comps.append(_component("Sprache", HINT, f"Anbieter {v.stt_provider}/{v.tts_provider} eingestellt, aber sounddevice fehlt: pip install -e \".[voice]\"."))
     else:
-        comps.append(_component("Sprache", OK, f"Anbieter {v.stt_provider}/{v.tts_provider}; Mikrofon-Paket vorhanden (die Hardware wird hier nicht geprüft). Mikrofon startet nur auf Knopfdruck."))
+        comps.append(_component("Sprache", OK, f"Anbieter {v.stt_provider}/{v.tts_provider}; Mikrofon-Paket vorhanden (die Hardware wird hier nicht geprüft). Mikrofon startet nur auf Knopfdruck. "
+                                f"Spracherkennung: {_stt_summary(v)}. Mikrofon: {v.audio_device or 'Windows-Standardgerät'}. Änderung nur in der Konfiguration ([voice]), nicht hier."))
     b = settings.browser
     if not b.enabled:
         comps.append(_component("Browser", OFF, "Aus (browser.enabled = false). Nötig für Seiten lesen und Webrecherche."))

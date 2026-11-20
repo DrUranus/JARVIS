@@ -13,6 +13,7 @@ from typing import Callable, Protocol
 from jarvis.core.core import Response, ResponseKind
 from jarvis.errors import EndOfInput, STTError, TTSError, VoiceError, VoiceUnavailableError
 from jarvis.voice.base import Listener, Speaker
+from jarvis.voice.postprocess import is_risky, split_confirmation
 
 log = logging.getLogger("jarvis.voice")
 
@@ -51,6 +52,8 @@ class VoiceSession:
         self._display = display
         self._awake = False  # True after a bare wake word: the next utterance needs no wake word
         self._speaker_ok = True
+        self._mute = False                          # "Antwort stoppen": the reply of the request in progress is not spoken
+        self._stop: threading.Event | None = None    # set by run(): after a stop request nothing more is spoken (a late reply is dropped)
         self._wake_re = re.compile(rf"^\W*{re.escape(self._wake)}\b[\s,.:;!?\-]*", re.IGNORECASE)
 
     def _state(self, state: str, detail: str = "") -> None:
@@ -63,7 +66,7 @@ class VoiceSession:
 
     # -- output -----------------------------------------------------------------------------
     def _say(self, text: str) -> None:
-        if not (self._speak_responses and self._speaker_ok and text):
+        if not (self._speak_responses and self._speaker_ok and text) or (self._stop is not None and self._stop.is_set()) or self._mute:
             return
         self._state("speaking")
         try:
@@ -81,6 +84,12 @@ class VoiceSession:
             self._state("error", "Sprachausgabe fehlgeschlagen")
         finally:
             self._state("idle")
+
+    def stop_speaking(self) -> None:
+        """"Antwort stoppen": die Ausgabe in Arbeit abbrechen und die noch nicht gesprochene Antwort der laufenden Anfrage verwerfen; die Sitzung hoert weiter zu.
+        Die naechste Anfrage spricht wieder (das Flag gilt nur bis zu ihrem Beginn)."""
+        self._mute = True
+        self.interrupt()
 
     def interrupt(self) -> None:
         """Barge-in: cut off the speech in progress. Only stops output; it runs no command and confirms nothing."""
@@ -110,10 +119,19 @@ class VoiceSession:
             log.debug("ignored (no wake word): %r", text)
             return True
         self._awake = False
+        confirmed, text = split_confirmation(text)
+        if confirmed and not text:
+            self._reply("Was soll ich bestätigen? Sag die Anweisung bitte noch einmal, z. B. „Bestätige lösche …“.")
+            return True
         self._display(f"Du: {text}")
+        if is_risky(text) and not confirmed:                # Spracherkennung kann Woerter vertauschen: riskante Anweisungen nie ungefragt weitergeben
+            self._reply(f"Ich habe verstanden: „{text}“. Das klingt nach einer riskanten Anweisung. Sag zur Bestätigung „Bestätige“ und dann die Anweisung, "
+                        "oder gib sie im Textchat ein. Ich habe nichts ausgeführt.")
+            return True
         if _norm(text) in EXIT_PHRASES:
             self._reply("Sprachmodus beendet.")
             return False
+        self._mute = False
         self._state("processing")
         try:
             response = self._handler.handle(text)
@@ -128,10 +146,18 @@ class VoiceSession:
         return True
 
     # -- main loop ------------------------------------------------------------------------------
+    def cancel_listening(self) -> None:
+        """"Sprache beenden": ein laufendes Warten auf Sprache sofort abbrechen (statt bis zu voice.max_record_seconds). Ohne Listener-Unterstuetzung: nichts, nie ein Fehler."""
+        try:
+            getattr(self._listener, "cancel", lambda: None)()
+        except Exception:                                   # noqa: BLE001 - Abbrechen darf das Beenden nie verhindern
+            log.debug("listener cancel failed", exc_info=True)
+
     def run(self, max_turns: int | None = None, stop: threading.Event | None = None) -> int:
         """Run until an exit phrase, end of input, repeated device failures or `stop` is set. Returns utterances processed.
         `stop` is checked between utterances: a recording that is already running is finished first (at most voice.max_record_seconds)."""
         turns = failures = 0
+        self._stop = stop
         try:
             while max_turns is None or turns < max_turns:
                 if stop is not None and stop.is_set():

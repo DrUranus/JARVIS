@@ -265,7 +265,7 @@ def test_launcher_and_server_expose_no_write_view(srv):
 def test_js_views_use_get_only_and_no_commands():
     js = text("app.js")
     targets = re.findall(r"fetch\(([^,]*),", js)
-    assert targets == ["url(\"command\")", "url(\"view/\" + which", "url(\"core_states.json\")", "url(\"/overlay/open\")"]  # overlay/open: nur Mini-Overlay, Token+Origin, oeffnet das Hauptfenster
+    assert targets == ["url(\"view/agents\"", "url(\"view/audit\"", "url(\"command\")", "url(\"view/\" + which", "url(\"core_states.json\")", "url(\"/overlay/open\")"]  # view/agents: Zeitleiste (WP07b, GET); view/audit: Freigabe-Verlauf (WP07c, GET); overlay/open: nur Mini-Overlay, Token+Origin, oeffnet das Hauptfenster
     m = re.search(r"async function loadView\(.*?\n\}", js, re.S)
     assert m, "loadView fehlt"
     body = m.group(0)
@@ -331,7 +331,7 @@ def test_build_server_wires_journal_and_audit_read_only(tmp_path):
     from jarvis.control_center.launcher import build_server
     from test_computer_integration import env_for
     env = env_for(tmp_path, JARVIS_AGENTS_ENABLED="true", JARVIS_GOALS_ENABLED="true", JARVIS_ASSISTANT_ENABLED="true", JARVIS_CONTROL_CENTER_ENABLED="true",
-                  JARVIS_JOURNAL_ENABLED="true")
+                  JARVIS_JOURNAL_ENABLED="true", JARVIS_JOURNAL_PATH=str(tmp_path / "j.db"))      # eigener Pfad: nie das gemeinsame data/journal.db anderer Tests lesen
     settings = load_settings(env=env)
     core = build_core(settings)
     srv = build_server(settings, core)

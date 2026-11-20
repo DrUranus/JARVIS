@@ -50,7 +50,8 @@ FORBIDDEN_JARVIS = ("jarvis.browser", "jarvis.coding", "jarvis.computer", "jarvi
                     "jarvis.bootstrap", "jarvis.tools", "jarvis.memory", "jarvis.tasks", "jarvis.goals", "jarvis.self_repair", "jarvis.config", "jarvis.agents.factory",
                     "jarvis.agents.adapters", "jarvis.agents.fake", "jarvis.agents.orchestrator", "jarvis.agents.registry", "jarvis.agents.groups")
 ALLOWED_AGENT_MODULES = {"jarvis.agents", "jarvis.agents.agent", "jarvis.agents.context", "jarvis.agents.errors", "jarvis.agents.models", "jarvis.agents.policy",
-                         "jarvis.agents.result", "jarvis.agents.state"}
+                         "jarvis.agents.result", "jarvis.agents.state",
+                         "jarvis.agents.artifacts"}          # E5: pure data module (no I/O); the research hand-over uses it behind agents.artifacts (OFF by default)
 
 
 def all_modules():
