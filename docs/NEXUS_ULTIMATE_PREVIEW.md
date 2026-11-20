@@ -19,7 +19,7 @@ Die NEXUS-Ansicht zeigt die Verbindung, den bestätigten Kernzustand und den Not
 - `launcher.py`, `server.py` und `nexus_assets.py` liefern den Opt-in über den vorhandenen Loopback-Server. Die bisherige Host-/Origin-/Token-Prüfung und die Sicherheitsheader gelten auch für jeden Modul- und Ressourcenabruf. Der Server liefert nur explizit aufgelistete Premium-Ressourcen. Die Upload-, Datei- und Befehlsschnittstellen werden nicht erweitert.
 - `web/app.js` meldet ausgewählte Statusereignisse des bestehenden SSE-Clients lokal an `nexus_preview/preview.js`. Ein Ansichtswechsel eröffnet keine zweite Verbindung. Nach einer Trennung werden der Status verworfen und auf derselben V1-Verbindung ein neuer Snapshot angefordert. Beide Ansichten teilen die bestehende V1-Befehls- und Freigabeleiste.
 - `nexus_preview/host.css` und `surface.css` kapseln die Premium-Ansicht. Beim Öffnen eines echten V1-Freigabedialogs wird die Premium-Fläche für Eingaben gesperrt. Der ursprüngliche Not-Aus bleibt erreichbar.
-- `tests/test_nexus_ultimate_preview.py` prüft Zugriff, Paketgrenzen und Lesemodus. `tests/test_nexus_ultimate_browser.py` verbindet Chromium mit dem realen Server und Controlleradapter. Testanfragen an den Freigabeprovider führen kein Werkzeug aus.
+- `tests/test_nexus_ultimate_preview.py` prüft Zugriff, Paketgrenzen und Lesemodus. `tests/test_control_center_e2e_browser.py` verbindet Chromium mit dem realen Server und Controlleradapter. Testanfragen an den Freigabeprovider führen kein Werkzeug aus.
 
 ## Abnahmestand
 

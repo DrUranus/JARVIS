@@ -432,7 +432,8 @@ function handle(ev) {
 }
 
 function connect(freshSnapshot = false) {
-  source = new EventSource(url("events", freshSnapshot ? 0 : lastSeq));
+  if (freshSnapshot) lastSeq = 0;
+  source = new EventSource(url("events", lastSeq));
   source.onopen = () => { notifyPreview("connection", true); document.body.dataset.conn = "open"; el("conn").textContent = "verbunden"; renderStatus(); };
   source.onmessage = (m) => { try { handle(JSON.parse(m.data)); } catch (e) { /* ungueltiges Ereignis ignorieren */ } };
   source.onerror = () => {
