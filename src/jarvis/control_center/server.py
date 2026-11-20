@@ -78,6 +78,7 @@ class ControlCenterServer:
         self._stop.set()
         httpd.shutdown()
         httpd.server_close()
+        self._call(self.backend.detach)  # Shutdown also revokes outstanding questions.
         if thread is not None:
             thread.join(timeout=5)
         self._httpd = self._thread = None

@@ -1,28 +1,50 @@
-# NEXUS Ultimate · Entscheidungsvorlage zum Not-Aus-Reset
+# Phase 2 · Entscheidung zur Reset-Rückfrage
 
-Status: Review angefordert. Basis: main `7cc65b0e9fcda545f784d887e71c28a279669b04`. Die optionale Leseansicht ist als separater Entwurf in #263 implementiert. Dieses Dokument ändert weder den UI-Vertrag noch eine Sicherheitsentscheidung.
+**Zur Entscheidung steht die enge Ausnahme für `confirm` in PR #264.** Sie erlaubt genau eine angebotene Antwort zu einer offenen Reset-Rückfrage. Der Entwurf basiert auf `main` bei `7cc65b0`. Das Nachrichtenformat bleibt v1.0. Die bisherigen GUI- und CLI-Einstiege nutzen weiterhin `PermissionEngine.reset_emergency_stop`. Die Standardoberfläche bleibt V1.
 
-## Zu entscheidende Frage
+## Befund und Umsetzung
 
-Soll der v1-Vertrag während eines aktiven Not-Aus das Beantworten genau der bereits offenen, von der Engine gestellten Reset-Rückfrage erlauben? Derzeit beschreibt `docs/UI_CONTRACT.md` im Abschnitt zum echten Backend die Abweichung und verweist sie auf eine Besitzerentscheidung.
+Auf der Basis verweigert der Fake während des Not-Aus jede Bestätigung. Der Controlleradapter erkennt den Reset an Werkzeug- und Aktionsnamen. Die Engine verwendet für gewöhnliche Rückfragen und für den Reset denselben synchronen Provider-Aufruf. Sie fragt beim Reset mit ausgeschalteter Sitzungsfreigabe und akzeptiert ausschließlich `ConfirmationChoice.ALLOW_ONCE`.
 
-## Beobachtung auf dem isolierten Linux-Testsystem
+Der Entwurf bindet die Herkunft an die zwei im Repository zugelassenen Aufrufstellen in GUI und CLI. Unmittelbar um den vorhandenen Engine-Aufruf reserviert der Aufrufer den aktuellen UI-Provider. Nur in diesem Thread kann genau ein passender Provider-Rückruf die Reservierung beanspruchen. Anschließend veröffentlicht der Adapter eine eigene, undurchsichtige Rückfrage-ID. Die Engine-interne Kennung ist keine UI-ID. Der Fake modelliert denselben Vertrag mit eigenen Sitzungskennungen und einem intern gesetzten Rückfragetyp.
 
-Beide Adapter wurden getrennt an einen echten Loopback-Control-Center-Server gebunden. Die reale Variante verwendete einen frischen Test-Workspace und den regulären Controlleradapter. Nach bestätigtem Not-Aus wurde über den vorhandenen Befehlspfad ein Reset angefragt. Anschließend wurde die tatsächlich zurückgelieferte Reset-Rückfrage mit `deny` beantwortet.
+| Ereignis | Ergebnis |
+| --- | --- |
+| Reset ohne aktiven Not-Aus, erneute Anfrage bei bereits offener Rückfrage | Abgelehnt |
+| Gewöhnliche Arbeit, fremde Sitzung, verbrauchte oder abgelaufene Rückfrage | Abgelehnt |
+| Antwort `allow_session` auf passende Reset-Rückfrage | Abgelehnt, Rückfrage bleibt offen |
+| Antwort `deny`, Fristablauf, Trennung der letzten Verbindung oder Serverende | Rückfrage geschlossen, Not-Aus bleibt aktiv |
+| Zwei Antworten auf dieselbe ID | Nur die erste gültige Antwort schließt die Rückfrage |
+| `allow_once` | Der Provider gibt die menschliche Wahl zurück. Die Engine entscheidet über die Aufhebung. Die UI wartet auf den gemeldeten Zustand. |
 
-| Befund | FakeUiBackend | ControllerUiBackend |
-| --- | --- | --- |
-| Reset anfragen | ok, confirmation_requested | ok, confirmation_requested |
-| Ablehnung für die passende offene Anfrage | ok=false, emergency | ok=true, ok |
-| Not-Aus nach der Ablehnung | aktiv | aktiv |
+Die Grenzprüfung beim Antworten liest den Not-Aus-Zustand und prüft Frist und ID unter der Sperre des Adapters. Bei einem Anbieterwechsel oder einem Engine-Aufruf aus einem anderen Kontext fehlt die Reservierung. Während des Not-Aus schließt der Provider solche Rückfragen mit Ablehnung. Jede weitere programmgesteuerte Aufrufstelle, ein delegierender Provider oder eine künftig asynchrone Abfrage braucht einen eigenen Herkunftsnachweis. Für eine Änderung der Engine-Schnittstelle wäre eine gesonderte Freigabe erforderlich. Die bestehende prozessinterne Vertrauensgrenze für geladenen Python-Code gilt weiterhin.
 
-`ui_contract/fake.py::_refuse_in_emergency` sperrt auch diese Antwort. `interface/ui_events.py::_is_reset_answer` unterscheidet die bereits offene Reset-Rückfrage. `tests/test_ui_event_bus.py::test_reset_emergency_is_only_a_request_and_the_human_decides` prüft die enge Ausnahme im Adapter. Der Test `tests/test_control_center_web.py::test_emergency_button_sends_only_the_contract_command` schützt die bestehende Weboberfläche vor einem zusätzlichen Reset-Befehl.
+## Tests
 
-## Umfang eines späteren freizugebenden Vertrags-PR
+`tests/test_ui_reset_contract.py` prüft den Fake und den echten Controller über authentifizierte Loopback-POSTs. Der Gleichzeitigkeitstest startet zwei Antworten an einer gemeinsamen Barriere. Der Engine-Test hält nach angenommenem `allow_once` die Rückgabe des Providers an. In diesem Zeitfenster liegen ein positives Ack und ein aktiver Not-Aus gleichzeitig vor, und die echte Registry verweigert einen lokalen Echo-Aufruf. Nach Freigabe der Rückgabe wird die Aufhebung an der Engine und im Ereignisstrom geprüft. Ein weiterer Test prüft den vorhandenen CLI-Einstieg und eine konkurrierende gewöhnliche Provider-Rückfrage mit denselben Anzeigedaten.
 
-1. Besitzer legt die normative Semantik für beide Adapter fest. Bei Beibehaltung des derzeit strengeren Testvertrags bleibt ein Premium-Reset-Bedienelement aus.
-2. Bei Freigabe der engen Ausnahme die angebotenen Antworten auf eine konkrete offene Engine-Rückfrage begrenzen. Veraltete fremde IDs, wiederholte Entscheidungen, gewöhnliche Rückfragen und neue Arbeitsaufträge müssen während des Not-Aus weiterhin scheitern.
-3. Beide Adapter gegen dieselben Fälle prüfen. Ergänzend sind Timeout, letztes getrenntes Fenster, zwei konkurrierende Antworten und der weiterhin wirksame Tool-Stopp zu testen.
-4. Ein positiver Ack für die Reset-Anfrage darf die Anzeige nicht auf betriebsbereit setzen. Maßgeblich ist der durch die Engine bestätigte Zustand.
+Der Chromium-Test in `tests/test_control_center_e2e_browser.py` öffnet zwei Fenster mit demselben Reset-Dialog. Zuerst schließt ein Fenster, das zweite lehnt die Frage ab. Bei der nächsten Rückfrage schließt auch das letzte Fenster. Der Adapter meldet `cancelled` und die Engine bleibt gestoppt. QA-Ergebnisse für den jeweiligen Commit stehen in PR #264.
 
-Dieser Entscheidungsstand hat keine Produktivfreigabe. Das Fenster-, Geräte- und Wiederanlaufverhalten muss im Rahmen der offenen V1- und NEXUS-Windows-Prüfungen separat abgenommen werden.
+## Verträglichkeit mit PR #263
+
+Verglichen wurden die Git-Bäume von #263 (`e7bcd496`) mit den 40 weiteren offenen PR-Köpfen am 20. November 2026. `git merge-tree --write-tree --name-only` berechnet das Ergebnis ohne Branchänderung. Ein zweiter Vergleich jedes Kopfes mit `main` trennt bereits bestehende Konflikte ab.
+
+| Vergleich | Ergebnis |
+| --- | --- |
+| #263 mit main | GitHub meldet zusammenführbar. |
+| #255 `bf1aa6d0`, #256 `cab16334`, #258 `c1a97154`, #261 `4d33fc95` | Textkonflikt in `tests/test_control_center_e2e_browser.py`. Bei einer späteren Integration beide Testsammlungen erhalten. |
+| #259 `3b9b100b` | Zusätzlich Konflikt in `control_center/launcher.py`. Beim späteren Abgleich müssen die Opt-in-Serverauswahl von #263 und die Agenten- und Missionsansichten aus #259 gemeinsam verdrahtet werden. |
+| #251 `2c4de4ef` | Automatische Textzusammenführung möglich. Die parallelen GET-Ansichten für Agenten und Trace gehen über die Schnittstellen von main hinaus. |
+| #85, #72, #26 | Dieselben Konfliktdateien wie gegenüber main, in Automatisierung oder Dokumentation. |
+| Übrige geprüfte Köpfe | Kein Textkonflikt. |
+
+Das Nachrichtenformat für `confirm` und die bestehende SSE-Verbindung können weiterverwendet werden. #263 verwendet für seine HTML-Erweiterungen konkrete Einfügestellen der V1-Seite. Die Stellen sind auch in den geprüften V2-Seiten vorhanden. Die V2.1-Missionsansicht und die V2-Agentenansichten sind auf main noch nicht verfügbar. Der Vergleich ist eine Prüfung der Quellstände. Ein kombinierter Lauf der konfliktbehafteten Zweige steht aus.
+
+## Abnahmestand
+
+| Stufe | Status |
+| --- | --- |
+| Technisch implementiert | Vertragsentwurf, beide Adapter und isolierte Regressionstests auf dem Reviewbranch. Änderungen an PermissionEngine, EmergencyStop und ToolRegistry sind nicht Bestandteil des Diffs. |
+| Automatisiert getestet | Tests gegen reale Engine und Registry, den Fake sowie zwei Chromium-Fenster. Plattform- und Skip-Angaben stehen im PR-Bericht. |
+| Auf realer Windows-Hardware geprüft | Offen, einschließlich V1-Abnahme #186. |
+| Produktiv freigegeben | Offen. Der Besitzer entscheidet über den Vertragsentwurf. Weitere schreibende NEXUS-Phasen beginnen erst nach ihrer jeweiligen Freigabe. |
