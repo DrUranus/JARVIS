@@ -4,7 +4,7 @@
 
 | Bestandteil | Geprüfter Stand |
 | --- | --- |
-| JARVIS | main `7cc65b0e9fcda545f784d887e71c28a279669b04`, nach der gemergten Windows-Stabilisierung #260 |
+| JARVIS | main `7cc65b0e9fcda545f784d887e71c28a279669b04`, Merge von #228. Die Windows-Stabilisierung #260 wurde in claude/v2-integration gemergt und gehört zum offenen Stapel #258 |
 | Premium-Frontend | Lokaler sauberer Checkout von NEXUS Ultimate 1.1.0, `a1b812649c3ebdbf37256b607e181350298c79db` |
 | V2 #258 | Offen, `c1a97154a9d8`, Ziel main. Enthält Änderungen an Server, Launcher, Views und bestehender Weboberfläche. |
 | V2.1 #259 | Offen, `3b9b100b0825`, Ziel claude/v2-integration. |
