@@ -39,6 +39,7 @@ _READ = re.compile(rf"\b(?:lies|lese|zeige|zeig|öffne|oeffne|read|show|display|
 _LIST = re.compile(rf"\b(?:liste|zeige|zeig|list|show)\b.*?\b(?:ordner|verzeichnis|folder|directory|dateien\s+in|files\s+in)\s+(?:(?:{_Q})|{_DIRTOKEN})", re.IGNORECASE)
 _NAMED = r"(?:(?:namens|genannt|named|called|mit\s+dem\s+namen|with\s+the\s+name)\s+)?"        # "Ordner namens Projekte", "folder called Reports"
 _MKDIR = re.compile(rf"\b(?:erstelle|lege|create|make)\b.*?\b(?:ordner|verzeichnis|folder|directory)\s+{_NAMED}(?:(?:{_Q})|{_DIRTOKEN})", re.IGNORECASE)
+_PARENT = re.compile(r"""\b(?:unter|in|im|inside|under)\s+(?:dem\s+(?:ordner|verzeichnis)\s+|the\s+(?:folder|directory)\s+)?(?:"([^"\n]{3,300})"|([A-Za-z]:[\\/][^\s"]*))""", re.IGNORECASE)
 _MKDIR_BARE = re.compile(r"\b(?:erstelle|lege|create|make)\b[^.?!\n]*\b(?:ordner|verzeichnis|folder|directory)\s*[.!]?\s*$", re.IGNORECASE)
 # A well-known place named instead of a path ("auf dem Desktop"): JARVIS never guesses what it resolves to; the person names the full path.
 _PLACE = re.compile(r"\b(?:(?:auf|on)\s+(?:dem|the|meinem|my)\s+desktop|(?:im|in|in\s+den|in\s+meinen)\s+(?:dokumente\w*|downloads?|bilder\w*)|(?:in|on)\s+(?:the|my)\s+(?:documents|downloads|pictures))\b", re.IGNORECASE)
@@ -99,6 +100,9 @@ def parse_file_goal(text: str) -> dict[str, Any] | None:
                 name = m.group(5)
                 if name.lower() in _NOT_A_NAME:                 # "Ordner auf dem Desktop": a preposition/article is no folder name -> ask for the real one
                     raise FileIntentError("Es wurde kein Ordnername genannt (z. B. „Erstelle den Ordner Archiv“ oder mit vollem Pfad in Anführungszeichen)")
+            parent = _PARENT.search(t)
+            if parent and not re.search(r"[\\/:]", name):          # "... namens X unter C:\Ordner": the named place is the parent, never dropped silently
+                name = (parent.group(1) or parent.group(2)).rstrip("\\/") + "\\" + name
             found.append({"tool": "files", "action": "mkdir", "path": name})
     if not found and _MKDIR_BARE.search(t):
         raise FileIntentError("Es wurde kein Ordnername genannt (z. B. „Erstelle den Ordner Archiv“ oder mit vollem Pfad in Anführungszeichen)")

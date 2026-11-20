@@ -17,7 +17,7 @@
   <button id="mode-toggle" type="button">Dashboard</button>
   <button id="emergency" type="button" title="Notaus: stoppt alle Aktionen">NOTAUS</button>
 </header>
-<div id="emergency-banner" role="alert" hidden>Notaus aktiv. Aufheben nur ueber die Rueckfrage der Berechtigungs-Engine.</div>
+<div id="emergency-banner" role="alert" hidden><span id="emergency-banner-text">Notaus aktiv. Aufheben nur ueber die Rueckfrage der Berechtigungs-Engine.</span> <button id="reset-emergency" type="button" title="Stellt nur die Anfrage; die Berechtigungs-Engine fragt dich danach selbst" hidden>Not-Aus aufheben ...</button></div>
 <button id="overlay-open" type="button" title="Hauptfenster öffnen" hidden>Öffnen</button>
 <main>
   <section id="orb-view" aria-label="Orb">
@@ -88,6 +88,7 @@
 <section id="voice-bar" aria-label="Sprache">
   <button id="voice-start" type="button" title="Startet den Sprachmodus (Mikrofon) nur auf Knopfdruck">Sprache starten</button>
   <button id="voice-stop" type="button" disabled>Sprache beenden</button>
+  <button id="speech-stop" type="button" title="Bricht nur die laufende Sprachausgabe ab; der Sprachmodus bleibt an" disabled>Antwort stoppen</button>
   <span id="voice-mic" role="status">Mikrofon: unbekannt</span>
   <span id="voice-state" role="status">Sprachzustand: -</span>
   <meter id="voice-meter" min="0" max="1" value="0" aria-label="Mikrofonpegel"></meter>

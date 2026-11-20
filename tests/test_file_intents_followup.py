@@ -69,3 +69,31 @@ def test_a_folder_and_a_file_in_one_request_are_refused_not_half_done():
 def test_a_word_document_with_explicit_content_is_still_one_office_step():
     assert parse_file_goal("Erstelle ein Word-Dokument bericht.docx mit dem Inhalt: Hallo Welt") == \
         {"tool": "office", "action": "create", "path": "bericht.docx", "content": "Hallo Welt"}
+
+
+# ---- S7-Abnahmefehler: fehlender Arbeitsordner und verlorener Zielordner ("unter C:\...") ------------------------------------------------
+@pytest.mark.parametrize("text", ["Erstelle den Ordner TestAbnahme", r"Erstelle einen neuen Ordner namens TestAbnahme unter C:\JARVIS-Test\V2"])
+def test_s7_folder_requests_are_recognised_as_creating_a_new_folder(text):
+    step = parse_file_goal(text)
+    assert step["action"] == "mkdir" and step["path"].endswith("TestAbnahme")
+
+
+def test_a_named_parent_folder_is_part_of_the_path_never_silently_dropped():
+    assert parse_file_goal(r"Erstelle einen neuen Ordner namens TestAbnahme unter C:\JARVIS-Test\V2") == \
+        {"tool": "files", "action": "mkdir", "path": r"C:\JARVIS-Test\V2\TestAbnahme"}
+    assert parse_file_goal(r'Create a folder Reports in "C:\Users\Test\Work"') == {"tool": "files", "action": "mkdir", "path": r"C:\Users\Test\Work\Reports"}
+
+
+def test_a_missing_working_directory_is_named_instead_of_a_misleading_missing_parent(tmp_path):
+    import os
+    from jarvis.config import FilesSettings
+    from jarvis.files import FilesController, FilesError
+    from jarvis.files.factory import baseline_rules
+    from jarvis.permissions import Policy
+    from secutil import make_engine
+    engine, _sink, ws = make_engine(tmp_path)
+    root = os.path.join(os.path.realpath(ws), "arbeitsordner-fehlt")                      # liegt im erlaubten Bereich, existiert aber nicht
+    controller = FilesController(engine.guard, FilesSettings(enabled=True), roots=(root,))
+    with pytest.raises(FilesError) as exc:
+        controller.plan("mkdir", path="TestAbnahme")
+    assert exc.value.code == "root_missing" and "Arbeitsordner" in str(exc.value)

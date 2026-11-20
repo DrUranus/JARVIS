@@ -184,6 +184,11 @@ class FakeUiBackend(UiBackend):
         self._emit("voice_level", {"level": 0, "active": True})
         return self._ack(cid, True)
 
+    def _do_stop_speech(self, cid: str, data: dict[str, Any]) -> dict[str, Any]:
+        if not self._voice:
+            return self._ack(cid, False, "not_active", "voice mode is not running")
+        return self._ack(cid, True)
+
     def _do_stop_voice(self, cid: str, data: dict[str, Any]) -> dict[str, Any]:
         if not self._voice:
             return self._ack(cid, False, "not_active", "voice mode is not running")

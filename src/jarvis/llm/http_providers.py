@@ -22,6 +22,14 @@ def _post(url: str, headers: dict[str, str], payload: dict, timeout: float) -> d
         raise LLMError(f"request to {url} failed: {exc}") from exc
 
 
+def _post_scrubbed(key: str, url: str, headers: dict[str, str], payload: dict, timeout: float) -> dict:
+    """`_post`, but the API key never appears in an error text (a provider may repeat it in its answer); the original exception is not chained."""
+    try:
+        return _post(url, headers, payload, timeout)
+    except LLMError as exc:
+        raise LLMError(str(exc).replace(key, "***")) from None
+
+
 class OpenAIProvider(LLMProvider):
     name = "openai"
 
@@ -40,7 +48,7 @@ class OpenAIProvider(LLMProvider):
             "temperature": self._temp if request.temperature is None else request.temperature,
             "max_tokens": request.max_tokens or self._max,
         }
-        data = _post(self._url, {"Authorization": f"Bearer {self._key}"}, payload, self._timeout)
+        data = _post_scrubbed(self._key, self._url, {"Authorization": f"Bearer {self._key}"}, payload, self._timeout)
         try:
             content = data["choices"][0]["message"]["content"] or ""
         except (KeyError, IndexError, TypeError) as exc:
@@ -72,7 +80,7 @@ class AnthropicProvider(LLMProvider):
         if system:
             payload["system"] = system
         headers = {"x-api-key": self._key, "anthropic-version": "2023-06-01"}
-        data = _post(self._url, headers, payload, self._timeout)
+        data = _post_scrubbed(self._key, self._url, headers, payload, self._timeout)
         try:
             content = "".join(b.get("text", "") for b in data["content"] if b.get("type") == "text")
         except (KeyError, TypeError, AttributeError) as exc:

@@ -46,7 +46,7 @@ def say(srv, text, cid, wait=20.0):
     while time.monotonic() < end:
         evs = srv.backend.events_since(0, 1000)
         replies = [e for e in evs if e["type"] == "chat" and e["data"]["sender"] == "jarvis"]
-        if len(replies) > seen and evs[-1]["type"] != "activity":
+        if len(replies) > seen and (evs[-1]["type"] != "activity" or not evs[-1]["data"]["items"]):
             time.sleep(0.3)
             return [e["data"]["text"] for e in srv.backend.events_since(0, 1000) if e["type"] == "chat" and e["data"]["sender"] == "jarvis"]
         time.sleep(0.1)
@@ -141,5 +141,20 @@ def test_a_folder_request_without_a_name_explains_what_is_missing_and_creates_no
         assert not (ws / "auf").exists()
         replies = say(srv, "Erstelle einen Ordner namens Projekte", "e6")
         assert (ws / "Projekte").is_dir() and replies
+    finally:
+        srv.stop()
+
+
+def test_s7_a_missing_working_directory_is_explained_as_a_setup_step_and_works_once_it_exists(tmp_path):
+    import shutil
+    core, srv, ws = start(tmp_path, (ONCE,) * 20)
+    try:
+        shutil.rmtree(ws)                                                              # nur der Test-Arbeitsordner in tmp_path: wie auf einem frischen PC
+        replies = say(srv, "Erstelle den Ordner TestAbnahme", "e7")
+        assert replies and "Arbeitsordner" in replies[-1] and "New-Item" in replies[-1]
+        assert "existieren nicht" not in replies[-1] and "Versuche" not in replies[-1]
+        ws.mkdir()                                                                     # der Einrichtungsschritt aus der Fehlermeldung
+        replies = say(srv, "Erstelle einen neuen Ordner namens TestAbnahme", "e8")
+        assert (ws / "TestAbnahme").is_dir() and replies
     finally:
         srv.stop()

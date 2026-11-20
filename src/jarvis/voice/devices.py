@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import shutil
 import subprocess
 import tempfile
@@ -11,6 +12,8 @@ import time
 
 from jarvis.errors import VoiceUnavailableError
 from jarvis.voice.base import AudioClip, AudioPlayer, AudioSource, rms
+from jarvis.voice.audio_device import resolve_input_device
+from jarvis.voice.meter import METER, level_from_rms
 from jarvis.voice.vad import SpeechDetector, record_utterance
 
 log = logging.getLogger("jarvis.voice")
@@ -39,16 +42,25 @@ class Endpointer:
         return self.elapsed >= self.initial_wait  # nobody spoke: give up (-> None)
 
 
+class _Cancelled(Exception):
+    """Internal: the recording was cancelled by `SoundDeviceSource.cancel()`."""
+
+
 class SoundDeviceSource(AudioSource):
     """Microphone via the optional `sounddevice` package (pip install 'jarvis-ai[voice]')."""
 
     def __init__(self, sample_rate: int = 16000, threshold: float = 500, silence_seconds: float = 1.0,
                  max_seconds: float = 15.0, chunk_seconds: float = 0.1, detector: SpeechDetector | None = None,
-                 min_speech_seconds: float = 0.2) -> None:
+                 min_speech_seconds: float = 0.2, device: "str | int | None" = None) -> None:
+        self._device_setting = device                     # None = Windows-Standardgeraet; Index oder Namensteil siehe audio_device.resolve_input_device
         self._detector, self._min_speech = detector, min_speech_seconds   # detector None = bisheriger Pegel-Endpointer
         self._rate, self._threshold = sample_rate, threshold
         self._silence, self._max, self._chunk = silence_seconds, max_seconds, chunk_seconds
         self._sd = self._import()
+        self._cancel = threading.Event()                  # "Sprache beenden": bricht das laufende Warten/Aufnehmen sofort ab (Aufnahme wird verworfen)
+
+    def cancel(self) -> None:
+        self._cancel.set()
 
     @staticmethod
     def _import():
@@ -61,6 +73,9 @@ class SoundDeviceSource(AudioSource):
             raise VoiceUnavailableError(f"PortAudio library unavailable: {exc}") from exc
         return sounddevice
 
+    def _device(self) -> "int | None":
+        return resolve_input_device(self._sd, self._device_setting)   # bei jeder Aufnahme neu: ein neu angestecktes Mikrofon funktioniert; verstaendlicher Fehler sonst
+
     def record(self) -> AudioClip | None:
         frames = int(self._rate * self._chunk)
         if self._detector is not None:
@@ -68,29 +83,50 @@ class SoundDeviceSource(AudioSource):
         ep = Endpointer(self._threshold, self._silence, self._max)
         chunks: list[bytes] = []
         try:
-            with self._sd.RawInputStream(samplerate=self._rate, channels=1, dtype="int16", device=2) as stream:
+            with self._sd.RawInputStream(samplerate=self._rate, channels=1, dtype="int16", device=self._device()) as stream:
                 while True:
+                    if self._cancel.is_set():
+                        self._cancel.clear()
+                        return None                                         # abgebrochen: nichts wird weitergegeben
                     data, _overflow = stream.read(frames)
                     raw = bytes(data)
-                    stop = ep.feed(rms(raw), self._chunk)
+                    level = rms(raw)
+                    METER.push(level_from_rms(level))                       # nur Anzeige (NEXUS-Pegel); beeinflusst die Aufnahme nicht
+                    stop = ep.feed(level, self._chunk)
                     if ep.heard_speech:
                         chunks.append(raw)
                     if stop:
                         break
+        except VoiceUnavailableError:
+            raise                                           # Geraeteauswahl/Notaus-Meldungen unveraendert durchreichen
         except Exception as exc:  # PortAudioError etc.: no device, busy, permission denied
             raise VoiceUnavailableError(f"cannot record from microphone: {exc}") from exc
+        finally:
+            METER.clear()
         return AudioClip(b"".join(chunks), self._rate) if ep.heard_speech else None
 
     def _record_vad(self, frames: int) -> AudioClip | None:
         try:
-            with self._sd.RawInputStream(samplerate=self._rate, channels=1, dtype="int16", device=2) as stream:
-                return record_utterance(lambda: bytes(stream.read(frames)[0]), self._detector, sample_rate=self._rate,
+            with self._sd.RawInputStream(samplerate=self._rate, channels=1, dtype="int16", device=self._device()) as stream:
+                return record_utterance(lambda: self._read_metered(stream, frames), self._detector, sample_rate=self._rate,
                                         chunk_seconds=self._chunk, silence_seconds=self._silence, max_seconds=self._max,
                                         min_speech_seconds=self._min_speech, guard=self.guard)
+        except _Cancelled:
+            self._cancel.clear()
+            return None                                     # abgebrochen: nichts wird weitergegeben
         except VoiceUnavailableError:
             raise                                           # guard (Notaus/Budget) and library messages pass through unchanged
         except Exception as exc:  # PortAudioError etc.: no device, busy, permission denied
             raise VoiceUnavailableError(f"cannot record from microphone: {exc}") from exc
+        finally:
+            METER.clear()
+
+    def _read_metered(self, stream, frames: int) -> bytes:
+        if self._cancel.is_set():
+            raise _Cancelled()
+        raw = bytes(stream.read(frames)[0])
+        METER.push(level_from_rms(rms(raw)))                # nur Anzeige (NEXUS-Pegel)
+        return raw
 
 
 _PLAYERS = (("afplay", []), ("paplay", []), ("aplay", ["-q"]), ("ffplay", ["-nodisp", "-autoexit", "-loglevel", "quiet"]))

@@ -25,7 +25,7 @@ MAX_STEP_OUTPUT = 4000
 # Error codes of the files/office tools that say the REQUEST is wrong; repeating the same request can never succeed (so no retry; goals.policy treats invalid_input as fatal).
 PERMANENT_TOOL_CODES = frozenset({"file_not_found", "file_exists", "binary_file", "file_too_large", "invalid_input", "invalid_package", "no_delete", "outside_roots",
                                   "path_denied", "protected_path", "secret_detected", "symlink_rejected", "unsupported_format", "macros_refused", "xml_entities_refused",
-                                  "zip_bomb", "library_missing"})
+                                  "zip_bomb", "library_missing", "root_missing"})
 _PERMANENT_TOOL_CODE = re.compile(r"\[([a-z_]+)\]")
 
 

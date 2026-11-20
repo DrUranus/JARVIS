@@ -203,6 +203,11 @@
                     "maxLength": 32,
                     "type": "string"
                   },
+                  "steps": {
+                    "maximum": 200,
+                    "minimum": 0,
+                    "type": "number"
+                  },
                   "title": {
                     "maxLength": 200,
                     "type": "string"

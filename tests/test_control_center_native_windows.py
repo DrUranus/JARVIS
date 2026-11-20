@@ -126,6 +126,7 @@ def test_native_overlay_window_always_on_top_and_real_emergency_click(tmp_path):
         width, height = box[2] - box[0], box[3] - box[1]
         report.update({"window": box, "size": [width, height]})
         assert 100 <= width <= 260 and 100 <= height <= 260, f"Overlay nicht ca. 140x140: {width}x{height}"       # DPI-Skalierung erlaubt
+        assert abs(width - height) <= 4, f"Overlay nicht quadratisch (pywebview-min_size-Klemmung, 200x101?): {width}x{height}"
         topmost = bool(user32().GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST)
         report["always_on_top"] = topmost
         assert topmost, "--overlay-on-top: das Fenster ist nicht Always-on-Top"

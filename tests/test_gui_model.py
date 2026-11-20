@@ -712,3 +712,15 @@ def test_the_real_core_shows_a_stored_plan_and_the_default_has_everything_else_o
     snap = c.collect_activity()
     assert [(i.kind, i.text) for i in snap.items] == [("plan", "Webseite bauen")] and set(snap.inactive) == {"Ziele", "Agenten-Tasks", "Reparaturläufe"}
     assert c.cancel_activity("plan", snap.items[0].ident).outcome == "cancelled" and c.collect_activity().items == ()
+
+
+def test_goal_activity_carries_the_real_planned_step_count_from_the_engine():
+    """B9-1b: die Schrittzahl kommt nur aus engine.steps(goal_id) (lesend); ohne Plan (noch keine Schritte) oder bei Fehler bleibt sie 0, nie geschaetzt."""
+    core = ActCore(goals=[("g-3", "drei Schritte", GoalStatus.RUNNING), ("g-0", "noch ohne Plan", GoalStatus.PENDING), ("g-err", "kaputt", GoalStatus.RUNNING)])
+    def steps(gid):
+        if gid == "g-err":
+            raise RuntimeError("kein Plan lesbar")
+        return {"g-3": (object(), object(), object()), "g-0": ()}[gid]
+    core.subsystems["goals"] = SimpleNamespace(engine=SimpleNamespace(steps=steps))
+    items = {i.ident: i for i in GuiController(core).collect_activity().items if i.kind == "goal"}
+    assert (items["g-3"].steps, items["g-0"].steps, items["g-err"].steps) == (3, 0, 0)

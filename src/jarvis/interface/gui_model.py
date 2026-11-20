@@ -171,6 +171,7 @@ class ActivityItem:
     status: str
     text: str
     note: str = ""                  # known limits before cancelling (for example: the agent does not support cancellation)
+    steps: int = 0                  # goals only: number of steps of the stored plan (read from the goal engine, 0 = no plan yet or unreadable; never estimated)
 
 
 @dataclass(frozen=True)
@@ -233,6 +234,34 @@ class SubmitResult(str, Enum):
     CLOSED = "closed"
     HANDLED = "handled"             # a GUI-level command (/voice, /exit) was executed without the core
     EMERGENCY = "emergency"         # the emergency stop is engaged: nothing new starts
+
+
+class VoiceTextHandler:
+    """Handler der Sprachsitzung: derselbe Weg wie der Textchat (`GuiController._work_text`). Recherche-/Dateisaetze werden zum Ziel der Goal Engine (Agenten,
+    ToolRegistry, PermissionEngine, Freigabedialog), alles andere geht wie bisher an `core.handle`. Keine eigene Ausfuehrungslogik; bei Notaus und bei Saetzen mit
+    `/` nie ein Befehl."""
+
+    def __init__(self, core: Any, route: Callable[[str], str | None], run: Callable[[str], str | None]) -> None:
+        self._core, self._route, self._run = core, route, run
+
+    def handle(self, text: str) -> Any:
+        from jarvis.core.core import Response, ResponseKind
+        engaged = bool(getattr(getattr(self._core.permissions, "emergency", None), "engaged", False))
+        if not engaged and not text.startswith("/"):
+            from jarvis.voice.postprocess import normalize_dictated_filename
+            text, ambiguous = normalize_dictated_filename(text)       # nur eindeutig diktierte Dateinamen; sonst nachfragen statt raten
+            if ambiguous:
+                return Response("Ich habe den Dateinamen nicht eindeutig verstanden. Sag ihn mit Verbindern, zum Beispiel „Dashboard Strich Test Punkt TXT“, "
+                                "oder tippe den Auftrag. Ich habe nichts ausgeführt.", ResponseKind.CHAT)
+        routed = None if engaged or text.startswith("/") else self._route(text)
+        if routed:
+            return Response(self._run(routed) or "", ResponseKind.CHAT)
+        if not engaged and not text.startswith("/"):
+            from jarvis.voice.postprocess import FILE_CREATE_ATTEMPT
+            if FILE_CREATE_ATTEMPT.search(text):                          # ein Dateiauftrag, der nicht eindeutig erkannt wurde: nachfragen statt Allgemeinplan
+                return Response(f"Ich habe den Dateiauftrag nicht eindeutig verstanden: „{text.strip()[:200]}“. Sag zum Beispiel „Erstelle die Datei notizen Punkt TXT mit "
+                                "dem Inhalt: Hallo“ (Dateiname mit Endung) oder tippe den Auftrag. Es wurde nichts ausgeführt.", ResponseKind.CHAT)
+        return self._core.handle(text)
 
 
 class GuiController:
@@ -411,8 +440,9 @@ class GuiController:
                         "Für die GUI wird eine echte Spracherkennung gebraucht (z. B. stt_provider = \"openai\" mit Mikrofon) – Texteingabe bleibt aktiv.")
             factory = self._voice_factory
             if factory is None:
+                from functools import partial
                 from jarvis.bootstrap import build_voice_session
-                factory = build_voice_session
+                factory = partial(build_voice_session, handler=VoiceTextHandler(self.core, self._research_route, self._run_command))   # gleicher Weg wie der Textchat
             try:
                 session = factory(self.settings, self.core, self._voice_line, _no_input, self._voice_state)
             except VoiceError as exc:
@@ -424,16 +454,28 @@ class GuiController:
                 return f"Sprachmodus konnte nicht gestartet werden ({type(exc).__name__}) – Texteingabe bleibt aktiv."
             self.tracker.clear_error()
             self._voice_stop.clear()
+            self._voice_session = session
             self._voice_running = True
             threading.Thread(target=self._work_voice, args=(session,), name="jarvis-gui-voice", daemon=True).start()
         self.say("System", "Sprachmodus gestartet. Das Mikrofon ist jetzt aktiv.")
         self._emit(self._input_state())
         return ""
 
+    def stop_speech(self) -> None:
+        """"Antwort stoppen": nur die laufende Sprachausgabe abbrechen (und die noch nicht gesprochene Antwort verwerfen); der Sprachmodus bleibt aktiv."""
+        fn = getattr(getattr(self, "_voice_session", None), "stop_speaking", None)
+        if self.voice_active and fn is not None:
+            fn()
+
     def stop_voice(self) -> None:
         if self.voice_active:
             self._voice_stop.set()
-            self.say("System", "Sprachmodus wird beendet (nach der laufenden Aufnahme).")
+            session = getattr(self, "_voice_session", None)
+            for name in ("interrupt", "cancel_listening"):   # laufende Sprachausgabe abbrechen (Barge-in) und das Warten auf Sprache sofort beenden
+                fn = getattr(session, name, None)
+                if fn is not None:
+                    fn()                                    # nur Ausgabe/Aufnahme; Berechtigungen und Notaus unberuehrt
+            self.say("System", "Sprachmodus wird beendet.")
 
     def _work_voice(self, session: Any) -> None:
         try:
@@ -661,8 +703,16 @@ class GuiController:
         engine = getattr(self.core.subsystems.get("goals"), "engine", None)
         if engine is None:
             return [], True
-        return [ActivityItem("goal", g.goal_id, str(g.status.value), self._act_short(g.objective)) for g in self.core.list_goals(limit=ACTIVITY_LIMIT * 2)
-                if self._act_open(g.status)], False
+        return [ActivityItem("goal", g.goal_id, str(g.status.value), self._act_short(g.objective), steps=self._act_steps(engine, g.goal_id))
+                for g in self.core.list_goals(limit=ACTIVITY_LIMIT * 2) if self._act_open(g.status)], False
+
+    @staticmethod
+    def _act_steps(engine: Any, goal_id: str) -> int:
+        """Read-only: the length of the stored plan (GoalEngine.steps). Any failure means 'unknown' (0), never a guess."""
+        try:
+            return max(0, len(engine.steps(goal_id)))
+        except Exception:  # noqa: BLE001 - display only
+            return 0
 
     def _act_agent_tasks(self) -> tuple[list[ActivityItem], bool]:
         sub = self.core.subsystems.get("agents")

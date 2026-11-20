@@ -201,18 +201,18 @@ def voice_stopper(speaker: Any) -> Callable[[str], Any]:
     return stop
 
 
-def build_voice_session(settings: Settings, core: JarvisCore, display=print, input_fn=input, on_state=None):
+def build_voice_session(settings: Settings, core: JarvisCore, display=print, input_fn=input, on_state=None, handler=None):
     """Assemble the voice front-end around an existing core.
 
     Raises VoiceError subclasses (e.g. VoiceUnavailableError) if the configured engines cannot be created;
-    callers decide how to degrade (the CLI falls back to text mode).
+    callers decide how to degrade (the CLI falls back to text mode). `handler` (default: the core) lets the Control Center route spoken text exactly like typed text.
     """
     from jarvis.voice import VoiceSession, build_listener, build_speaker
 
     v = settings.voice
     speaker = build_speaker(v, display, guard=speech_guard(core))
     core.permissions.emergency.register("voice", voice_stopper(speaker))                # the emergency stop ends a running speech (additive; the latch itself is unchanged)
-    return VoiceSession(core, build_listener(v, input_fn, guard=recording_guard(core)), speaker, wake_word=v.wake_word,
+    return VoiceSession(handler or core, build_listener(v, input_fn, guard=recording_guard(core)), speaker, wake_word=v.wake_word,
                         require_wake_word=v.require_wake_word, speak_responses=v.speak_responses,
                         display=display, on_state=on_state)
 

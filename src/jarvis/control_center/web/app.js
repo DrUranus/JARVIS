@@ -80,11 +80,26 @@ function upsertTask(kind, id, patch) {
   return t;
 }
 
+// Die Arbeitsliste kommt nur auf Anfrage (`request_snapshot`, nur lesend). Waehrend der Bearbeitung fragt die Seite deshalb selbst nach, damit die belegte Schrittzahl
+// eines neuen Ziels fuer den automatischen Wechsel verfuegbar wird; im Ruhezustand wird nichts angefragt.
+const BUSY_STATES = new Set(["processing", "awaiting_confirmation"]);
+let pollTimer = null;
+function pollActivityWhileBusy() {
+  if (!BUSY_STATES.has(document.body.dataset.state) || pollTimer) return;
+  const tick = () => {
+    pollTimer = null;
+    if (!BUSY_STATES.has(document.body.dataset.state)) return;
+    send("request_snapshot", {});
+    pollTimer = setTimeout(tick, 1500);
+  };
+  tick();
+}
+
 function renderActivity(d) {
   const listed = new Set();
   for (const it of d.items) {
     listed.add(taskKey(it.kind, it.id));
-    upsertTask(it.kind, it.id, { title: it.title, status: it.status, note: it.note, cancellable: it.cancellable, listed: true });
+    upsertTask(it.kind, it.id, { title: it.title, status: it.status, note: it.note, cancellable: it.cancellable, steps: it.steps || 0, listed: true });
   }
   for (const [key, t] of tasks) if (!listed.has(key)) { t.listed = false; t.cancellable = false; }  // nicht mehr in der Arbeitsliste: nicht abbrechbar
   el("problems").textContent = d.problems.length ? "Probleme: " + d.problems.map((p) => (typeof p === "string" ? p : JSON.stringify(p))).join("; ") : "";
@@ -117,7 +132,7 @@ function renderTasks() {
     li.className = (key === selected ? "sel " : "") + (isFinal(t) || !t.listed ? "final" : "");
     const pick = document.createElement("button");
     pick.type = "button";
-    pick.textContent = t.title + " [" + t.status + "]";
+    pick.textContent = t.title + " [" + (!t.listed && !isFinal(t) ? "nicht mehr aktiv" : t.status) + "]";
     pick.addEventListener("click", () => { selected = key; renderDashboard(); });
     li.appendChild(pick);
     if (t.cancellable) {
@@ -291,15 +306,16 @@ async function cancelTask(kind, id) {
 // Automatischer Wechsel in das Dashboard: nur mit belegbaren Vertragsdaten (siehe MIN_*), nie nach manueller Wahl, nie zurueck zum Orb. Rein lokal.
 function maybeAutoSwitch() {
   if (manualMode || document.body.dataset.mode === "dashboard") return;
-  let planned = 0;
+  let planned = 0, goalSteps = 0;
   const agents = new Set();
   for (const t of tasks.values()) {
     if (!t.listed || isFinal(t)) continue;
     if (t.kind === "plan") planned += 1;
+    if (t.kind === "goal") goalSteps = Math.max(goalSteps, t.steps || 0);   // belegte Schrittzahl des gespeicherten Plans (activity.items[].steps), getrennt gezaehlt
     const r = routes.get(t.id);
     if (r) agents.add(r.agent);
   }
-  if (planned >= MIN_PLANNED_STEPS || agents.size >= MIN_AGENTS) setMode("dashboard");
+  if (planned >= MIN_PLANNED_STEPS || goalSteps >= MIN_PLANNED_STEPS || agents.size >= MIN_AGENTS) setMode("dashboard");
 }
 
 // ---- Rueckfragen (cc-confirmation) ------------------------------------------------------------------------------------------------------
@@ -498,6 +514,7 @@ document.addEventListener("keydown", (e) => {
 
 function setEmergency(engaged) {
   el("emergency-banner").hidden = !engaged;
+  el("reset-emergency").hidden = !engaged;  // der Knopf existiert nur bei aktivem Notaus
   emergencyOn = engaged === true;
   if (emergencyOn) { voiceActive = false; level = 0; waveHistory.length = 0; }  // der Notaus beendet den Sprachmodus: kein "Mikrofon an" anzeigen
   renderVoice();
@@ -524,6 +541,7 @@ function renderVoice() {
   el("voice-level-text").textContent = voiceActive === true ? "Pegel " + Math.round(level * 100) + " %" : voiceActive === false ? "kein Pegel (Mikrofon aus)" : "kein Pegel gemeldet";
   el("voice-start").disabled = voiceActive === true || emergencyOn;
   el("voice-stop").disabled = voiceActive !== true;
+  el("speech-stop").disabled = voiceActive !== true;
   renderStatus();
 }
 
@@ -570,7 +588,7 @@ function handle(ev) {
   addItem(el("log"), "#" + ev.seq + " " + ev.type);
   const d = ev.data;
   switch (ev.type) {
-    case "state": setState(d.state, d.detail); break;
+    case "state": { const wasBusy = BUSY_STATES.has(document.body.dataset.state); setState(d.state, d.detail); pollActivityWhileBusy(); if (wasBusy && !BUSY_STATES.has(d.state)) send("request_snapshot", {}); break; }  // ein letzter Schnappschuss nach dem Ende der Bearbeitung
     case "chat": addItem(el("chat"), d.sender + ": " + d.text, d.sender); break;
     case "activity": renderActivity(d); break;
     case "task_update": onTaskUpdate(d); scheduleTimeline(); break;
@@ -934,7 +952,9 @@ el("effects").addEventListener("change", (e) => setEffects(el("effects").value))
 el("mode-toggle").addEventListener("click", () => { manualMode = true; setMode(document.body.dataset.mode === "orb" ? "dashboard" : "orb"); });
 el("voice-start").addEventListener("click", () => send("start_voice", {}));  // einzige Stelle, die das Mikrofon anfordert: ausdruecklicher Knopfdruck
 el("voice-stop").addEventListener("click", () => send("stop_voice", {}));
+el("speech-stop").addEventListener("click", () => send("stop_speech", {}));  // nur die ANFRAGE: bricht die laufende Ausgabe ab, der Sprachmodus bleibt
 el("emergency").addEventListener("click", () => send("emergency_stop", {}));
+el("reset-emergency").addEventListener("click", () => send("reset_emergency", {}));  // nur die ANFRAGE: die Berechtigungs-Engine fragt den Menschen ("Notaus aufheben?"); nichts wird hier aufgehoben oder bestaetigt
 el("input-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const text = el("input").value.trim();

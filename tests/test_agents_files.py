@@ -42,7 +42,7 @@ def ask(ui, text, wait=20.0):
     end = time.monotonic() + wait
     while time.monotonic() < end:
         evs = ui.events_since(0, 500)
-        if any(e["type"] == "chat" and e["data"]["sender"] == "jarvis" for e in evs) and evs[-1]["type"] != "activity":
+        if any(e["type"] == "chat" and e["data"]["sender"] == "jarvis" for e in evs) and (evs[-1]["type"] != "activity" or not evs[-1]["data"]["items"]):
             time.sleep(0.2)
             evs = ui.events_since(0, 500)
             return [e["data"]["text"] for e in evs if e["type"] == "chat" and e["data"]["sender"] == "jarvis"], evs

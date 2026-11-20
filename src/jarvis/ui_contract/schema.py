@@ -142,7 +142,8 @@ class Obj:
 
 ID = Str(pattern=_ID)
 SHORT, LABEL, TEXT = Str(MAX_SHORT), Str(MAX_LABEL), Str(MAX_TEXT)
-ACTIVITY_ITEM = Obj({"kind": Enum(ACTIVITY_KINDS), "id": ID, "title": SHORT, "status": Str(32), "note": SHORT, "cancellable": Bool()})
+ACTIVITY_ITEM = Obj({"kind": Enum(ACTIVITY_KINDS), "id": ID, "title": SHORT, "status": Str(32), "note": SHORT, "cancellable": Bool(), "steps": Num(0, 200)},
+                     optional=("steps",))
 
 EVENT_SPECS: dict[str, Obj] = {
     "hello": Obj({"contract": Str(16), "backend": Str(64), "capabilities": List(Str(32), 32), "emergency": Bool()}),
@@ -164,6 +165,7 @@ COMMAND_SPECS: dict[str, Obj] = {
     "submit_text": Obj({"text": Str(MAX_TEXT, 1)}),
     "start_voice": Obj({}),
     "stop_voice": Obj({}),
+    "stop_speech": Obj({}),                # only cuts the speech output in progress; the voice mode stays on (additive, no rights, no tool)
     "cancel": Obj({"kind": Enum(ACTIVITY_KINDS), "id": ID}),
     "confirm": Obj({"request_id": ID, "choice": Enum(CHOICES)}),
     "emergency_stop": Obj({}),

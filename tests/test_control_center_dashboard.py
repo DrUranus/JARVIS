@@ -112,7 +112,7 @@ def test_dashboard_texts_are_never_inserted_as_html():
 def test_cancel_command_is_wired_with_contract_fields_only():
     js = text("app.js")
     assert re.search(r'send\("cancel",\s*\{\s*kind:\s*\w+(\.\w+)?,\s*id:\s*\w+(\.\w+)?\s*\}', js)
-    assert "reset_emergency" not in js and "grant" not in js
+    assert js.count("reset_emergency") == 1 and 'send("reset_emergency", {})' in js and "grant" not in js  # nur die Anfrage, kein Rechte-Befehl
 
 
 def test_premium_v2_layout_agents_left_orb_center_tasks_right():
@@ -237,6 +237,22 @@ def test_dom_auto_switch_needs_three_planned_steps_or_two_agents(tmp_path):
 
 
 @pytestmark_node
+def test_dom_auto_switch_uses_the_real_step_count_of_a_goal_and_polls_while_busy(tmp_path):
+    """B9-1b: ein Ziel mit >=3 geplanten Schritten (activity.items[].steps) schaltet ins Dashboard, eines mit 1-2 Schritten nicht;
+    waehrend der Bearbeitung (processing/awaiting_confirmation) fragt die Seite die Arbeitsliste selbst nach (request_snapshot), danach nicht mehr."""
+    goal = lambda n: {**item("g-1", kind="goal"), "steps": n}  # noqa: E731
+    snaps = run_scenario(tmp_path, [activity(goal(2)), {"snap": "two"}, activity(goal(3)), {"snap": "three"}])
+    assert snaps["two"]["mode"] == "orb" and snaps["three"]["mode"] == "dashboard"
+    snaps = run_scenario(tmp_path, [activity(goal(2), item("p1", kind="plan")), {"snap": "mixed"}])
+    assert snaps["mixed"]["mode"] == "orb"                                                  # 2 Schritte + 1 gespeicherter Plan sind keine 3 geplanten Schritte (Echtlauf: einfacher Auftrag)
+    snaps = run_scenario(tmp_path, [activity({**item("g-2", kind="goal", status="SUCCEEDED"), "steps": 5}), {"snap": "final"}])
+    assert snaps["final"]["mode"] == "orb"                                                  # beendetes Ziel zaehlt nicht
+    snaps = run_scenario(tmp_path, [{"snap": "start"}, ev("state", {"state": "processing"}), {"snap": "busy"}])
+    assert not any(c["type"] == "request_snapshot" for c in snaps["start"]["sent"])
+    assert any(c["type"] == "request_snapshot" for c in snaps["busy"]["sent"])                # sofort beim Start der Bearbeitung, danach per Zeitgeber, bis die Arbeit endet
+
+
+@pytestmark_node
 def test_dom_manual_choice_wins_over_auto_switch(tmp_path):
     plan = [item(f"p{i}", kind="plan") for i in range(4)]
     snaps = run_scenario(tmp_path, [{"toggle": True}, {"toggle": True}, {"snap": "manual_orb"}, activity(*plan), {"snap": "after"}])
@@ -283,3 +299,52 @@ def test_dom_result_links_back_to_its_task_as_a_button_not_a_hyperlink(tmp_path)
     ])
     assert "Titel: Zweite" in snaps["x"]["text"]["task-detail"]
     assert 'href=' not in text("app.js").split("function renderResults")[1].split("function renderDashboard")[0]
+
+
+# ---- Not-Aus aufheben (B9-4-Reset): nur die ANFRAGE, die Engine fragt den Menschen ---------------------------------------------------------------
+@pytestmark_node
+def test_dom_reset_button_only_visible_while_the_stop_is_engaged_and_sends_only_the_request(tmp_path):
+    snaps = run_scenario(tmp_path, [
+        ev("emergency", {"engaged": False, "reason": ""}),
+        {"snap": "vorher"},
+        ev("emergency", {"engaged": True, "reason": "Notaus per UI"}),
+        {"snap": "aktiv"},
+        {"clickId": "reset-emergency"},
+        {"snap": "geklickt"},
+        ev("emergency", {"engaged": False, "reason": ""}),
+        {"snap": "aufgehoben"},
+    ])
+    assert snaps["vorher"]["props"]["emergency-banner"]["hidden"] is True
+    assert snaps["aktiv"]["props"]["emergency-banner"]["hidden"] is False and snaps["aktiv"]["props"]["reset-emergency"]["hidden"] is False
+    assert snaps["aufgehoben"]["props"]["emergency-banner"]["hidden"] is True and snaps["aufgehoben"]["props"]["reset-emergency"]["hidden"] is True
+    sent = snaps["geklickt"]["sent"]
+    assert [c["type"] for c in sent] == ["reset_emergency"] and sent[0]["data"] == {}      # genau die Anfrage; kein confirm, kein grant, kein emergency_stop
+
+
+@pytestmark_node
+def test_dom_reset_button_stays_hidden_while_no_stop_is_engaged(tmp_path):
+    snaps = run_scenario(tmp_path, [ev("emergency", {"engaged": False, "reason": ""}), {"snap": "s"}])
+    assert snaps["s"]["props"]["reset-emergency"]["hidden"] is True and snaps["s"]["sent"] == []
+
+
+def test_reset_button_markup_is_inside_the_banner_and_not_a_separate_path():
+    html, css = text("index.html"), text("styles.css")
+    assert re.search(r'<div id="emergency-banner"[^>]*hidden>.*<button id="reset-emergency"[^>]*>Not-Aus aufheben \.\.\.</button>.*</div>', html, re.S)
+    assert "pointer-events: none" not in css
+
+
+# ---- Status nach Abschluss (Livebefund 2026-11-20) ---------------------------------------------------------------------------------------------------
+@pytestmark_node
+def test_dom_requests_one_more_snapshot_when_the_busy_state_ends(tmp_path):
+    snaps = run_scenario(tmp_path, [ev("state", {"state": "processing", "detail": ""}), activity(item("t1")), {"snap": "busy"},
+                                    ev("state", {"state": "ready", "detail": ""}), {"snap": "ready"}])
+    n = lambda k: len([c for c in snaps[k]["sent"] if c["type"] == "request_snapshot"])  # noqa: E731
+    assert n("ready") > n("busy")                                # ein letzter Schnappschuss nach dem Ende statt des veralteten aus der Bearbeitung
+
+
+@pytestmark_node
+def test_dom_task_missing_from_the_latest_snapshot_is_shown_as_no_longer_active_without_cancel(tmp_path):
+    snaps = run_scenario(tmp_path, [activity(item("t1")), {"snap": "a"}, activity(), {"snap": "b"}])
+    a, b = snaps["a"]["text"]["task-list"], snaps["b"]["text"]["task-list"]
+    assert "Abbrechen" in a and "[RUNNING]" in a
+    assert "Abbrechen" not in b and "[RUNNING]" not in b and "nicht mehr aktiv" in b       # ehrlich: Status unbekannt, kein erfundenes SUCCEEDED

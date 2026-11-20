@@ -15,8 +15,14 @@ from typing import Callable, Iterable, Protocol
 
 from jarvis.errors import STTError, VoiceUnavailableError
 from jarvis.voice.base import AudioClip, STTProvider
+from jarvis.voice.stt_strategy import STTHalted
 
 REQUIRED_RATE = 16000
+AUTO_LANGUAGES = ("", "auto")          # voice.language = "auto": das Modell erkennt die Sprache selbst (deutsch-englische Mischsaetze, Akzente)
+
+
+def language_arg(language: str | None) -> str | None:
+    return None if language is None or language.strip().lower() in AUTO_LANGUAGES else language.strip()
 
 
 class Engine(Protocol):
@@ -24,7 +30,7 @@ class Engine(Protocol):
         """Segmenttexte (lazy erlaubt) und die erkannte/angegebene Sprache."""
 
 
-def load_faster_whisper(model_dir: str, device: str = "cpu", compute_type: str = "int8") -> Engine:
+def load_faster_whisper(model_dir: str, device: str = "cpu", compute_type: str = "int8", hints: str | None = None) -> Engine:
     """Standard-Lader. Importiert faster-whisper erst hier und laedt nur aus `model_dir` (local_files_only)."""
     os.environ.setdefault("HF_HUB_OFFLINE", "1")  # vor dem Import: kein Hub-Zugriff
     try:
@@ -37,12 +43,12 @@ def load_faster_whisper(model_dir: str, device: str = "cpu", compute_type: str =
         model = WhisperModel(model_dir, device=device, compute_type=compute_type, local_files_only=True)
     except Exception as exc:  # noqa: BLE001 - Bibliotheksfehler in klare Meldung wandeln
         raise STTError(f"Lokales Sprachmodell in {model_dir!r} konnte nicht geladen werden: {exc}") from exc
-    return _FasterWhisperEngine(model)
+    return _FasterWhisperEngine(model, hints)
 
 
 class _FasterWhisperEngine:
-    def __init__(self, model: object) -> None:
-        self._model = model
+    def __init__(self, model: object, hints: str | None = None) -> None:
+        self._model, self._hints = model, hints          # hints: Schreibweisen von Eigennamen/Fachwoertern (initial_prompt), keine Befehle
 
     def transcribe(self, clip: AudioClip, language: str | None) -> tuple[Iterable[str], str | None]:
         try:
@@ -50,16 +56,18 @@ class _FasterWhisperEngine:
         except ImportError as exc:
             raise VoiceUnavailableError('Lokale Spracherkennung braucht numpy: pip install -e ".[stt-local]"') from exc
         audio = np.frombuffer(clip.pcm, dtype="<i2").astype(np.float32) / 32768.0
-        segments, info = self._model.transcribe(audio, language=language, vad_filter=True)  # type: ignore[attr-defined]
+        segments, info = self._model.transcribe(audio, language=language_arg(language), vad_filter=True,  # type: ignore[attr-defined]
+                                                initial_prompt=self._hints or None)
         return (s.text for s in segments), getattr(info, "language", language)
 
 
 class LocalWhisperSTT(STTProvider):
     name = "local"
+    cloud = False                                        # Audio verlaesst den PC nie
 
     def __init__(self, model_dir: str | None, *, device: str = "cpu", compute_type: str = "int8",
                  timeout: float = 30.0, engine_loader: Callable[[str], Engine] | None = None,
-                 guard: Callable[[], str | None] | None = None) -> None:
+                 guard: Callable[[], str | None] | None = None, hints: str | None = None) -> None:
         if not model_dir:
             raise STTError("Lokale Spracherkennung: voice.stt_model_dir ist nicht gesetzt "
                            "(Verzeichnis eines lokal abgelegten Modells; kein automatischer Download).")
@@ -70,7 +78,7 @@ class LocalWhisperSTT(STTProvider):
         if not path.is_dir():
             raise STTError(f"Lokale Spracherkennung: voice.stt_model_dir={model_dir!r} ist kein Verzeichnis.")
         self._dir, self._timeout, self._guard = str(path), timeout, guard
-        self._loader = engine_loader or (lambda p: load_faster_whisper(p, device, compute_type))
+        self._loader = engine_loader or (lambda p: load_faster_whisper(p, device, compute_type, hints))
         self._engine: Engine | None = None
         self.last_language: str | None = None
 
@@ -78,7 +86,7 @@ class LocalWhisperSTT(STTProvider):
         if self._guard is not None:
             reason = self._guard()
             if reason:
-                raise STTError(f"Lokale Spracherkennung gestoppt: {reason}")
+                raise STTHalted(f"Lokale Spracherkennung gestoppt: {reason}")
         if clip.is_empty:
             return ""
         if clip.sample_rate != REQUIRED_RATE:

@@ -1,0 +1,28 @@
+{
+  "_hinweis": "SYNTHETISCHE Sprachdaten (Windows-Sprachausgabe, Stimmen Hedda de-DE / Zira en-US). Die Referenz ist der Eingabetext. Das sind KEINE echten Dialekte, Akzente oder Umgangssprache: dafuer eigene Aufnahmen als <name>.wav + <name>.txt in --wav-dir ablegen (bleiben lokal, werden nie hochgeladen).",
+  "items": [
+    {"id": "umlaut-1", "category": "umlaute", "voice": "Hedda", "lang": "de", "text": "Die Größe der Übung für die Fähre betrug fünfzehn Meter.", "critical": ["Größe", "Übung", "Fähre"]},
+    {"id": "umlaut-2", "category": "umlaute", "voice": "Hedda", "lang": "de", "text": "Schöne Grüße aus Köln, wir müssen später über Gebühren sprechen.", "critical": ["Grüße", "müssen"]},
+    {"id": "umlaut-3", "category": "umlaute", "voice": "Hedda", "lang": "de", "text": "Der Fußball liegt auf der Straße, weiß und groß.", "critical": ["Fußball", "Straße", "weiß"]},
+    {"id": "technik-1", "category": "technik", "voice": "Hedda", "lang": "de", "text": "Starte PowerShell und öffne den Windows Explorer.", "critical": ["PowerShell", "Explorer"]},
+    {"id": "technik-2", "category": "technik", "voice": "Hedda", "lang": "de", "text": "Installiere Python und führe pytest im Ordner Projekte aus.", "critical": ["Python", "pytest"]},
+    {"id": "technik-3", "category": "technik", "voice": "Hedda", "lang": "de", "text": "Öffne Notepad und schreibe eine Zeile in die Datei notizen.txt.", "critical": ["Notepad", "notizen.txt"]},
+    {"id": "jarvis-1", "category": "jarvis_namen", "voice": "Hedda", "lang": "de", "text": "JARVIS, wie spät ist es?", "critical": ["JARVIS"]},
+    {"id": "jarvis-2", "category": "jarvis_namen", "voice": "Hedda", "lang": "de", "text": "Hey JARVIS, öffne bitte das NEXUS Dashboard.", "critical": ["JARVIS", "NEXUS"]},
+    {"id": "jarvis-3", "category": "jarvis_namen", "voice": "Hedda", "lang": "de", "tts_text": "Dscharvis, zeige mir den Status von Nexus.", "text": "JARVIS, zeige mir den Status von NEXUS.", "critical": ["JARVIS", "NEXUS"], "_hinweis": "tts_text ist eine lautmalerische Schreibweise fuer eine andere Aussprache (synthetisch)"},
+    {"id": "mix-1", "category": "gemischt", "voice": "Hedda", "lang": "de", "text": "Mach bitte ein Meeting mit dem Team und schick den Link per Mail.", "critical": ["Meeting", "Link"], "_hinweis": "englische Woerter, von der deutschen Stimme gelesen"},
+    {"id": "mix-2", "category": "gemischt", "voice": "Hedda", "lang": "de", "text": "Lade den Download herunter und check den Status im Browser.", "critical": ["Download", "Browser"]},
+    {"id": "kurz-1", "category": "kurz", "voice": "Hedda", "lang": "de", "text": "Ja.", "critical": []},
+    {"id": "kurz-2", "category": "kurz", "voice": "Hedda", "lang": "de", "text": "Abbrechen.", "critical": ["Abbrechen"]},
+    {"id": "kurz-3", "category": "kurz", "voice": "Hedda", "lang": "de", "text": "Stopp, nicht ausführen.", "critical": ["nicht"]},
+    {"id": "lang-1", "category": "lang", "voice": "Hedda", "lang": "de", "text": "Erstelle bitte einen neuen Ordner namens Rechnungen zweitausendsechsundzwanzig und lege darin eine Datei an, in der ich die offenen Beträge für den Steuerberater sammle.", "critical": ["Rechnungen", "Ordner"]},
+    {"id": "lang-2", "category": "lang", "voice": "Hedda", "lang": "de", "text": "Recherchiere im Internet, welche drei Laptops im Moment für Programmierer empfohlen werden, und fasse die Ergebnisse mit Quellen kurz zusammen.", "critical": ["Recherchiere", "Laptops"]},
+    {"id": "befehl-1", "category": "befehl_kritisch", "voice": "Hedda", "lang": "de", "text": "Lies die Datei bericht.txt.", "critical": ["Lies", "bericht.txt"], "_hinweis": "lies/lösche duerfen nicht verwechselt werden"},
+    {"id": "befehl-2", "category": "befehl_kritisch", "voice": "Hedda", "lang": "de", "text": "Lösche die Datei bericht.txt.", "critical": ["Lösche", "bericht.txt"]},
+    {"id": "befehl-3", "category": "befehl_kritisch", "voice": "Hedda", "lang": "de", "text": "Kopiere die Datei a.txt nach b.txt.", "critical": ["Kopiere", "a.txt", "b.txt"]},
+    {"id": "befehl-4", "category": "befehl_kritisch", "voice": "Hedda", "lang": "de", "text": "Erstelle den Ordner Archiv.", "critical": ["Erstelle", "Archiv"]},
+    {"id": "en-1", "category": "englisch", "voice": "Zira", "lang": "en", "text": "Please open the settings and show me the current status.", "critical": ["settings", "status"]},
+    {"id": "en-2", "category": "englisch", "voice": "Zira", "lang": "en", "text": "Create a new folder called Reports and read the file notes dot txt.", "critical": ["folder", "Reports"]},
+    {"id": "akzent-1", "category": "akzent_synthetisch", "voice": "Hedda", "lang": "en", "text": "Please open the settings and show me the current status.", "critical": ["settings", "status"], "_hinweis": "englischer Text mit deutscher Stimme = simulierter deutscher Akzent, KEIN echter Akzent"}
+  ]
+}
