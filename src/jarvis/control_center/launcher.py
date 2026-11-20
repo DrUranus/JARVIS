@@ -50,7 +50,20 @@ def build_views(core: Any, assistant: Any, settings: Settings | None = None) -> 
     if settings is not None:
         from jarvis.control_center.setup_view import build_report
         doctor = lambda: build_report(core, settings)                                  # noqa: E731 - nur lesend, bei jedem Abruf frisch
-    return ReadViews(journal=store, audit_tail=getattr(audit, "tail", None), doctor=doctor)
+    return ReadViews(journal=store, audit_tail=getattr(audit, "tail", None), doctor=doctor, agents_source=_agents_source(core))
+
+
+def _agents_source(core: Any) -> Callable[[int], dict[str, Any]] | None:
+    """Nur lesende Quelle fuer `/view/agents`: Agentenliste der Registry und `list`/`describe` des Orchestrators. Kein Starten, Abbrechen oder Einreichen."""
+    orch = getattr(core.subsystems.get("agents"), "orchestrator", None)
+    if orch is None:
+        return None
+
+    def read(limit: int) -> dict[str, Any]:
+        agents = [{"id": a.id, "status": getattr(getattr(a, "status", None), "value", str(getattr(a, "status", ""))), "capabilities": sorted(getattr(a, "capabilities", ())),
+                   "reason": getattr(a, "status_reason", "")} for a in orch.registry.list()]
+        return {"agents": agents, "tasks": [orch.describe(r.task_id) for r in orch.list(limit=limit)]}
+    return read
 
 
 def main(argv: Sequence[str] | None = None) -> int:

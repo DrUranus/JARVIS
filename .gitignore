@@ -10,3 +10,9 @@ data/
 logs/*.jsonl
 config/policy.toml
 reports/
+
+# Lokale Abnahme-/Voice-Konfigurationen und Belege (Schluessel, Mikrofon-/Modellpfade, Screenshots): nie ins Repository
+abnahme-v2/
+config/*.voice-test.toml
+config/nexus.live.toml
+config/*.local.toml

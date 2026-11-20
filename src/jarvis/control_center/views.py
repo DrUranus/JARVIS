@@ -19,6 +19,9 @@ KINDS = ("goal", "agent_task")
 _TOKEN = re.compile(r"[A-Za-z0-9_.\-]{1,64}")
 _STATUS = re.compile(r"[A-Za-z_]{1,32}")
 _NUMBER = re.compile(r"[0-9]{1,6}")
+TRACE_TYPES = ("execution_result", "permission_denied")                           # Werkzeugaufrufe: ausgefuehrt bzw. abgelehnt
+_TRACE_FIELDS = ("timestamp", "type", "tool", "action", "level", "status")        # bewusst OHNE resource/detail/extra: keine Inhalte
+MAX_AGENTS, MAX_DEPENDENCIES = 50, 20
 _AUDIT_FIELDS = ("id", "timestamp", "type", "request_id", "tool", "action", "resource", "level", "status", "rule", "scope", "detail")
 
 
@@ -29,10 +32,10 @@ class ViewError(ValueError):
 class ReadViews:
     def __init__(self, journal: Any = None, audit_tail: Callable[[int], list[dict[str, Any]]] | None = None, detector: SecretDetector | None = None, *,
                  default_limit: int = DEFAULT_LIMIT, max_limit: int = MAX_LIMIT, audit_window: int = AUDIT_WINDOW,
-                 doctor: Callable[[], dict[str, Any]] | None = None) -> None:
+                 doctor: Callable[[], dict[str, Any]] | None = None, agents_source: Callable[[int], Mapping[str, Any]] | None = None) -> None:
         if not 1 <= default_limit <= max_limit:
             raise ValueError("default_limit must be within 1..max_limit")
-        self._journal, self._audit_tail, self._doctor = journal, audit_tail, doctor
+        self._journal, self._audit_tail, self._doctor, self._agents_source = journal, audit_tail, doctor, agents_source
         self._detector = detector or SecretDetector.from_environment()
         self._default, self._max, self._window = default_limit, max_limit, max(1, audit_window)
 
@@ -135,6 +138,91 @@ class ReadViews:
             item["extra"] = {self._text(k, 64): self._text(v, 300) for k, v in list(self._detector.redact_mapping(extra).items())[:MAX_ITEMS_PER_LIST]}
         return item or {"type": "unreadable_line"}
 
+
+    # ---- Agenten und Aufgaben (Orchestrator, nur lesend) ---------------------------------------------------------------------------------------------
+    def agents(self, params: Mapping[str, str]) -> dict[str, Any]:
+        """Registrierte Agenten und die letzten Aufgaben (hoechstens die letzten `max_limit`), neueste zuerst; Filter `agent`, `status`. Nur Metadaten: keine Eingaben, keine Ergebnisse.
+        Die Quelle ist eine nur lesende Funktion (`agents_source`), die der Aufbau in launcher.py liefert; dieses Modul kennt den Orchestrator nicht."""
+        self._check_keys(params, ("agent", "status"))
+        limit = self._limit(params)
+        flt = {"agent": self._filter(params, "agent", _TOKEN), "status": self._filter(params, "status", _STATUS)}
+        out: dict[str, Any] = {"available": False, "limit": limit, "filters": flt, "agents": [], "items": [], "reason": ""}
+        if self._agents_source is None:
+            out["reason"] = "Die Agentenschicht ist nicht aktiv (agents.enabled = false)."
+            return out
+        try:
+            raw = self._agents_source(self._max)
+        except Exception:                                                              # noqa: BLE001 - keine Interna nach aussen
+            log.warning("agents view failed", exc_info=True)
+            out["reason"] = "Die Agentenuebersicht ist nicht lesbar."
+            return out
+        out["available"] = True
+        if not isinstance(raw, Mapping):
+            return out
+        t = self._text
+        agents = [a for a in self._as_list(raw.get("agents"))[:MAX_AGENTS] if isinstance(a, Mapping)]
+        out["agents"] = sorted(({"id": t(a.get("id"), 64), "status": t(a.get("status"), 32), "capabilities": [t(c, 64) for c in self._as_list(a.get("capabilities"))[:MAX_ITEMS_PER_LIST]],
+                                 "reason": t(a.get("reason"), 200)} for a in agents), key=lambda a: a["id"])
+        items = []
+        for task in reversed([x for x in self._as_list(raw.get("tasks")) if isinstance(x, Mapping)]):          # die Quelle liefert aelteste zuerst
+            item = self._task_item(task)
+            if flt["agent"] is not None and item["agent_id"] != flt["agent"]:
+                continue
+            if flt["status"] is not None and item["status"].lower() != flt["status"].lower():
+                continue
+            items.append(item)
+            if len(items) >= limit:
+                break
+        out["items"] = items
+        return out
+
+    @staticmethod
+    def _as_list(value: Any) -> list[Any]:
+        return list(value) if isinstance(value, (list, tuple)) else []
+
+    def _task_item(self, task: Mapping[str, Any]) -> dict[str, Any]:
+        t = self._text
+        item: dict[str, Any] = {"task_id": t(task.get("task_id"), 64), "agent_id": t(task.get("agent_id"), 64), "status": t(task.get("status"), 32),
+                                "objective": t(task.get("objective"), 300), "summary": t(task.get("summary"), 300)}
+        prio = task.get("priority")
+        if isinstance(prio, int) and not isinstance(prio, bool):
+            item["priority"] = max(1, min(10, prio))
+        for key, limit in (("error_code", 64), ("started_at", 40), ("finished_at", 40)):
+            if task.get(key):
+                item[key] = t(task[key], limit)
+        item["dependencies"] = [t(d, 64) for d in self._as_list(task.get("dependencies"))[:MAX_DEPENDENCIES]]
+        for key in ("timed_out", "cancel_requested"):
+            item[key] = task.get(key) is True
+        return item
+
+    # ---- Werkzeugaufrufe (aus dem Audit, ohne Inhalte) ---------------------------------------------------------------------------------------------
+    def trace(self, params: Mapping[str, str]) -> dict[str, Any]:
+        """Ausgefuehrte und abgelehnte Werkzeugaufrufe (Audit-Typen `execution_result`, `permission_denied`), neueste zuerst; Filter `tool`, `status`. Nur Zeit, Typ, Werkzeug, Aktion, Stufe, Ergebnis."""
+        self._check_keys(params, ("tool", "status"))
+        limit = self._limit(params)
+        flt = {"tool": self._filter(params, "tool", _TOKEN), "status": self._filter(params, "status", _TOKEN)}
+        out: dict[str, Any] = {"available": False, "limit": limit, "filters": flt, "items": [], "reason": ""}
+        if self._audit_tail is None:
+            out["reason"] = "Kein Audit-Protokoll aktiv (security.audit_enabled = false)."
+            return out
+        try:
+            raw = list(self._audit_tail(self._window))
+        except Exception:                                                              # noqa: BLE001
+            log.warning("trace view failed", exc_info=True)
+            out["reason"] = "Das Audit-Protokoll ist nicht lesbar."
+            return out
+        out["available"] = True
+        items = []
+        for ev in reversed(raw):                                                       # newest first
+            if not isinstance(ev, dict) or ev.get("type") not in TRACE_TYPES or not ev.get("tool"):
+                continue
+            item = {k: self._text(ev[k], 64) for k in _TRACE_FIELDS if k in ev and ev[k] not in (None, "")}
+            if all(v is None or item.get(n) == v for n, v in flt.items()):
+                items.append(item)
+                if len(items) >= limit:
+                    break
+        out["items"] = items
+        return out
 
     # ---- Einrichtung und Diagnose (nur lesend, nur Daten) -----------------------------------------------------------------------------------
     def doctor(self, params: Mapping[str, str]) -> dict[str, Any]:

@@ -19,6 +19,7 @@ import pytest
 playwright_sync = pytest.importorskip("playwright.sync_api", reason="playwright fehlt: Browser-E2E nicht moeglich (ein uebersprungener Test gilt nicht als bestanden)")
 
 from jarvis.control_center.server import ControlCenterServer
+from jarvis.control_center.views import ReadViews
 from jarvis.ui_contract import FakeUiBackend
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,9 +68,9 @@ def until(page, expr, timeout=10.0):
 class Gui:
     """Server (Fake-Backend) plus eine Browserseite; sammelt JS-Fehler und alle Netzwerkziele."""
 
-    def __init__(self, browser, backend=None, *, viewport=(1440, 900), on_open_main=None, query="", **ctx):
+    def __init__(self, browser, backend=None, *, viewport=(1440, 900), on_open_main=None, query="", views=None, **ctx):
         self.backend = backend or FakeUiBackend()
-        self.srv = ControlCenterServer(self.backend, poll_interval=0.02, on_open_main=on_open_main)
+        self.srv = ControlCenterServer(self.backend, poll_interval=0.02, on_open_main=on_open_main, views=views or ReadViews())     # wie der Launcher: die Ansichten sind immer da (hier ohne Quellen)
         self.srv.start()
         self.context = browser.new_context(viewport={"width": viewport[0], "height": viewport[1]}, **ctx)
         self.page = self.context.new_page()
@@ -394,3 +395,107 @@ def test_setup_panel_shows_the_real_diagnosis_read_only_with_keys_only_as_set_or
     finally:
         ctx.close()
         srv.stop()
+
+
+# ---- WP07b: Zeitleiste (DOM-Liste aus /view/agents) und E10-Messung ------------------------------------------------------------------------------
+TL_STATES = ["PENDING", "RUNNING", "SUCCEEDED", "FAILED", "BLOCKED", "CANCELLED"]
+
+
+def tl_task(i, status="RUNNING", **kw):
+    t = {"task_id": f"at-{i:04d}", "agent_id": "research", "status": status, "objective": "Preise suchen", "summary": "", "dependencies": [], "timed_out": False, "cancel_requested": False}
+    t.update(kw)
+    return t
+
+
+def tl_views(tasks):
+    return ReadViews(agents_source=lambda limit: {"agents": [{"id": "research", "status": "AVAILABLE", "capabilities": ["research.web"], "reason": ""}], "tasks": list(tasks())})
+
+
+def test_timeline_shows_each_state_in_its_own_colour_and_follows_task_events(browser):
+    tasks = [tl_task(i, s, started_at=f"2026-11-12T10:0{i}:00+00:00") for i, s in enumerate(TL_STATES, start=1)]
+    g = Gui(browser, views=tl_views(lambda: tasks))
+    try:
+        p = g.page
+        if p.locator("body").get_attribute("data-mode") == "orb":
+            p.click("#mode-toggle")
+        p.click("#timeline-refresh")
+        until(p, f"document.querySelectorAll('#timeline-list li').length === {len(TL_STATES)}")
+        rows = p.evaluate("Array.from(document.querySelectorAll('#timeline-list li')).map(li => [li.dataset.status, getComputedStyle(li).borderLeftColor])")
+        assert [r[0] for r in rows] == [s.lower() for s in TL_STATES]
+        assert len({r[1] for r in rows}) == len(TL_STATES), rows                      # sechs Zustaende, sechs Farben
+        tasks.insert(0, tl_task(9, "FAILED", started_at="2026-11-12T10:09:00+00:00"))
+        g.backend._emit("task_update", {"kind": "agent_task", "id": "at-0009", "status": "FAILED", "detail": "x"})
+        until(p, f"document.querySelectorAll('#timeline-list li').length === {len(TL_STATES) + 1}")
+        g.shot("wp07b_timeline")
+        assert not g.errors, g.errors
+    finally:
+        g.close()
+
+
+def test_e10_timeline_first_display_of_100_entries_is_under_500_ms_and_is_recorded(browser):
+    """E10 (vorlaeufig): 100 Eintraege, erste Darstellung (kalte Seite, Klick bis 100 Zeilen im DOM) unter 500 ms. Gemessen wird im Browser des jeweiligen Laufs (Linux/Windows-CI);
+    das Protokoll (Umgebung, Chromium, Plattform, CPUs, alle Laeufe) liegt in reports/gui/e2e/wp07b_timeline_perf.json. Keine native Fenster- oder Hardwaremessung (#186)."""
+    import json
+    import platform
+    budget_ms, entries, runs_wanted = 500.0, 100, 3
+    tasks = [tl_task(i, TL_STATES[i % len(TL_STATES)], objective=f"Aufgabe {i} " + "x" * 120, started_at=f"2026-11-12T10:{i // 60:02d}:{i % 60:02d}+00:00",
+                     dependencies=[f"at-{i - 1:04d}"] if i else []) for i in range(entries)]
+    runs = []
+    for _ in range(runs_wanted):                                                            # every run is a cold page: first display, not a warm update
+        g = Gui(browser, views=tl_views(lambda: tasks))
+        try:
+            p = g.page
+            if p.locator("body").get_attribute("data-mode") == "orb":
+                p.click("#mode-toggle")
+            measured = p.evaluate("""async (want) => {
+              const ul = document.getElementById('timeline-list'); const t0 = performance.now();
+              document.getElementById('timeline-refresh').click();
+              await new Promise((res) => { const check = () => (ul.children.length >= want ? res() : requestAnimationFrame(check)); check(); });
+              const first = performance.now() - t0;
+              const data = await (await fetch(url('view/agents', 0, { limit: '100' }), { method: 'GET' })).json();
+              const r0 = performance.now(); renderTimeline(data); const render = performance.now() - r0;
+              return { first_display_ms: first, render_only_ms: render, rows: ul.children.length };
+            }""", entries)
+            assert measured["rows"] == entries
+            runs.append(measured)
+        finally:
+            g.close()
+    evidence = {"entries": entries, "target_ms": budget_ms, "runs": runs, "chromium": browser.version, "platform": platform.platform(), "python": platform.python_version(), "cpus": os.cpu_count(),
+                "note": "cold page, headless Chromium against the real loopback server with a fake agents source; click -> 100 rows in the DOM. Not a native-window or real-hardware measurement."}
+    EVIDENCE.mkdir(parents=True, exist_ok=True)
+    (EVIDENCE / "wp07b_timeline_perf.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")
+    print("E10 timeline perf:", json.dumps(evidence))
+    assert runs[0]["first_display_ms"] < budget_ms, evidence                                # the FIRST (coldest) run decides; all runs are recorded
+
+
+# ---- WP07c: Freigabe-Panel (reine Anzeige) ----------------------------------------------------------------------------------------------------------
+def test_approvals_panel_lists_the_open_request_shows_history_and_keeps_the_emergency_button_working(browser):
+    audit = [{"id": "a1", "timestamp": "2026-11-12T10:01:01+00:00", "type": "confirmation_requested", "request_id": "r1", "tool": "keyboard", "action": "type", "level": "yellow", "status": "pending",
+              "detail": "GEHEIMES-DETAIL-NIE-ANZEIGEN", "resource": "GEHEIME-RESSOURCE"}]
+    g = Gui(browser, views=ReadViews(audit_tail=lambda n: list(audit)[-n:]))
+    try:
+        p = g.page
+        if p.locator("body").get_attribute("data-mode") == "orb":
+            p.click("#mode-toggle")
+        p.fill("#input", "!confirm")
+        p.press("#input", "Enter")
+        p.wait_for_selector("#approvals-list li")
+        assert p.evaluate("document.querySelectorAll('#approvals-list li').length") == 1
+        assert p.evaluate("document.querySelectorAll('#approvals-list li button').length") == 0          # reine Anzeige: keine Knoepfe
+        assert "angeboten: Ablehnen" in p.locator("#approvals-list li").inner_text()
+        p.click("#dlg-choices button[data-choice=deny]")                                                   # beantwortet wird nur im Dialog
+        p.wait_for_selector("#approvals-list li", state="detached")
+        assert p.locator("#approvals-note").inner_text().startswith("keine offenen")
+        p.click("#approvals-refresh")
+        until(p, "document.querySelectorAll('#approvals-history li').length >= 1")
+        body = p.locator("#approvals-history").inner_text()
+        assert "keyboard" in body and "GEHEIM" not in body                                              # nie Detail oder Ressource
+        p.fill("#input", "!confirm")
+        p.press("#input", "Enter")
+        p.wait_for_selector("#approvals-list li")
+        p.click("#emergency")                                                                             # Not-Aus bei offenem Panel und offenem Dialog
+        until(p, "document.body.dataset.state === 'emergency'")
+        g.shot("wp07c_approvals")
+        assert not g.errors, g.errors
+    finally:
+        g.close()

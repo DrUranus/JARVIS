@@ -14,6 +14,7 @@ from jarvis.voice.mock import MockAudioPlayer, MockAudioSource, MockHotwordDetec
 from jarvis.voice.local_stt import LocalWhisperSTT
 from jarvis.voice.openai_provider import OpenAISTT, OpenAITTS
 from jarvis.voice.system_tts import SystemTTS
+from jarvis.voice.windows_tts import WindowsTTS
 from jarvis.voice.vad import EnergyDetector, SpeechDetector, load_silero_detector
 
 T = TypeVar("T")
@@ -58,6 +59,7 @@ register_stt("local", lambda s: LocalWhisperSTT(s.stt_model_dir, device=s.stt_de
                                                 compute_type=s.stt_compute_type, timeout=s.timeout))
 register_tts("mock", lambda s: MockTTS())
 register_tts("system", lambda s: SystemTTS(s.tts_command))
+register_tts("windows", lambda s: WindowsTTS())
 register_tts("openai", lambda s: OpenAITTS(s.api_key, AUDIO_PLAYERS.create(s.audio_output, s), s.tts_model,
                                            s.tts_voice, s.base_url, s.timeout))
 register_audio_source("mock", lambda s: MockAudioSource())
@@ -87,7 +89,11 @@ def build_listener(settings: VoiceSettings, input_fn: Callable[[str], str] = inp
     return SpeechListener(source, stt, settings.language)
 
 
-def build_speaker(settings: VoiceSettings, output_fn: Callable[[str], None] = print) -> Speaker:
+def build_speaker(settings: VoiceSettings, output_fn: Callable[[str], None] = print, guard: Callable[[], str | None] | None = None) -> Speaker:
+    """`guard` (Not-Aus, von bootstrap.py geliefert) verhindert bei Providern, die es unterstuetzen (z. B. `windows`), dass eine NEUE Sprachausgabe startet."""
     if settings.tts_provider.lower() == "console":
         return ConsoleSpeaker(output_fn)
-    return TTSSpeaker(TTS_PROVIDERS.create(settings.tts_provider, settings))
+    tts = TTS_PROVIDERS.create(settings.tts_provider, settings)
+    if guard is not None:
+        tts.guard = guard
+    return TTSSpeaker(tts)
