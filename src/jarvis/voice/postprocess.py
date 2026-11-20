@@ -40,3 +40,34 @@ def split_confirmation(text: str) -> tuple[bool, str]:
     """(bestaetigt, Befehl ohne das Wort 'Bestaetige'). Ohne Bestaetigungswort ist der Befehl unveraendert."""
     m = _CONFIRM.match(text or "")
     return (True, text[m.end():].strip()) if m else (False, (text or "").strip())
+
+
+_EXTS = "txt|md|csv|json|docx|xlsx"
+_CONNECTORS = {"strich": "-", "bindestrich": "-", "unterstrich": "_"}
+_DICTATED_NAME = re.compile(rf"\bdatei[,\s]+(?P<name>[\w\-]+(?:[,\s]+[\w\-]+)*?)[,\s]+punkt[,\s]+(?P<ext>{_EXTS})\b", re.IGNORECASE)
+_AFTER_CONTENT = re.compile(r"\b(inhalt|text)\s*,\s*", re.IGNORECASE)
+
+
+def normalize_dictated_filename(text: str) -> tuple[str, bool]:
+    """Diktierter Dateiname („Datei, Dashboard, Strich, Test, Punkt, TXT“) -> `dashboard-test.txt` (klein geschrieben), nur wenn EINDEUTIG: Woerter muessen durch
+    „Strich/Bindestrich/Unterstrich“ verbunden sein; zwei Woerter ohne Verbinder, ein Verbinder am Rand oder doppelte Verbinder sind mehrdeutig -> (text, True),
+    nichts wird erraten. Das Diktier-Komma nach „Inhalt“ wird zum Doppelpunkt. Ohne diktierten Namen bleibt der Text unveraendert: (text, False)."""
+    m = _DICTATED_NAME.search(text or "")
+    if m is None:
+        return text, False
+    tokens = [t for t in re.split(r"[,\s]+", m.group("name")) if t]
+    name, expect_word = "", True
+    for tok in tokens:
+        sep = _CONNECTORS.get(tok.lower())
+        if sep is not None:
+            if expect_word:
+                return text, True                             # Verbinder am Anfang oder doppelt
+            name, expect_word = name + sep, True
+        else:
+            if not expect_word:
+                return text, True                             # zwei Woerter ohne Verbinder: Leerzeichen, Strich oder zusammen?
+            name, expect_word = name + tok, False
+    if expect_word:
+        return text, True                                     # endet auf einen Verbinder
+    out = text[:m.start("name")] + f"{name}.{m.group('ext')}".lower() + text[m.end("ext"):]
+    return _AFTER_CONTENT.sub(lambda c: c.group(1) + ": ", out, count=1), False

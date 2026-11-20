@@ -247,6 +247,12 @@ class VoiceTextHandler:
     def handle(self, text: str) -> Any:
         from jarvis.core.core import Response, ResponseKind
         engaged = bool(getattr(getattr(self._core.permissions, "emergency", None), "engaged", False))
+        if not engaged and not text.startswith("/"):
+            from jarvis.voice.postprocess import normalize_dictated_filename
+            text, ambiguous = normalize_dictated_filename(text)       # nur eindeutig diktierte Dateinamen; sonst nachfragen statt raten
+            if ambiguous:
+                return Response("Ich habe den Dateinamen nicht eindeutig verstanden. Sag ihn mit Verbindern, zum Beispiel „Dashboard Strich Test Punkt TXT“, "
+                                "oder tippe den Auftrag. Ich habe nichts ausgeführt.", ResponseKind.CHAT)
         routed = None if engaged or text.startswith("/") else self._route(text)
         if routed:
             return Response(self._run(routed) or "", ResponseKind.CHAT)

@@ -68,3 +68,13 @@ def test_start_voice_uses_the_same_handler_as_the_text_chat(monkeypatch):
     assert isinstance(seen["handler"], VoiceTextHandler)
     ctl.stop_voice()
     ctl.close()
+
+
+def test_build_voice_session_really_hands_the_session_the_given_handler_and_defaults_to_the_core():
+    from jarvis.bootstrap import build_core, build_voice_session
+    from jarvis.config import load_settings
+    settings = load_settings(env={})                                    # voice = console: keine Hardware
+    core = build_core(settings)
+    marker = object()
+    assert build_voice_session(settings, core, lambda t: None, lambda p="": "", None, handler=marker)._handler is marker
+    assert build_voice_session(settings, core, lambda t: None, lambda p="": "", None)._handler is core
