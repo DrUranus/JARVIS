@@ -561,3 +561,25 @@ def test_nexus_ultimate_two_windows_share_backend_decisions_and_deny_on_last_dis
     finally:
         context.close()
         server.stop()
+
+
+def test_premium_text_roundtrip(browser, tmp_path):
+    from jarvis.config import load_settings
+    from jarvis.control_center.launcher import build_server
+    from test_control_center_binding import real_core, real_env
+
+    srv = build_server(load_settings(env=real_env(tmp_path)), real_core(tmp_path), nexus_preview=True)
+    srv.start()
+    page = browser.new_page(reduced_motion="reduce")
+    try:
+        page.goto(srv.url + "&view=nexus", wait_until="domcontentloaded")
+        field = page.locator("#nexus-preview-host").get_by_role("textbox", name="Befehl an JARVIS")
+        field.fill("/permissions", timeout=5000)
+        field.press("Enter")
+        playwright_sync.expect(page.locator("#nexus-preview-host .live-chat")).to_contain_text("Modus:")
+        assert field.input_value() == ""
+        page.locator("#emergency").click()
+        playwright_sync.expect(field).to_be_disabled()
+    finally:
+        page.close()
+        srv.stop()
