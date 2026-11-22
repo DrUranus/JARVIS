@@ -25,7 +25,7 @@ Kandidat: Branch `claude/v1-release` = `claude/v2-186-finalisierung` (Abnahme-Co
 - Abbruch (11.3) wirkt kooperativ an der Freigabe-Grenze. Ein langer Rechenschritt ohne Freigabe ist so nicht abgedeckt.
 - Not-Aus ist rein im Speicher: ein Neustart löscht ihn. Das Aufheben verlangt eine Rückfrage.
 - Sieben liegengebliebene Journal-Ziele im Status WAITING (F-S9-2) sind nicht aufgeräumt.
-- Abnahmezeilen PENDING: nur 5.4 (zweiter Monitor). 2.3, 11.2, 14.1 und 14.3 sind lokal belegt (`docs/V1_RESTABNAHME.md`). Bei einer gesperrten Datei ist die Meldung technisch ("cannot read the file (PermissionError)") und nennt die Sperre nicht.
+- Abnahmezeilen PENDING: keine. 5.4 (zweiter Monitor) hat der Owner im PR #269 bestanden (Kommentar 7050840300). 2.3, 11.2, 14.1 und 14.3 sind lokal belegt (`docs/V1_RESTABNAHME.md`). Bei einer gesperrten Datei ist die Meldung technisch ("cannot read the file (PermissionError)") und nennt die Sperre nicht.
 - Tk-Startfehler auf dem CI-Runner sind ein bekannter, ungeklärter Umgebungseffekt.
 - Windows-Nachweise liefern nur Owner-Läufe und der CI-Windows-Lauf. Linux ist kein Windows-Nachweis.
 
@@ -57,7 +57,7 @@ Nur lokal, nichts löschen und kein Force-Push:
 | 2 | Pflicht-CI auf dem Release-Commit grün (`tests`, `pr-tests` Windows und Linux, `uia-compat`, GUI E2E) | siehe PR |
 | 3 | Schutzmanifest: `fake.py` vom Owner geprüft, Manifest neu erzeugt | **offen (Owner)**, `test_protected_files` ist bis dahin rot |
 | 4 | Schritte 1, 3, 4, 9, 11, 12, 13 PASS im Formblatt | PASS (11.2 lokal belegt, Dashboard-Anzeige nicht von Hand gesehen) |
-| 5 | Schritte 2, 5, 6, 7, 8, 10, 14: PASS oder N/A per Owner-Entscheidung in dieser Notiz | 7 und 8 N/A entschieden. nur 5.4 offen. |
+| 5 | Schritte 2, 5, 6, 7, 8, 10, 14: PASS oder N/A per Owner-Entscheidung in dieser Notiz | 7 und 8 N/A entschieden. keine offen (5.4 bestanden). |
 | 6 | Kein Sicherheitsverhalten weicht ab (Freigaben, Ablehnen, Timeout, Not-Aus) | kein Abweichen bekannt |
 | 7 | Nachtest auf dem Merge-Build (Reset-Rückfrage, Abbruch, Dashboard) | offen, siehe unten |
 | 8 | Release-Notiz mit V1-/V2-Grenze und Known Limitations | dieses Dokument |

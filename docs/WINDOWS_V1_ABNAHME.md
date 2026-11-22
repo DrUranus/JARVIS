@@ -89,7 +89,7 @@ Erwartet: Fenster ca. 140x140, verschiebbar, über anderen Fenstern, NOTAUS erre
 | 5.1 | Größe, verschiebbar, immer im Vordergrund | PASS (Owner, B9-2, Sammelabnahme 20.11. (4d33fc9)) |
 | 5.2 | NOTAUS im Overlay | PASS (Owner, B9-4b, Sammelabnahme 20.11. (4d33fc9)) |
 | 5.3 | Klick öffnet das Hauptfenster | PASS (Owner, B9-2b, Sammelabnahme 20.11. (4d33fc9)) |
-| 5.4 | Zweiter Monitor / Fokus | PENDING (zweiter Monitor nicht belegt) |
+| 5.4 | Zweiter Monitor / Fokus | PASS (Owner, schriftliche Bestaetigung: mindestens zwei Monitore, Overlay funktioniert beim Fensterwechsel; PR #269, Kommentar 7050840300) |
 
 ## 6. Mikrofon, Spracherkennung, Sprachausgabe
 Nur mit Hardware. Konfiguration: `".[voice]"` installieren; `[voice] stt_provider`/`tts_provider` je nach Wunsch (siehe `docs/WINDOWS_V1_KONFIGURATION.md`).
