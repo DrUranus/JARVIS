@@ -578,6 +578,11 @@ def test_premium_text_roundtrip(browser, tmp_path):
         field.press("Enter")
         playwright_sync.expect(page.locator("#nexus-preview-host .live-chat")).to_contain_text("Modus:")
         assert field.input_value() == ""
+        with page.expect_response(lambda response: "/command?" in response.url) as response:
+            page.get_by_role("button", name="Sprachmodus starten", exact=True).click(timeout=4000)
+        ack = response.value.json()["data"]
+        assert ack["code"] == "voice_unavailable"
+        playwright_sync.expect(page.locator(".live-receipt")).to_contain_text(ack["message"])
         page.locator("#emergency").click()
         playwright_sync.expect(field).to_be_disabled()
     finally:
