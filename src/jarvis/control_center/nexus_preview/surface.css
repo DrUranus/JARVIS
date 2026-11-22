@@ -45,3 +45,6 @@ textarea:disabled {
 .foot-right {
   visibility: hidden;
 }
+.live-chat, .live-receipt { max-width: min(44rem, 90vw); margin: .4rem auto; color: #dcd8f1; overflow-wrap: anywhere; }
+.live-chat { max-height: 12rem; overflow: auto; text-align: left; }
+.live-chat:empty, .live-receipt:empty { display: none; }
