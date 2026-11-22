@@ -58,7 +58,7 @@ def build_views(core: Any, assistant: Any, settings: Settings | None = None) -> 
 def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="jarvis-cc", description="JARVIS Control Center (lokale Weboberfläche, nur 127.0.0.1)")
     ap.add_argument("-c", "--config", help="Pfad zu einer TOML-Konfiguration")
-    ap.add_argument("--nexus-preview", action="store_true", help="experimentelle NEXUS-Ultimate-Leseansicht im V1-Fenster")
+    ap.add_argument("--nexus-preview", action="store_true", help="experimentelle NEXUS-Ultimate-Oberfläche im V1-Fenster")
     ap.add_argument("--open", action="store_true", help="URL im Systembrowser öffnen (sonst nur ausgeben)")
     ap.add_argument("--overlay", action="store_true", help="optionales Mini-Overlay (140x140, verschiebbar) öffnen; braucht pywebview (.[ui]), Standard aus")
     ap.add_argument("--overlay-on-top", action="store_true", help="Overlay immer im Vordergrund (nur mit --overlay)")
