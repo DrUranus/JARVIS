@@ -589,7 +589,7 @@ function notifyPreview(kind, value) {
 }
 
 function handle(ev) {
-  if (params.get("view") === "nexus" && ["state", "hello", "emergency", "activity"].includes(ev.type)) {
+  if (params.get("view") === "nexus" && ["state", "hello", "emergency", "activity", "chat", "error"].includes(ev.type)) {
     const data = ev.type === "activity" ? { working: Array.isArray(ev.data.items) && ev.data.items.some(
       item => item.kind === "agent_task" && item.status === "RUNNING") } : ev.data;
     notifyPreview("event", { v: ev.v, seq: ev.seq, type: ev.type, data });
