@@ -52,7 +52,7 @@ Eine **vorhandene** venv: `.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 |---|---|---|---|
 | 2.1 | Rauchtest unter 3.14 | `BESTANDEN` | PASS (lokal automatisch, Python 3.14.8) |
 | 2.2 | Ausgewählte Tests unter 3.14 | grün | PASS (lokal automatisch, 3.14.8) |
-| 2.3 | Update einer vorhandenen venv | `jarvis doctor` weiter Exit 0 | PENDING (nicht belegt) |
+| 2.3 | Update einer vorhandenen venv | `jarvis doctor` weiter Exit 0 | PASS (lokal 21.-22.11., pip install -e, Doctor Exit 0; docs/V1_RESTABNAHME.md) |
 
 ## 3. OneDrive-Projektpfad und Git-Lock-Diagnose
 ```powershell
@@ -174,7 +174,7 @@ Erwartet: Dashboard zeigt Aufgaben mit Statusverlauf; beim Fehlschlag die Zeile 
 | # | Prüfung | PC-Ergebnis |
 |---|---|---|
 | 11.1 | Statusverlauf sichtbar | PASS (Owner 14.11., Zeitleiste/Farben) |
-| 11.2 | Fehlertext bei Fehlschlag | PENDING (nur automatische Klartext-Tests, kein Handbeleg) |
+| 11.2 | Fehlertext bei Fehlschlag | PASS (lokal, echter Kern: Klartext-Meldung bei fehlender Datei; Dashboard-Anzeige nicht von Hand gesehen; docs/V1_RESTABNAHME.md) |
 | 11.3 | Abbrechen | PASS (Owner-Mitteilung 20.11. nach Reparatur 4d33fc9; schriftliches Protokoll im PR nachzutragen) |
 
 ## 12. Memory, Journal und Resume
@@ -206,9 +206,9 @@ Zehn Zyklen: starten, Auftrag geben, hart beenden, neu starten. Dazu Netzwerk tr
 
 | # | Prüfung | PC-Ergebnis |
 |---|---|---|
-| 14.1 | 10 Start/Stopp-Zyklen ohne hängende Prozesse | PENDING (nicht belegt) |
+| 14.1 | 10 Start/Stopp-Zyklen ohne hängende Prozesse | PASS (lokal, 10 Zyklen mit Port- und Prozesskontrolle; docs/V1_RESTABNAHME.md) |
 | 14.2 | Netz weg während Recherche | N/A (Recherche auf V2 verschoben) |
-| 14.3 | Gesperrte Datei | PENDING (nicht belegt) |
+| 14.3 | Gesperrte Datei | PASS (lokal, gesperrte Datei: FAILED ohne Absturz, Datei unveraendert; Meldung technisch; docs/V1_RESTABNAHME.md) |
 
 ## 15. Logs sichern (ohne Geheimnisse)
 Siehe `docs/WINDOWS_V1_KONFIGURATION.md`, Abschnitt "Log-Erfassung". Vor dem Anhängen an #186 prüfen, dass keine Schlüssel enthalten sind.
