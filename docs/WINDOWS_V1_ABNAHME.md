@@ -1,5 +1,8 @@
 # JARVIS Windows V1: Abnahmeleitfaden für den echten Windows-PC (Ziel 21.11.2026)
 
+> **V1-Stand (Release-Branch `claude/v1-release`, Basis Abnahme-Commit `4d33fc9` plus `origin/main` `d0c1dc4`):** Die Spalte "PC-Ergebnis" ist aus den Owner-Nachweisen (Sammelabnahme 20.11.2026, PR-Kommentare #261, `docs/ABNAHME_186_MATRIX.md`) uebertragen. "lokal automatisch" = Testlauf auf Windows, keine Handbestaetigung. Nicht belegte Zeilen bleiben **PENDING**. **Owner-Entscheidung (20.11.2026): Bereich 7 (echtes LLM) und 8 (Live-Brave) sind N/A und auf V2 verschoben**; keine API-Schluessel, keine Live-Aufrufe, Integrationen bleiben deaktiviert. Die Sammelabnahme gilt fuer `4d33fc9`; der Merge von `main` aendert nur NEXUS Ultimate (optionale Leseansicht) und die Reset-Rueckfrage, ein Nachtest dieser Bereiche steht in `docs/V1_RELEASE.md` (GO/NO-GO).
+
+
 **Status dieses Dokuments:** Vorlage und Anleitung. Es enthält **keine Ergebnisse**. Eine Zeile gilt erst als bestanden, wenn du sie auf dem echten PC ausgeführt und einen Beleg abgelegt hast. Automatische CI-Läufe (Windows-Runner ohne Mensch) sind ein anderer Nachweis und ersetzen diese Abnahme nie (Issue #186).
 
 Nachweisstufen: **CI-Linux** · **CI-Windows** (Runner, kein Mensch am Desktop) · **PC** (diese Abnahme, du am echten Windows-PC).
@@ -30,10 +33,10 @@ Erwartet: Der Rauchtest endet mit `Ergebnis: BESTANDEN`; `jarvis doctor` endet m
 
 | # | Prüfung | Erwartung | PC-Ergebnis | Beleg |
 |---|---|---|---|---|
-| 1.1 | Rauchtest | `BESTANDEN` | PENDING | 01-smoke.txt |
-| 1.2 | `jarvis doctor` | Exit-Code 0 | PENDING | 01-doctor.txt |
-| 1.3 | NEXUS im Browser | "verbunden", Zustand "bereit" | PENDING | Screenshot |
-| 1.4 | Beenden mit Strg+C | Port geschlossen: `Get-NetTCPConnection -State Listen \| ? LocalAddress -eq 127.0.0.1` zeigt den Port nicht mehr | PENDING | Text |
+| 1.1 | Rauchtest | `BESTANDEN` | PASS (lokal automatisch, smoke.py) | 01-smoke.txt |
+| 1.2 | `jarvis doctor` | Exit-Code 0 | PASS (lokal automatisch, Exit 0) | 01-doctor.txt |
+| 1.3 | NEXUS im Browser | "verbunden", Zustand "bereit" | PASS (Owner, S1, Sammelabnahme 20.11. (4d33fc9)) | Screenshot |
+| 1.4 | Beenden mit Strg+C | Port geschlossen: `Get-NetTCPConnection -State Listen \| ? LocalAddress -eq 127.0.0.1` zeigt den Port nicht mehr | PASS (lokal automatisch, smoke.py: Port geschlossen) | Text |
 
 ## 2. Python 3.14 und vorhandene virtuelle Umgebung
 Nur wenn du Python 3.14 nutzt (sonst "N/A: 3.13"). Python 3.14 ist unter Linux in der Vollsuite grün, unter Windows nur teilweise abgesichert.
@@ -47,9 +50,9 @@ Eine **vorhandene** venv: `.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 
 | # | Prüfung | Erwartung | PC-Ergebnis |
 |---|---|---|---|
-| 2.1 | Rauchtest unter 3.14 | `BESTANDEN` | PENDING |
-| 2.2 | Ausgewählte Tests unter 3.14 | grün | PENDING |
-| 2.3 | Update einer vorhandenen venv | `jarvis doctor` weiter Exit 0 | PENDING |
+| 2.1 | Rauchtest unter 3.14 | `BESTANDEN` | PASS (lokal automatisch, Python 3.14.8) |
+| 2.2 | Ausgewählte Tests unter 3.14 | grün | PASS (lokal automatisch, 3.14.8) |
+| 2.3 | Update einer vorhandenen venv | `jarvis doctor` weiter Exit 0 | PASS (lokal 21.-22.11., pip install -e, Doctor Exit 0; docs/V1_RESTABNAHME.md) |
 
 ## 3. OneDrive-Projektpfad und Git-Lock-Diagnose
 ```powershell
@@ -60,9 +63,9 @@ Erwartet in einem Ordner unter OneDrive: `jarvis doctor` warnt vor OneDrive; aus
 
 | # | Prüfung | Erwartung | PC-Ergebnis |
 |---|---|---|---|
-| 3.1 | Doctor ausserhalb OneDrive | "kein OneDrive-Ordner erkannt" | PENDING |
-| 3.2 | Doctor innerhalb OneDrive (Kopie zum Test) | OneDrive-Warnung | PENDING |
-| 3.3 | `gitlocks` | liest nur, löscht nichts | PENDING |
+| 3.1 | Doctor ausserhalb OneDrive | "kein OneDrive-Ordner erkannt" | PASS (Owner 20.11.) |
+| 3.2 | Doctor innerhalb OneDrive (Kopie zum Test) | OneDrive-Warnung | PASS (Owner 20.11.) |
+| 3.3 | `gitlocks` | liest nur, löscht nichts | PASS (Owner 20.11.) |
 
 ## 4. NEXUS Premium V2: Kugel und Dashboard
 Im Browser: Orb-Ansicht, "Dashboard"-Umschalter, Effekte "reduziert" und "aus".
@@ -70,9 +73,9 @@ Erwartet: Kugel läuft flüssig, Zustandsfarben wechseln (bereit grün, Verarbei
 
 | # | Prüfung | PC-Ergebnis | Beleg |
 |---|---|---|---|
-| 4.1 | Orb/Dashboard umschalten, Kugel flüssig | PENDING | |
-| 4.2 | Effekte reduziert/aus, Windows-Animationen aus | PENDING | |
-| 4.3 | Setup-Panel zeigt keine Schlüsselwerte | PENDING | |
+| 4.1 | Orb/Dashboard umschalten, Kugel flüssig | PASS (Owner, B9-1a/1b, Sammelabnahme 20.11. (4d33fc9)) | |
+| 4.2 | Effekte reduziert/aus, Windows-Animationen aus | PASS (Owner 14.11.) | |
+| 4.3 | Setup-Panel zeigt keine Schlüsselwerte | PASS (lokal automatisch, test_control_center_setup) | |
 
 ## 5. Overlay, Fokus, Always-on-Top
 ```powershell
@@ -83,10 +86,10 @@ Erwartet: Fenster ca. 140x140, verschiebbar, über anderen Fenstern, NOTAUS erre
 
 | # | Prüfung | PC-Ergebnis |
 |---|---|---|
-| 5.1 | Größe, verschiebbar, immer im Vordergrund | PENDING |
-| 5.2 | NOTAUS im Overlay | PENDING |
-| 5.3 | Klick öffnet das Hauptfenster | PENDING |
-| 5.4 | Zweiter Monitor / Fokus | PENDING |
+| 5.1 | Größe, verschiebbar, immer im Vordergrund | PASS (Owner, B9-2, Sammelabnahme 20.11. (4d33fc9)) |
+| 5.2 | NOTAUS im Overlay | PASS (Owner, B9-4b, Sammelabnahme 20.11. (4d33fc9)) |
+| 5.3 | Klick öffnet das Hauptfenster | PASS (Owner, B9-2b, Sammelabnahme 20.11. (4d33fc9)) |
+| 5.4 | Zweiter Monitor / Fokus | PASS (Owner, schriftliche Bestaetigung: mindestens zwei Monitore, Overlay funktioniert beim Fensterwechsel; PR #269, Kommentar 7050840300) |
 
 ## 6. Mikrofon, Spracherkennung, Sprachausgabe
 Nur mit Hardware. Konfiguration: `".[voice]"` installieren; `[voice] stt_provider`/`tts_provider` je nach Wunsch (siehe `docs/WINDOWS_V1_KONFIGURATION.md`).
@@ -98,10 +101,10 @@ Erwartet: Doctor meldet Mikrofon-Pakete verfügbar; Sprachmodus startet, ein ges
 
 | # | Prüfung | PC-Ergebnis |
 |---|---|---|
-| 6.1 | Satz erkannt, Antwort gesprochen | PENDING |
-| 6.2 | Unterbrechen während der Ausgabe | PENDING |
-| 6.3 | Mikrofon trennen | PENDING |
-| 6.4 | Notaus beendet den Sprachmodus | PENDING |
+| 6.1 | Satz erkannt, Antwort gesprochen | PASS (Owner, S2a/S3a, Sammelabnahme 20.11. (4d33fc9)) |
+| 6.2 | Unterbrechen während der Ausgabe | PASS (Owner: Knopf 'Antwort stoppen'; Unterbrechen per Stimme ist nicht gebaut, siehe Known Limitations) |
+| 6.3 | Mikrofon trennen | PASS (Owner, S2c, Sammelabnahme 20.11. (4d33fc9)) |
+| 6.4 | Notaus beendet den Sprachmodus | PASS (Owner, S8a, Sammelabnahme 20.11. (4d33fc9)) |
 
 ## 7. Echte LLM-Verbindung
 Standard ist `mock`. Schlüssel **nur** als Umgebungsvariable, nie in Dateien:
@@ -115,9 +118,9 @@ Erwartet: Doctor zeigt den Anbieter und den Schlüssel nur als "gesetzt". Im Cha
 
 | # | Prüfung | PC-Ergebnis |
 |---|---|---|
-| 7.1 | Doctor zeigt Anbieter, Schlüssel nur "gesetzt" | PENDING |
-| 7.2 | Antwort vom echten Modell | PENDING |
-| 7.3 | Falscher Schlüssel: Fehler ohne Schlüssel im Text | PENDING |
+| 7.1 | Doctor zeigt Anbieter, Schlüssel nur "gesetzt" | N/A (Owner-Entscheidung: auf V2 verschoben) |
+| 7.2 | Antwort vom echten Modell | N/A (Owner-Entscheidung: auf V2 verschoben) |
+| 7.3 | Falscher Schlüssel: Fehler ohne Schlüssel im Text | N/A (Owner-Entscheidung: auf V2 verschoben) |
 
 ## 8. Live-Brave-Recherche
 ```powershell
@@ -131,9 +134,9 @@ Erwartet: Jede Seite fragt im Freigabedialog nach (Ablehnen ist Standard); Antwo
 
 | # | Prüfung | PC-Ergebnis |
 |---|---|---|
-| 8.1 | Ohne Einrichtung: BLOCKED-Meldung mit Hinweis | PENDING |
-| 8.2 | Mit Einrichtung: Antwort mit Quellen | PENDING |
-| 8.3 | Ablehnen einer Seite: nichts wird gelesen | PENDING |
+| 8.1 | Ohne Einrichtung: BLOCKED-Meldung mit Hinweis | N/A (Owner-Entscheidung: auf V2 verschoben) |
+| 8.2 | Mit Einrichtung: Antwort mit Quellen | N/A (Owner-Entscheidung: auf V2 verschoben) |
+| 8.3 | Ablehnen einer Seite: nichts wird gelesen | N/A (Owner-Entscheidung: auf V2 verschoben) |
 
 ## 9. Datei- und Office-Aufträge
 Legt zuerst eine Testdatei im Arbeitsbereich an (`workspace\`):
@@ -146,10 +149,10 @@ Erwartet: Nichts wird gelöscht, bestehende Office-Dateien werden nie verändert
 
 | # | Prüfung | PC-Ergebnis |
 |---|---|---|
-| 9.1 | Lesen ohne Rückfrage | PENDING |
-| 9.2 | Anlegen: Ablehnen = nichts passiert | PENDING |
-| 9.3 | Anlegen: Zustimmen = Ordner existiert (`Test-Path workspace\Archiv`) | PENDING |
-| 9.4 | Office erstellen und zurücklesen | PENDING |
+| 9.1 | Lesen ohne Rückfrage | PASS (Owner 20.11.) |
+| 9.2 | Anlegen: Ablehnen = nichts passiert | PASS (Owner 14.11. und S5 am 15./20.11.; Variante Datei statt Ordner) |
+| 9.3 | Anlegen: Zustimmen = Ordner existiert (`Test-Path workspace\Archiv`) | PASS (Owner 14.11. und S5; Variante Datei statt Ordner, Ordner-Test-Path nicht gesondert belegt) |
+| 9.4 | Office erstellen und zurücklesen | PASS (Owner 20.11., abnahme_office.docx) |
 
 ## 10. Computersteuerung mit harmlosen Aktionen
 Nur bewusst einschalten (`[computer] enabled = true`, Kopie der Beispielkonfiguration). Nutze ausschliesslich Notepad/Taschenrechner:
@@ -160,9 +163,9 @@ Erwartet: Jede Eingabe/Fensteraktion fragt nach; Ablehnen führt nichts aus; Pas
 
 | # | Prüfung | PC-Ergebnis |
 |---|---|---|
-| 10.1 | Text in Notepad schreiben nur nach Freigabe | PENDING |
-| 10.2 | Ablehnen: nichts geschieht | PENDING |
-| 10.3 | Notaus während einer Aktion | PENDING |
+| 10.1 | Text in Notepad schreiben nur nach Freigabe | PASS (Owner, S5, Sammelabnahme 20.11. (4d33fc9)) |
+| 10.2 | Ablehnen: nichts geschieht | PASS (Owner, S5 Ablehnen) |
+| 10.3 | Notaus während einer Aktion | PASS (Owner, S8b, Sammelabnahme 20.11. (4d33fc9)) |
 
 ## 11. Agentenkoordination und Aufgabenstatus
 Chat: ein mehrstufiger Auftrag (z. B. erst Datei lesen, dann Ordner anlegen) und ein bewusst fehlschlagender (`Lies die Datei gibtsnicht.txt`).
@@ -170,9 +173,9 @@ Erwartet: Dashboard zeigt Aufgaben mit Statusverlauf; beim Fehlschlag die Zeile 
 
 | # | Prüfung | PC-Ergebnis |
 |---|---|---|
-| 11.1 | Statusverlauf sichtbar | PENDING |
-| 11.2 | Fehlertext bei Fehlschlag | PENDING |
-| 11.3 | Abbrechen | PENDING |
+| 11.1 | Statusverlauf sichtbar | PASS (Owner 14.11., Zeitleiste/Farben) |
+| 11.2 | Fehlertext bei Fehlschlag | PASS (lokal, echter Kern: Klartext-Meldung bei fehlender Datei; Dashboard-Anzeige nicht von Hand gesehen; docs/V1_RESTABNAHME.md) |
+| 11.3 | Abbrechen | PASS (Owner-Mitteilung 20.11. nach Reparatur 4d33fc9; schriftliches Protokoll im PR nachzutragen) |
 
 ## 12. Memory, Journal und Resume
 ```powershell
@@ -184,28 +187,28 @@ Chat nach dem Neustart: `/resume` (Auflisten). Erwartet: Auflisten startet **nic
 
 | # | Prüfung | PC-Ergebnis |
 |---|---|---|
-| 12.1 | Auflisten startet nichts | PENDING |
-| 12.2 | Fortsetzen nur auf Befehl, mit neuer Freigabe | PENDING |
-| 12.3 | Erinnerung/Gedächtnis überlebt Neustart | PENDING |
+| 12.1 | Auflisten startet nichts | PASS (Owner, S9, Sammelabnahme 20.11. (4d33fc9)) |
+| 12.2 | Fortsetzen nur auf Befehl, mit neuer Freigabe | PASS (Owner, S9: neue Rueckfrage, Ablehnen startet nichts; Audit resume_step) |
+| 12.3 | Erinnerung/Gedächtnis überlebt Neustart | PASS (Owner 20.11., Eintrag 36bd8ba5510e nach Neustart; natuerlichsprachiger Abruf im Mock-Modus nicht belegt) |
 
 ## 13. Freigaben, Ablehnung, Timeout, Not-Aus
 Erwartet: Freigabedialog zeigt alle Felder; Escape/Ablehnen ist Standard; ohne Antwort innerhalb von `confirmation_timeout_seconds` (Beispielkonfiguration: 120 s) gilt die Rückfrage als abgelehnt; Verbindung trennen (jarvis-cc beenden, Seite offen lassen) -> "GETRENNT", Dialog gilt als abgelehnt; NOTAUS im Orb, im Dashboard und bei offenem Dialog wirkt sofort, Banner rot, neue Eingaben abgelehnt, Aufhebung nur über Rückfrage.
 
 | # | Prüfung | PC-Ergebnis |
 |---|---|---|
-| 13.1 | Ablehnen ist Standard | PENDING |
-| 13.2 | Timeout = abgelehnt | PENDING |
-| 13.3 | Verbindungsverlust = abgelehnt | PENDING |
-| 13.4 | NOTAUS in allen drei Ansichten | PENDING |
+| 13.1 | Ablehnen ist Standard | PASS (Owner 14.11./18.11., B9-3c) |
+| 13.2 | Timeout = abgelehnt | PASS (Owner 14.11.) |
+| 13.3 | Verbindungsverlust = abgelehnt | PASS (Owner, B9-3d, Sammelabnahme 20.11. (4d33fc9)) |
+| 13.4 | NOTAUS in allen drei Ansichten | PASS (Owner, B9-4a/4b, Sammelabnahme 20.11. (4d33fc9)) |
 
 ## 14. Stabilität bei Neustart, Unterbrechung, Fehlern
 Zehn Zyklen: starten, Auftrag geben, hart beenden, neu starten. Dazu Netzwerk trennen während einer Recherche, Mikrofon trennen, Datei sperren (Datei in Excel geöffnet lassen und lesen). Erwartet: keine Abstürze mit Traceback im Browser/Terminal, verständliche Meldungen, keine hängenden Prozesse (`Get-Process python`).
 
 | # | Prüfung | PC-Ergebnis |
 |---|---|---|
-| 14.1 | 10 Start/Stopp-Zyklen ohne hängende Prozesse | PENDING |
-| 14.2 | Netz weg während Recherche | PENDING |
-| 14.3 | Gesperrte Datei | PENDING |
+| 14.1 | 10 Start/Stopp-Zyklen ohne hängende Prozesse | PASS (lokal, 10 Zyklen mit Port- und Prozesskontrolle; docs/V1_RESTABNAHME.md) |
+| 14.2 | Netz weg während Recherche | N/A (Recherche auf V2 verschoben) |
+| 14.3 | Gesperrte Datei | PASS (lokal, gesperrte Datei: FAILED ohne Absturz, Datei unveraendert; Meldung technisch; docs/V1_RESTABNAHME.md) |
 
 ## 15. Logs sichern (ohne Geheimnisse)
 Siehe `docs/WINDOWS_V1_KONFIGURATION.md`, Abschnitt "Log-Erfassung". Vor dem Anhängen an #186 prüfen, dass keine Schlüssel enthalten sind.

@@ -35,13 +35,25 @@ def _good_figure(f: Mapping[str, Any]) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and isinstance(f.get("label"), str) and isinstance(f.get("unit"), str)
 
 
+def _verified_artifact_block(out: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """E5: the content of a VERIFIED `research_data` artifact (hash, size, declared kind, no reserved keys) - or None, then the plain output is used as before."""
+    try:
+        from jarvis.agents.artifacts import accept, artifacts_of
+        res = accept(artifacts_of(out), ("research_data",))
+        if res.accepted and isinstance(res.accepted[0].content, Mapping):
+            return res.accepted[0].content
+    except Exception:  # noqa: BLE001 - the artifact is an optional addition, never a reason to fail
+        pass
+    return None
+
+
 def collect(parent_results: Mapping[str, Any] | None, explicit: Any = None) -> ResearchData:
     blocks: list[Mapping[str, Any]] = []
     for pr in (parent_results or {}).values():
         status = getattr(getattr(pr, "status", None), "value", getattr(pr, "status", None))
         out = getattr(pr, "output", None)
         if status == "SUCCEEDED" and isinstance(out, Mapping) and out.get("kind") == "research_result":
-            blocks.append(out)
+            blocks.append(_verified_artifact_block(out) or out)
     if isinstance(explicit, Mapping):
         blocks.append(explicit)
     sources: dict[str, dict[str, Any]] = {}

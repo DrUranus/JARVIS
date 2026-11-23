@@ -145,7 +145,7 @@ def fake_sounddevice(chunks):
 
         def read(self, frames):
             return next(it, QUIET), False
-    return types.SimpleNamespace(RawInputStream=Stream)
+    return types.SimpleNamespace(RawInputStream=Stream, query_devices=lambda: [{"name": "Test-Mikrofon", "max_input_channels": 1}], default=types.SimpleNamespace(device=(0, 0)))
 
 
 def make_source(monkeypatch, chunks, **kw):

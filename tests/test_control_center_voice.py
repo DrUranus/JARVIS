@@ -223,3 +223,11 @@ def test_status_stays_readable_with_effects_off(tmp_path, env, effects):
     assert "hoert zu" in s["text"]["voice-state"] and "62 %" in s["text"]["voice-level-text"] and "Mikrofon: an" in s["text"]["voice-mic"]
     assert s["props"]["voice-meter"]["value"] == 0.62
     assert s["sent"] == []
+
+
+@needs_node
+def test_speech_stop_button_is_enabled_only_while_voice_runs_and_sends_only_stop_speech(tmp_path):
+    snaps = run(tmp_path, [{"snap": "idle"}, level(0.3), {"snap": "on"}, click("speech-stop"), {"snap": "geklickt"}, level(0, active=False), {"snap": "off"}])
+    p = lambda k: snaps[k]["props"]["speech-stop"]["disabled"]  # noqa: E731
+    assert (p("idle"), p("on"), p("off")) == (True, False, True)
+    assert [(c["type"], c["data"]) for c in snaps["geklickt"]["sent"]] == [("stop_speech", {})]      # nie stop_voice: der Sprachmodus bleibt an

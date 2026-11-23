@@ -350,7 +350,7 @@ def _assistant(core: JarvisCore, arg: str) -> str:
     return sub.status_text() if sub is not None else "Assistent: nicht konfiguriert."
 
 
-_RESEARCH_START = re.compile(r"^\s*(?:bitte\s+)?(?:recherchier\w*|recherche\b|finde\s+\w*\s*heraus|informier\w*\s+dich|research\b|find\s+out)", re.IGNORECASE)
+_RESEARCH_START = re.compile(r"^\s*(?:bitte\s+)?(?:recherchiere\b|recherchieren\b|recherche\b(?!-)|finde\s+\w*\s*heraus|informier\w*\s+dich|research\b|find\s+out)", re.IGNORECASE)
 
 
 def research_route(core: JarvisCore, text: str) -> str | None:
@@ -371,6 +371,33 @@ def research_route(core: JarvisCore, text: str) -> str | None:
         return None
 
 
+def resume_confirm_with_audit(core: JarvisCore, n: int, text: str) -> bool:
+    """Die Rueckfrage `resume_step` (nur ALLOW_ONCE gilt als Ja; alles andere, auch ALLOW_SESSION und jeder Fehler, als Nein) mit Auditspur: `confirmation_requested`
+    vor und `confirmation_accepted`/`confirmation_rejected` nach der Antwort (Werkzeug `jarvis`, Aktion `resume_step`, Ressource `journal`; weder Schritttext noch
+    Schluessel im Eintrag). Laesst sich die Anfrage nicht auditieren, wird nicht gefragt (fail-closed). Die Entscheidung selbst bleibt unveraendert."""
+    from jarvis.permissions.audit import AuditEvent, AuditEventType
+
+    request_id = f"resume-{n}"
+
+    def audit(kind: AuditEventType, status: str | None = None) -> bool:
+        try:
+            return core.permissions.audit.record(AuditEvent(kind, request_id=request_id, tool="jarvis", action="resume_step", resource="journal",
+                                                           level=PermissionLevel.YELLOW.value, status=status)) is not False
+        except Exception:                                                                              # noqa: BLE001 - Audit kaputt = nicht fragen
+            return False
+
+    if not audit(AuditEventType.CONFIRMATION_REQUESTED, "confirmation_required"):
+        return False
+    request = ConfirmationRequest(request_id=request_id, tool="jarvis", action="resume_step", level=PermissionLevel.YELLOW, resource="journal",
+                                  reason=text[:300], context={"Hinweis": "erneute Ausführung nach Unterbrechung"}, session_allowed=False)
+    try:
+        allowed = core.permissions.confirmation.confirm(request) == ConfirmationChoice.ALLOW_ONCE
+    except Exception:                                                                                 # noqa: BLE001 - fail closed
+        allowed = False
+    audit(AuditEventType.CONFIRMATION_ACCEPTED if allowed else AuditEventType.CONFIRMATION_REJECTED, "allowed" if allowed else "denied")
+    return allowed
+
+
 def _resume(core: JarvisCore, arg: str) -> str:
     """`/resume` zeigt unterbrochene Ziele aus dem Journal (nur lesen); `/resume <id>` setzt eines fort - nur auf diesen ausdruecklichen Befehl, nie automatisch.
     Bereits erledigte Schritte laufen nicht erneut, Schritte mit moeglicher Aenderung ausserhalb von JARVIS brauchen eine NEUE Bestaetigung ueber den Bestaetigungskanal
@@ -385,17 +412,11 @@ def _resume(core: JarvisCore, arg: str) -> str:
         return ("Wiederaufnahme nicht verfügbar. Nötig: assistant.enabled, journal.enabled, goals.enabled und agents.enabled "
                 "(bzw. JARVIS_ASSISTANT_ENABLED / JARVIS_JOURNAL_ENABLED / JARVIS_GOALS_ENABLED / JARVIS_AGENTS_ENABLED = true).")
     emergency = core.permissions.emergency
-    provider_of = lambda: core.permissions.confirmation                                                  # noqa: E731 - der Kanal kann zur Laufzeit wechseln
     counter = [0]
 
     def confirm(text: str) -> bool:
         counter[0] += 1
-        request = ConfirmationRequest(request_id=f"resume-{counter[0]}", tool="jarvis", action="resume_step", level=PermissionLevel.YELLOW, resource="journal",
-                                      reason=text[:300], context={"Hinweis": "erneute Ausführung nach Unterbrechung"}, session_allowed=False)
-        try:
-            return provider_of().confirm(request) == ConfirmationChoice.ALLOW_ONCE                      # alles andere (auch ALLOW_SESSION) gilt als Nein
-        except Exception:                                                                                 # noqa: BLE001 - fail closed
-            return False
+        return resume_confirm_with_audit(core, counter[0], text)
 
     manager = ResumeManager(journal.store, goals=engine, planner=planner, emergency=lambda: bool(emergency.engaged), confirm=confirm)
     ref = arg.strip()

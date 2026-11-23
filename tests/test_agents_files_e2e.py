@@ -46,7 +46,7 @@ def say(srv, text, cid, wait=20.0):
     while time.monotonic() < end:
         evs = srv.backend.events_since(0, 1000)
         replies = [e for e in evs if e["type"] == "chat" and e["data"]["sender"] == "jarvis"]
-        if len(replies) > seen and evs[-1]["type"] != "activity":
+        if len(replies) > seen and (evs[-1]["type"] != "activity" or not evs[-1]["data"]["items"]):
             time.sleep(0.3)
             return [e["data"]["text"] for e in srv.backend.events_since(0, 1000) if e["type"] == "chat" and e["data"]["sender"] == "jarvis"]
         time.sleep(0.1)
@@ -118,5 +118,43 @@ def test_a_cancel_command_for_an_unknown_task_is_answered_not_ignored_and_change
         status, ack = post(srv, cmd("cancel", {"kind": "agent_task", "id": "gibt-es-nicht"}, cid="c9"))
         assert status == 200 and ack["data"]["ok"] is False and ack["data"].get("code")      # echte Antwort des Backends statt stillem Erfolg
         assert core.permissions.emergency.engaged is False
+    finally:
+        srv.stop()
+
+
+def test_a_missing_file_is_not_retried_and_is_explained_in_plain_words(tmp_path):
+    core, srv, ws = start(tmp_path, (ONCE,) * 20)
+    try:
+        replies = say(srv, "Lies die Datei gibt-es-nicht.txt", "e4")
+        assert replies
+        assert "Versuche" not in replies[-1]                                          # ein Eingabefehler wird nicht wiederholt (kein "(2 Versuche)")
+        assert "existieren nicht" in replies[-1] and "file_not_found" not in replies[-1]
+    finally:
+        srv.stop()
+
+
+def test_a_folder_request_without_a_name_explains_what_is_missing_and_creates_nothing(tmp_path):
+    core, srv, ws = start(tmp_path, (ONCE,) * 20)
+    try:
+        replies = say(srv, "Erstelle einen Ordner auf dem Desktop", "e5")
+        assert replies and "Ordnername" in replies[-1]
+        assert not (ws / "auf").exists()
+        replies = say(srv, "Erstelle einen Ordner namens Projekte", "e6")
+        assert (ws / "Projekte").is_dir() and replies
+    finally:
+        srv.stop()
+
+
+def test_s7_a_missing_working_directory_is_explained_as_a_setup_step_and_works_once_it_exists(tmp_path):
+    import shutil
+    core, srv, ws = start(tmp_path, (ONCE,) * 20)
+    try:
+        shutil.rmtree(ws)                                                              # nur der Test-Arbeitsordner in tmp_path: wie auf einem frischen PC
+        replies = say(srv, "Erstelle den Ordner TestAbnahme", "e7")
+        assert replies and "Arbeitsordner" in replies[-1] and "New-Item" in replies[-1]
+        assert "existieren nicht" not in replies[-1] and "Versuche" not in replies[-1]
+        ws.mkdir()                                                                     # der Einrichtungsschritt aus der Fehlermeldung
+        replies = say(srv, "Erstelle einen neuen Ordner namens TestAbnahme", "e8")
+        assert (ws / "TestAbnahme").is_dir() and replies
     finally:
         srv.stop()

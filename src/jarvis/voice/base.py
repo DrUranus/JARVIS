@@ -56,6 +56,9 @@ class AudioSource(ABC):
         """Block until one utterance is captured. None = nothing heard (silence/timeout).
         Raise VoiceUnavailableError if the device cannot be used, EndOfInput when exhausted."""
 
+    def cancel(self) -> None:
+        """Abort a running (or the next) `record()` at once and discard what was captured (it then returns None). Default: nothing to cancel. Never raises."""
+
 
 class AudioPlayer(ABC):
     @abstractmethod
@@ -99,6 +102,9 @@ class Listener(ABC):
     @abstractmethod
     def listen(self) -> str | None:
         """Next utterance as text; None when nothing was heard. Raise EndOfInput when finished."""
+
+    def cancel(self) -> None:
+        """Abort a running `listen()` early (it then returns None). Default: nothing to cancel. Never raises."""
 
 
 class Speaker(ABC):

@@ -39,9 +39,10 @@ CONTEXT_KEYS = frozenset({"url", "workspace", "runner", "edits", "memory_query",
 
 # Phase 10: explicitly chosen analysis templates (context key `template`); never guessed from chat. Each step carries `input.kind` for its agent.
 ANALYSIS_TEMPLATES = ("research_web", "market_analysis", "competitor_analysis", "business_analysis", "business_plan", "financial_analysis", "company_analysis",
-                      "paper_trade_analysis")
+                      "paper_trade_analysis", "business_finder")
 ANALYSIS_KINDS = frozenset({"research_web", "market_analysis", "competitor_analysis", "business_plan", "business_analysis", "marketing_draft", "lead_list",
-                            "financial_analysis", "company_analysis", "risk_analysis", "scenario_analysis", "portfolio_analysis", "paper_trade_analysis"})
+                            "financial_analysis", "company_analysis", "risk_analysis", "scenario_analysis", "portfolio_analysis", "paper_trade_analysis",
+                            "business_finder"})
 
 
 def is_retryable(status: TaskStatus, code: str | None) -> bool:

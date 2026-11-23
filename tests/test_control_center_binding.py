@@ -233,3 +233,81 @@ def test_launcher_has_no_second_permission_path():
 def test_bootstrap_does_not_start_or_import_the_control_center():
     text = (SRC / "bootstrap.py").read_text(encoding="utf-8")
     assert "control_center" not in text.replace("settings.control_center", "")
+
+
+# ---- Not-Aus aufheben ueber die echte Engine: fail-closed, nur nach ausdruecklichem allow_once ---------------------------------------------------------
+def _open_reset_question(srv, cid):
+    status, ack = post(srv, cmd("reset_emergency", cid=cid))
+    assert status == 200 and ack["data"]["ok"] is True and ack["data"]["code"] == "confirmation_requested"
+
+
+def _pending_reset_request(srv):
+    ev = [e for e in srv.backend.snapshot() if e["type"] == "confirmation_request" and e["data"]["action"] == "emergency_reset"]
+    return ev[-1]["data"] if ev else None
+
+
+def test_reset_request_alone_never_lifts_the_stop_and_tasks_stay_refused(tmp_path):
+    core = real_core(tmp_path)
+    srv = build_server(load_settings(env=real_env(tmp_path)), core)
+    srv.start()
+    try:
+        post(srv, cmd("emergency_stop", cid="r1"))
+        _open_reset_question(srv, "r2")
+        assert wait_for(lambda: _pending_reset_request(srv) is not None)
+        req = _pending_reset_request(srv)
+        assert req["tool"] == "jarvis" and req["action"] == "emergency_reset" and req["choices"] == ["allow_once", "deny"]   # ausdrueckliche Bestaetigung noetig
+        assert core.permissions.emergency.engaged is True                                       # die Anfrage allein hebt nichts auf
+        assert post(srv, cmd("submit_text", {"text": "weiter"}, cid="r3"))[1]["data"]["code"] == "emergency"
+        assert core.tools.execute("echo", text="hallo").success is False
+    finally:
+        srv.stop()
+
+
+def test_reset_denied_or_timed_out_stays_engaged(tmp_path):
+    core = real_core(tmp_path)                                                                  # Zeitlimit der Rueckfrage 1 s (real_env)
+    srv = build_server(load_settings(env=real_env(tmp_path)), core)
+    srv.start()
+    try:
+        post(srv, cmd("emergency_stop", cid="d1"))
+        _open_reset_question(srv, "d2")
+        assert wait_for(lambda: _pending_reset_request(srv) is not None)
+        post(srv, cmd("confirm", {"request_id": _pending_reset_request(srv)["request_id"], "choice": "deny"}, cid="d3"))
+        time.sleep(0.5)
+        assert core.permissions.emergency.engaged is True                                       # Ablehnen: bleibt aktiv
+        assert wait_for(lambda: post(srv, cmd("reset_emergency", cid="d4"))[1]["data"]["ok"])
+        time.sleep(2.5)                                                                         # keine Antwort: Zeitablauf = abgelehnt
+        assert core.permissions.emergency.engaged is True
+    finally:
+        srv.stop()
+
+
+def test_reset_only_after_explicit_allow_once_then_tasks_work_again(tmp_path):
+    core = real_core(tmp_path)
+    srv = build_server(load_settings(env=real_env(tmp_path)), core)
+    srv.start()
+    try:
+        post(srv, cmd("emergency_stop", cid="a1"))
+        assert core.tools.execute("echo", text="hallo").success is False
+        _open_reset_question(srv, "a2")
+        assert wait_for(lambda: _pending_reset_request(srv) is not None)
+        post(srv, cmd("confirm", {"request_id": _pending_reset_request(srv)["request_id"], "choice": "allow_once"}, cid="a3"))
+        assert wait_for(lambda: core.permissions.emergency.engaged is False)
+        assert core.tools.execute("echo", text="hallo").success is True                         # normale Aufgaben erst nach erfolgreichem Reset
+        assert post(srv, cmd("submit_text", {"text": "weiter"}, cid="a4"))[1]["data"]["code"] != "emergency"
+    finally:
+        srv.stop()
+
+
+def test_reset_question_open_while_the_connection_is_lost_stays_engaged(tmp_path):
+    core = real_core(tmp_path)
+    srv = build_server(load_settings(env=real_env(tmp_path)), core)
+    srv.start()
+    try:
+        post(srv, cmd("emergency_stop", cid="v1"))
+        _open_reset_question(srv, "v2")
+        assert wait_for(lambda: _pending_reset_request(srv) is not None)
+        srv.backend.detach()                                                                    # Browser-Reload / Verbindungsverlust: Rueckfragen gelten als abgelehnt
+        time.sleep(0.5)
+        assert core.permissions.emergency.engaged is True
+    finally:
+        srv.stop()

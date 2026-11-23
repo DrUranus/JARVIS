@@ -13,6 +13,7 @@ import copy
 import datetime as dt
 import logging
 import threading
+import time
 import uuid
 from typing import Any
 
@@ -21,6 +22,7 @@ from jarvis.redaction import SecretDetector
 from jarvis.interface.gui_model import (ActivityEvent, ActivitySnapshot, ChatEvent, EmergencyEvent, GuiController, StateEvent, SubmitResult)
 from jarvis.ui_contract.backend import UiBackend
 from jarvis.ui_contract.bus import Clock, EventLog
+from jarvis.voice.meter import METER
 from jarvis.ui_contract.schema import ID, MAX_ITEMS, MAX_TEXT, VERSION, ContractError, validate_command
 
 log = logging.getLogger("jarvis.interface.ui_events")
@@ -61,9 +63,13 @@ class UiConfirmationProvider:
             return self._adapter._deny
 
 
+MIN_LEVEL_INTERVAL_S = 0.2           # hoechstens 5 Pegel-Ereignisse je Sekunde
+
+
 class ControllerUiBackend(UiBackend):
     def __init__(self, controller: GuiController, *, choice_enum: Any, clock: Clock | None = None, name: str = "jarvis", log_capacity: int = 1000,
-                 confirmation_timeout_s: float = DEFAULT_CONFIRMATION_TIMEOUT_S, event_log: EventLog | None = None) -> None:
+                 confirmation_timeout_s: float = DEFAULT_CONFIRMATION_TIMEOUT_S, event_log: EventLog | None = None,
+                 level_clock: Any = None) -> None:
         self._ctl = controller
         self._deny = choice_enum.DENY                                  # die Aufzaehlung der Engine (ConfirmationChoice): nur ihre Mitglieder zaehlen als Antwort
         self._allow = {"allow_once": choice_enum.ALLOW_ONCE, "allow_session": choice_enum.ALLOW_SESSION}
@@ -73,6 +79,8 @@ class ControllerUiBackend(UiBackend):
         self._activity: dict[str, tuple[str, str, bool]] = {}        # Vertrags-ID -> (Art, echte ID, abbrechbar)
         self._attached = True
         self._voice_seen = False
+        self._level_clock = level_clock or time.monotonic
+        self._level_seen, self._level_at = 0.0, float("-inf")
         self._pump_hooks: list[Any] = []
         self._emergency_reason = ""
         self.confirmation_provider = UiConfirmationProvider(self, confirmation_timeout_s)
@@ -116,6 +124,7 @@ class ControllerUiBackend(UiBackend):
         """A `task_update` and the `result` of finished work (texts redacted, then cut to the contract limits)."""
         self.publish("task_update", {"kind": kind, "id": ident, "status": self.clean(status, 32), "detail": self.clean(summary, 200)})
         self.publish("result", {"task_id": ident, "summary": self.clean(summary, MAX_TEXT), "artifacts": []})
+        self._ctl.request_activity()                                  # frischer Schnappschuss nach dem Ende: der zuletzt veroeffentlichte (er wird beim Neuladen ausgeliefert) stammte sonst aus der Bearbeitung
 
     def publish(self, type_: str, data: dict[str, Any]) -> dict[str, Any] | None:
         """Add one contract event (redacted and validated by the EventLog). Returns None if it does not fit the contract (nothing is emitted then)."""
@@ -148,7 +157,16 @@ class ControllerUiBackend(UiBackend):
         active = self._ctl.voice_active
         if active != self._voice_seen:
             self._voice_seen = active
+            self._level_seen, self._level_at = 0.0, self._level_clock()
             self._log.emit("voice_level", {"level": 0, "active": active})
+            return
+        if not active:
+            return
+        now = self._level_clock()
+        level = round(METER.read(), 1)                                       # Anzeigepegel aus der Aufnahmeschleife, in 0,1-Schritten (kein Ereignis-Strom)
+        if level != self._level_seen and now - self._level_at >= MIN_LEVEL_INTERVAL_S:
+            self._level_seen, self._level_at = level, now
+            self._log.emit("voice_level", {"level": level, "active": True})
 
     def _publish_activity(self, snap: ActivitySnapshot) -> None:
         items, mapping = [], {}
@@ -158,8 +176,11 @@ class ControllerUiBackend(UiBackend):
                 continue
             cancellable = _NO_CANCEL_NOTE not in it.note
             mapping[f"{it.kind}:{cid}"] = (it.kind, it.ident, cancellable)
-            items.append({"kind": it.kind, "id": cid, "title": self._log.clean(it.text, 200), "status": self._log.clean(it.status, 32), "note": self._log.clean(it.note, 200),
-                          "cancellable": cancellable})
+            item = {"kind": it.kind, "id": cid, "title": self._log.clean(it.text, 200), "status": self._log.clean(it.status, 32), "note": self._log.clean(it.note, 200),
+                    "cancellable": cancellable}
+            if it.kind == "goal" and it.steps > 0:
+                item["steps"] = min(int(it.steps), 200)                       # nur die belegte Schrittzahl des gespeicherten Plans
+            items.append(item)
         self._activity = {k: v for k, v in mapping.items()}
         self._log.emit("activity", {"items": items, "problems": [self._log.clean(p, 200) for p in snap.problems[:20]],
                                     "inactive": [self._log.clean(p, 64) for p in snap.inactive[:20]]})
@@ -221,6 +242,12 @@ class ControllerUiBackend(UiBackend):
         reason = self._ctl.start_voice()
         return self._log.ack(cid, True) if not reason else self._log.ack(cid, False, "voice_unavailable", self._log.clean(reason, 300))
 
+    def _do_stop_speech(self, cid: str, data: dict[str, Any]) -> dict[str, Any]:
+        if not self._ctl.voice_active:
+            return self._log.ack(cid, False, "not_active", "voice mode is not running")
+        self._ctl.stop_speech()
+        return self._log.ack(cid, True)
+
     def _do_stop_voice(self, cid: str, data: dict[str, Any]) -> dict[str, Any]:
         if not self._ctl.voice_active:
             return self._log.ack(cid, False, "not_active", "voice mode is not running")
@@ -236,6 +263,7 @@ class ControllerUiBackend(UiBackend):
             return self._log.ack(cid, False, "not_cancellable", "this work cannot be cancelled")
         if not self._ctl.request_cancel(kind, ident):
             return self._log.ack(cid, False, "busy", "a cancel request for this work is already running")
+        self.deny_pending()                                           # Abbruch heisst auch: offene Rueckfragen gelten als abgelehnt (fail-closed); ein spaetes „Erlauben“ fuehrte sonst die abgebrochene Aktion noch aus
         return self._log.ack(cid, True, "cancel_requested")
 
     def _do_emergency_stop(self, cid: str, data: dict[str, Any]) -> dict[str, Any]:

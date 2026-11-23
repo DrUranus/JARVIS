@@ -303,8 +303,11 @@ class FilesController:
         return again
 
     def _need_parent(self, loc: Located) -> None:
-        st = self._lstat(os.path.dirname(loc.abs))
+        parent = os.path.dirname(loc.abs)
+        st = self._lstat(parent)
         if st is None or self._kind(st) != "dir":
+            if any(_norm(parent) == _norm(r) for r in self._roots):      # the confirmed working directory itself is missing: say so (a setup step, not a missing file)
+                raise _bad("root_missing", "the working directory (Arbeitsordner) does not exist yet; create it once, e.g. New-Item -ItemType Directory workspace")
             raise _bad("file_not_found", "the parent directory does not exist (create it first with mkdir)")
 
     # -- build -------------------------------------------------------------------------------------------------------------------------------
