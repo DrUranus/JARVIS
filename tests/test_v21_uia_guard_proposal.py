@@ -5,6 +5,8 @@ Zweck des historischen Tests: die UI-Tool-Arbeit (#66) darf `bootstrap.py`, `per
 anfassen. Vorschlag: dieselbe Verbotsliste, ABER `bootstrap.py` ist erlaubt, solange `wiring_problems(bootstrap.py) == []` (Struktur gleich V2.0 ausser der lesenden Guard-Verdrahtung)."""
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from test_v21_bootstrap_wiring import real, wiring_problems
@@ -53,3 +55,97 @@ def test_a_bootstrap_change_beyond_the_guard_wiring_stays_forbidden(mutate):
 
 def test_the_historic_rule_itself_is_not_weakened_by_the_proposal_for_other_files():
     assert historic_guard(["src/jarvis/computer/tools.py", "docs/x.md"]) == [] and proposed_guard(["src/jarvis/computer/tools.py"], "def broken(:") == []
+
+
+# ---- Beispielkonfigurationen: KEINE pauschale Ausnahme fuer config/, nur INHALTLICH geprueft ---------------------------------------------------------------
+import tomllib  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[1]
+
+from jarvis.redaction import SecretDetector  # noqa: E402
+
+EXAMPLE_NAME = re.compile(r"^config/[a-z0-9][a-z0-9_.\-]*\.example\.toml$")                   # genau eine Ebene, nur *.example.toml (nie jarvis.toml, nie ein Unterordner)
+ALLOWED_TABLES = frozenset({"control_center", "assistant", "agents", "goals", "journal", "files", "llm", "browser", "research"})   # alles, was KEINE Sicherheitsregel setzt
+FORBIDDEN_KEYS = frozenset({"audit_strict", "audit_enabled", "audit_green", "confirmation", "allowed_roots", "denied_paths", "policy_file", "paper_trading_only", "allow_prepare",
+                            "allow_activation", "repo_path", "max_attempts_per_step", "api_key", "key_path", "private_hosts_allowed"})
+SECRETISH_KEY = re.compile(r"(^|_)(token|secret|password|passwd|credential|api_?key|access_?key)$")        # trifft "token", "api_key", "x_secret" - nicht "max_tokens"
+MAX_EXAMPLE_BYTES = 20_000
+
+
+def example_config_problems(rel: str, text: str) -> list[str]:
+    """Leere Liste = die Datei ist ein harmloses Beispiel (nur nicht-sicherheitsrelevante Abschnitte, keine Sicherheitsschluessel, keine Geheimnisse, gueltiges TOML)."""
+    problems: list[str] = []
+    if not EXAMPLE_NAME.match(rel):
+        return [f"{rel}: kein Beispiel-Dateiname (config/<name>.example.toml)"]
+    if len(text.encode("utf-8")) > MAX_EXAMPLE_BYTES:
+        return [f"{rel}: zu gross"]
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return [f"{rel}: kein gueltiges TOML"]
+
+    def walk(node, path=""):
+        for k, v in node.items():
+            if str(k).lower() in FORBIDDEN_KEYS or SECRETISH_KEY.search(str(k).lower()):
+                problems.append(f"{rel}: Sicherheits-/Geheimnisschluessel {path}{k}")
+            if isinstance(v, dict):
+                walk(v, f"{path}{k}.")
+    for table in data:
+        if table not in ALLOWED_TABLES:
+            problems.append(f"{rel}: Abschnitt [{table}] ist nicht erlaubt")
+    walk(data)
+    if SecretDetector().find(text):
+        problems.append(f"{rel}: enthaelt etwas, das wie ein Geheimnis aussieht")
+    return problems
+
+
+def proposed_guard_v2(changed: list[str], bootstrap_source: str, read=lambda rel: (ROOT / rel).read_text(encoding="utf-8")) -> list[str]:
+    """Vorschlag: wie `proposed_guard`, zusaetzlich sind Beispielkonfigurationen erlaubt, wenn ihr INHALT `example_config_problems == []` ergibt."""
+    forbidden = proposed_guard(changed, bootstrap_source)
+    out = []
+    for f in forbidden:
+        if f.startswith("config/") and f != "config/jarvis.toml":
+            try:
+                if example_config_problems(f, read(f)) == []:
+                    continue
+            except OSError:
+                pass
+        out.append(f)
+    return out
+
+
+def test_the_real_example_configs_pass_the_content_check():
+    for rel in ("config/nexus.live.example.toml", "config/nexus.example.toml"):
+        assert example_config_problems(rel, (ROOT / rel).read_text(encoding="utf-8")) == [], rel
+    assert proposed_guard_v2(["config/nexus.live.example.toml"], real()) == []
+
+
+def test_policy_example_is_not_covered_because_it_sets_rules():
+    text = (ROOT / "config/policy.example.toml").read_text(encoding="utf-8")
+    assert example_config_problems("config/policy.example.toml", text) != []               # Abschnitt [rule]: gehoert in die Owner-Pruefung, keine stille Ausnahme
+
+
+@pytest.mark.parametrize("rel", ["config/jarvis.toml", "config/nexus.toml", "config/sub/x.example.toml", "config/x.example.toml.bak", "config/../config/jarvis.toml", "src/jarvis/config.py", "config/EXAMPLE.toml"])
+def test_only_exact_example_file_names_qualify(rel):
+    assert example_config_problems(rel, "[agents]\nenabled = true\n") != []
+    assert proposed_guard_v2([rel], real(), read=lambda r: "[agents]\nenabled = true\n") == [rel] if rel.startswith("config/") else True
+
+
+@pytest.mark.parametrize("body", ["[security]\naudit_strict = false\n", "[agents]\naudit_strict = false\n", "[assistant]\nconfirmation = \"allow\"\n", "[files]\nallowed_roots = [\"C:/\"]\n",
+                                  "[finance]\npaper_trading_only = false\n", "[self_improvement]\nallow_activation = true\n", "[llm]\napi_key = \"x\"\n", "[llm]\ntoken = \"x\"\n",
+                                  "[agents]\nenabled = true\n[security]\nconfirmation = \"deny\"\n", "[llm]\nprovider = \"sk-" + "a1" * 12 + "\"\n", "[agents\nbroken", "[unknown_table]\nx = 1\n",
+                                  "[goals]\nmax_attempts_per_step = 50\n", "[browser]\nprivate_hosts_allowed = [\"10.0.0.1\"]\n"])
+def test_every_security_relevant_or_secret_content_keeps_a_config_file_forbidden(body):
+    assert example_config_problems("config/x.example.toml", body) != []
+    assert proposed_guard_v2(["config/x.example.toml"], real(), read=lambda r: body) == ["config/x.example.toml"]
+
+
+def test_a_real_example_that_is_changed_into_something_dangerous_is_found():
+    base = (ROOT / "config/nexus.live.example.toml").read_text(encoding="utf-8")
+    assert example_config_problems("config/nexus.live.example.toml", base + "\n[security]\nconfirmation = \"allow\"\n") != []
+
+
+def test_the_extension_does_not_loosen_any_other_protected_path():
+    for path in ("src/jarvis/permissions/engine.py", ".github/workflows/tests.yml", "tests/test_emergency_stop.py", "pyproject.toml", "CLAUDE.md"):
+        assert proposed_guard_v2(["config/nexus.live.example.toml", path], real()) == [path]

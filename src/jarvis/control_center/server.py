@@ -53,7 +53,6 @@ class ControlCenterServer:
         self._stop = threading.Event()
         self._backend_lock = threading.Lock()
         self._clients = 0
-        self._clients_lock = threading.Lock()
 
     # ---- Lebenszyklus (nur auf ausdruecklichen Aufruf) ------------------------------------------------------------------------------------
     @property
@@ -65,9 +64,11 @@ class ControlCenterServer:
     def start(self) -> None:
         if self._httpd is not None:
             raise RuntimeError("already started")
-        self._stop.clear()
         httpd = _Httpd((self.host, self._want_port), _make_handler(self))
-        self._httpd, self.port = httpd, httpd.server_address[1]
+        with self._backend_lock:
+            self._httpd, self.port = httpd, httpd.server_address[1]
+            self._clients = 0
+            self._stop.clear()
         self._thread = threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.1}, name="jarvis-control-center", daemon=True)
         self._thread.start()
 
@@ -78,11 +79,23 @@ class ControlCenterServer:
         self._stop.set()
         httpd.shutdown()
         httpd.server_close()
+        with self._backend_lock:
+            self.backend.detach()  # Shutdown also revokes outstanding questions.
         if thread is not None:
             thread.join(timeout=5)
         self._httpd = self._thread = None
 
     # ---- Hilfen ---------------------------------------------------------------------------------------------------------------------------
+    def static_resource(self, path: str, query: dict[str, list[str]]) -> tuple[bytes, str] | None:
+        """Resolve a fixed local asset only after the authenticated GET guard."""
+        if path not in STATIC:
+            return None
+        name, ctype = STATIC[path]
+        body = (WEB_DIR / name).read_bytes()
+        if name == "index.html":
+            body = body.replace(b"__TOKEN__", self.token.encode())
+        return body, ctype
+
     def _allowed_hosts(self) -> set[str]:
         return {f"127.0.0.1:{self.port}", f"localhost:{self.port}"}
 
@@ -92,26 +105,30 @@ class ControlCenterServer:
     def _token_ok(self, supplied: str | None) -> bool:
         return bool(supplied) and hmac.compare_digest(supplied.encode("utf-8", "replace"), self.token.encode())
 
-    def _call(self, fn, *args):
+    def _call(self, listener, fn, *args):
         with self._backend_lock:
+            if self._stop.is_set() or listener is not self._httpd:
+                raise _ListenerClosed()
             return fn(*args)
 
-    def _client_joined(self) -> bool:
-        with self._clients_lock:
-            if self._clients >= self.max_clients:
+    def _client_joined(self, listener) -> bool:
+        with self._backend_lock:
+            if self._stop.is_set() or listener is not self._httpd or self._clients >= self.max_clients:
                 return False
             self._clients += 1
             return True
 
-    def _client_left(self) -> None:
-        with self._clients_lock:
+    def _client_left(self, listener) -> None:
+        with self._backend_lock:
+            if listener is not self._httpd:
+                return
             self._clients -= 1
-            last = self._clients == 0
-        if last and not self._stop.is_set():
-            try:
-                self._call(self.backend.detach)  # Oberflaeche weg -> offene Rueckfragen gelten als abgelehnt
-            except Exception:
-                pass
+            if self._clients == 0 and not self._stop.is_set():
+                self.backend.detach()
+
+
+class _ListenerClosed(OSError):
+    """The handler belongs to a stopped listener."""
 
 
 def _make_handler(srv: ControlCenterServer):
@@ -198,18 +215,16 @@ def _make_handler(srv: ControlCenterServer):
                 self._events(query)
             elif path in VIEW_PATHS and srv.views is not None:
                 self._view(path, query)
-            elif path in STATIC:
-                name, ctype = STATIC[path]
-                try:
-                    body = (WEB_DIR / name).read_bytes()
-                except OSError:
-                    self._reply(404, b"not found")
-                    return
-                if name == "index.html":
-                    body = body.replace(b"__TOKEN__", srv.token.encode())
-                self._reply(200, body, ctype)
             else:
-                self._reply(404, b"not found")
+                try:
+                    resource = srv.static_resource(path, query)
+                except OSError:
+                    resource = None
+                if resource is None:
+                    self._reply(404, b"not found")
+                else:
+                    body, ctype = resource
+                    self._reply(200, body, ctype)
 
         def _view(self, path: str, query: dict[str, list[str]]) -> None:
             """Lesende Ansicht (GET): Filter aus der Query, Antwort als JSON. Keine Wirkung ausser dem Lesen."""
@@ -259,7 +274,12 @@ def _make_handler(srv: ControlCenterServer):
                 raw_id = _safe_id(body)
                 self._json(400, _reject_ack(raw_id))
                 return
-            self._json(200, srv._call(srv.backend.send, command))
+            try:
+                ack = srv._call(self.server, srv.backend.send, command)
+            except _ListenerClosed:
+                self._json(503, {"error": "server stopped"})
+                return
+            self._json(200, ack)
 
         def _method_not_allowed(self) -> None:
             if self._guard(need_origin=False) is not None:
@@ -276,14 +296,14 @@ def _make_handler(srv: ControlCenterServer):
                     self._reply(400, b"bad since")
                     return
                 since = int(raw)
-            if not srv._client_joined():
+            if not srv._client_joined(self.server):
                 self._reply(503, b"too many clients")
                 return
             try:
                 self._headers(200, "text/event-stream; charset=utf-8")
                 self.send_header("X-Accel-Buffering", "no")
                 self.end_headers()
-                first = srv._call(srv.backend.snapshot) if since is None else srv._call(srv.backend.events_since, since, 1000)
+                first = srv._call(self.server, srv.backend.snapshot) if since is None else srv._call(self.server, srv.backend.events_since, since, 1000)
                 last = since or 0
                 self._write(first)
                 last = max([last] + [e["seq"] for e in first])
@@ -291,7 +311,7 @@ def _make_handler(srv: ControlCenterServer):
                 while not srv._stop.wait(srv.poll_interval):
                     if self._peer_gone():
                         break
-                    batch = srv._call(srv.backend.events_since, last, 200)
+                    batch = srv._call(self.server, srv.backend.events_since, last, 200)
                     if batch:
                         self._write(batch)
                         last = batch[-1]["seq"]
@@ -305,7 +325,7 @@ def _make_handler(srv: ControlCenterServer):
             except OSError:
                 pass  # Client weg
             finally:
-                srv._client_left()
+                srv._client_left(self.server)
 
         def _peer_gone(self) -> bool:
             try:

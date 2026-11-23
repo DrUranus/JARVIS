@@ -82,6 +82,50 @@ def test_incomplete_or_ambiguous_requests_are_refused_with_a_reason(text):
         assert out is None or out.get("action") not in ("create", "replace") or out.get("content") or out.get("new_text") is not None
 
 
+# ---- Anleitungs-/Erklaerfragen sind keine Dateiaktion (Regression: "Ordner auf dem Desktop" wurde als mkdir "auf" gelesen) -------------------------------------
+_HOWTO = ["Erstelle eine Schritt-für-Schritt-Anleitung, wie ich unter Windows 11 einen neuen Ordner auf dem Desktop erstelle",
+          "Erkläre mir, wie ich einen Ordner erstelle", "Wie kopiere ich Dateien unter Windows?"]
+
+
+@pytest.mark.parametrize("text", _HOWTO)
+def test_how_to_questions_are_not_file_requests(text):
+    assert parse_file_goal(text) is None
+
+
+@pytest.mark.parametrize("text", _HOWTO)
+def test_how_to_questions_do_not_become_a_goal(text):
+    from types import SimpleNamespace
+    from jarvis.interface.cli import research_route
+    core = SimpleNamespace(subsystems={"goals": SimpleNamespace(engine=object())})
+    assert research_route(core, text) is None
+
+
+def test_real_folder_and_word_requests_still_become_one_step():
+    assert parse_file_goal("Erstelle einen neuen Ordner Archiv2024") == {"tool": "files", "action": "mkdir", "path": "Archiv2024"}
+    assert parse_file_goal("Erstelle ein Word-Dokument bericht.docx mit dem Inhalt: Hallo Welt") ==         {"tool": "office", "action": "create", "path": "bericht.docx", "content": "Hallo Welt"}
+
+
+@pytest.mark.parametrize("text", ["Erstelle einen Ordner auf dem Desktop", "Erstelle einen neuen Ordner auf dem Desktop", "Create a folder on the desktop",
+                                  "Lege einen Ordner im Dokumente-Verzeichnis an", "Erstelle einen Ordner namens"])
+def test_folder_request_without_a_folder_name_is_refused_never_mkdir_auf(text):
+    with pytest.raises(FileIntentError) as exc:
+        parse_file_goal(text)
+    assert str(exc.value)
+
+
+def test_folder_request_without_a_name_goes_to_the_goal_path_for_an_explanation_not_an_action():
+    from types import SimpleNamespace
+    from jarvis.interface.cli import research_route
+    core = SimpleNamespace(subsystems={"goals": SimpleNamespace(engine=object())})
+    assert research_route(core, "Erstelle einen Ordner auf dem Desktop").startswith("/goal ")      # the planner refuses it with the reason; no step is built from "auf"
+
+
+@pytest.mark.parametrize("text,path", [("Erstelle einen Ordner Projekte", "Projekte"), ("Erstelle einen Ordner \"Neuer Ordner\"", "Neuer Ordner"),
+                                       (r"Erstelle den Ordner C:\Users\Test\Desktop\Archiv", r"C:\Users\Test\Desktop\Archiv")])
+def test_valid_folder_creation_with_a_name_still_works(text, path):
+    assert parse_file_goal(text) == {"tool": "files", "action": "mkdir", "path": path}
+
+
 # ---- Routing ---------------------------------------------------------------------------------------------------------------------------------
 def test_router_rules_pick_the_files_agent_only_for_file_and_document_requests(tmp_path):
     core, _, _, _ = make(tmp_path)

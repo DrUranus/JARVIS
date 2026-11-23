@@ -14,6 +14,7 @@ from jarvis.config import Settings
 from jarvis.core import JarvisCore
 from jarvis.core.core import format_entries
 from jarvis.errors import JarvisError, VoiceError
+from jarvis.interface._reset_prompt import reset_prompt_from
 from jarvis.permissions import CliConfirmation
 from jarvis.permissions.confirmation import ConfirmationChoice, ConfirmationRequest
 from jarvis.permissions.levels import PermissionLevel
@@ -349,7 +350,7 @@ def _assistant(core: JarvisCore, arg: str) -> str:
     return sub.status_text() if sub is not None else "Assistent: nicht konfiguriert."
 
 
-_RESEARCH_START = re.compile(r"^\s*(?:bitte\s+)?(?:recherchier\w*|recherche\b|finde\s+\w*\s*heraus|informier\w*\s+dich|research\b|find\s+out)", re.IGNORECASE)
+_RESEARCH_START = re.compile(r"^\s*(?:bitte\s+)?(?:recherchiere\b|recherchieren\b|recherche\b(?!-)|finde\s+\w*\s*heraus|informier\w*\s+dich|research\b|find\s+out)", re.IGNORECASE)
 
 
 def research_route(core: JarvisCore, text: str) -> str | None:
@@ -717,7 +718,10 @@ def _emergency(core: JarvisCore, arg: str) -> str:
     if arg == "reset":
         if not em.engaged:
             return "Notaus nicht aktiv."
-        res = engine.reset_emergency_stop("cli")
+        with reset_prompt_from(engine) as available:
+            if not available:
+                return "Eine Reset-Anfrage läuft bereits."
+            res = engine.reset_emergency_stop("cli")
         return res.detail + ("" if not res.problems else "\n  " + "\n  ".join(res.problems))
     return "Verwendung: /notaus | /notaus status | /notaus reset"
 

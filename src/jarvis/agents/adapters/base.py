@@ -9,6 +9,7 @@ engine decides. The first failing step ends the task: a denied step is BLOCKED, 
 Nothing here can confirm, force or skip a permission."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -21,6 +22,11 @@ from jarvis.agents.result import AgentOutcome
 
 MAX_STEPS = 50
 MAX_STEP_OUTPUT = 4000
+# Error codes of the files/office tools that say the REQUEST is wrong; repeating the same request can never succeed (so no retry; goals.policy treats invalid_input as fatal).
+PERMANENT_TOOL_CODES = frozenset({"file_not_found", "file_exists", "binary_file", "file_too_large", "invalid_input", "invalid_package", "no_delete", "outside_roots",
+                                  "path_denied", "protected_path", "secret_detected", "symlink_rejected", "unsupported_format", "macros_refused", "xml_entities_refused",
+                                  "zip_bomb", "library_missing"})
+_PERMANENT_TOOL_CODE = re.compile(r"\[([a-z_]+)\]")
 
 
 def _clip(value: Any, limit: int = MAX_STEP_OUTPUT) -> Any:
@@ -116,6 +122,9 @@ class ToolStepAgent(Agent):
                                         code="permission_denied", output={"steps": results})
         if (isinstance(res.output, dict) and res.output.get("code") == "failsafe") or "[failsafe]" in (res.error or ""):
             return AgentOutcome.blocked(f"step {i}: the subsystem is halted", code="halted", output={"steps": results})
+        permanent = _PERMANENT_TOOL_CODE.search(res.error or "")
+        if permanent and permanent.group(1) in PERMANENT_TOOL_CODES:   # the request itself is wrong (missing file, existing target, forbidden path ...): a retry cannot change that
+            return AgentOutcome.failed(f"step {i} failed: {_clip(res.error or 'failed', 300)}", code="invalid_input", output={"steps": results})
         return AgentOutcome.failed(f"step {i} failed: {_clip(res.error or 'failed', 300)}", code="step_failed", output={"steps": results})
 
     def perform(self, task: AgentTask, ctx: AgentContext) -> AgentOutcome:

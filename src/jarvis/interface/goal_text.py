@@ -5,12 +5,25 @@ Text only: this module reads a `GoalResult`, grants nothing, starts nothing and 
 MAY CHOOSE or a different wording). Unknown situations are shown with the original reason instead of a guess."""
 from __future__ import annotations
 
+import re
 from typing import Any
 
 ANSWER_AGENTS = ("research", "business", "finance", "files")
 MAX_ANSWER = 3200
 _SEARCH_SETUP = ("Websuche einrichten: in der Konfiguration [research] enabled = true und search_enabled = true, [browser] enabled = true (Playwright installieren) "
                  "und den Schlüssel als Umgebungsvariable BRAVE_SEARCH_API_KEY setzen (siehe README, config/nexus.example.toml)")
+
+
+_FILE_ERRORS = (
+    ("file_not_found", ("die angegebene Datei oder der Ordner", "sie existieren nicht (oder nicht an diesem Pfad); eine Wiederholung hilft nicht.",
+                        "Pfad und Schreibweise prüfen, z. B. mit „Zeige den Ordner <Pfad>“ nachsehen, oder die Datei zuerst neu anlegen.")),
+    ("file_exists", ("ein freier Name", "das Ziel existiert schon; JARVIS überschreibt nichts ohne ausdrücklichen Schreibauftrag.", "einen anderen Namen wählen.")),
+    ("outside_roots", ("ein erlaubter Ort", "der Pfad liegt außerhalb der bestätigten Arbeitsordner.", "einen Pfad im Arbeitsordner (workspace) nennen.")),
+    ("path_denied", ("ein erlaubter Pfad", "dieser Pfad ist gesperrt.", "einen anderen Pfad im Arbeitsordner wählen.")),
+    ("protected_path", ("ein erlaubter Pfad", "dieser Pfad ist geschützt.", "einen anderen Pfad im Arbeitsordner wählen.")),
+    ("file_too_large", ("eine kleinere Datei", "die Datei ist größer als die erlaubte Grenze.", "eine kleinere Datei wählen oder Teile daraus angeben.")),
+    ("binary_file", ("eine Textdatei", "die Datei ist binär und kann nicht als Text gelesen werden.", "eine Textdatei (oder .docx/.xlsx) wählen.")),
+)
 
 
 def _codes(result: Any) -> set[str]:
@@ -95,10 +108,14 @@ def explain(result: Any) -> str:
         return "\n".join(lines)
 
     if "file request" in text:
-        return block("eine eindeutige, vollständige Dateianfrage", "aus der Anfrage ließ sich keine einzelne, sichere Dateiaktion ableiten (Pfad, Inhalt oder Ziel fehlt oder es sind mehrere Aktionen).",
+        raw = re.search(r"file request: ([^\n(]{1,200})", str(getattr(result, "summary", "")))
+        return block("eine eindeutige, vollständige Dateianfrage" + (f" – konkret: {raw.group(1).strip()}" if raw else ""), "aus der Anfrage ließ sich keine einzelne, sichere Dateiaktion ableiten (Pfad, Inhalt oder Ziel fehlt oder es sind mehrere Aktionen).",
                      "eine Aktion pro Anfrage mit Pfad, z. B. „Lies die Datei notizen.txt“, „Erstelle die Datei todo.txt mit dem Inhalt: Milch kaufen“, „Kopiere a.txt nach b.txt“, "
                      "„Ersetze \"alt\" durch \"neu\" in notizen.txt“ oder „Erstelle bericht.docx mit dem Inhalt: …“.",
                      "Office-Dateien (.xlsx, .docx) lassen sich lesen und neu anlegen, bestehende werden nie geändert; Löschen gibt es nicht.")
+    friendly = next((msg for code, msg in _FILE_ERRORS if f"[{code}]" in text), None)
+    if friendly:
+        return block(friendly[0], friendly[1], friendly[2])
     if "search_unavailable" in codes:
         return block("eine eingerichtete Websuche (Suchquelle und Schlüssel)", "ohne Suchquelle kann JARVIS keine Quellen finden, und ohne Webadresse nichts lesen.",
                      _SEARCH_SETUP + ".", "gib eine Webadresse in der Frage an (z. B. „Recherchiere … https://beispiel.de“), dann wird nur diese Seite gelesen.")
