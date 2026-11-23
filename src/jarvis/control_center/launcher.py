@@ -15,6 +15,7 @@ from typing import Any, Callable, Sequence
 from jarvis.bootstrap import build_core
 from jarvis.config import Settings, load_settings
 from jarvis.control_center.mission import MissionView
+from jarvis.control_center.nexus_assets import NexusPreviewServer
 from jarvis.control_center.overlay import OverlayUnavailable, start_overlay, webview_available
 from jarvis.control_center.server import ControlCenterServer
 from jarvis.control_center.views import ReadViews
@@ -30,7 +31,7 @@ def open_main_window(main_url: str) -> None:
     webbrowser.open(main_url)
 
 
-def build_server(settings: Settings, core: Any, on_open_main: Callable[[], None] | None = None) -> ControlCenterServer:
+def build_server(settings: Settings, core: Any, on_open_main: Callable[[], None] | None = None, *, nexus_preview: bool = False) -> ControlCenterServer:
     """The server for the real backend of `core`. Listens on nothing until `.start()`. Raises LauncherError instead of falling back to anything else."""
     if not settings.control_center.enabled:
         raise LauncherError("Das Control Center ist aus (control_center.enabled = false). Aktivieren: control_center.enabled = true "
@@ -40,7 +41,8 @@ def build_server(settings: Settings, core: Any, on_open_main: Callable[[], None]
     if ui is None:
         reason = getattr(assistant, "reason", "") or "kein Assistent"
         raise LauncherError(f"Kein echtes Backend: der Assistent ist nicht aktiv ({reason}). Nötig: assistant.enabled = true und agents.enabled = true.")
-    return ControlCenterServer(ui, views=build_views(core, assistant, settings), on_open_main=on_open_main)
+    server_class = NexusPreviewServer if nexus_preview else ControlCenterServer
+    return server_class(ui, views=build_views(core, assistant, settings), on_open_main=on_open_main)
 
 
 def build_views(core: Any, assistant: Any, settings: Settings | None = None) -> ReadViews:
@@ -108,6 +110,7 @@ def _business_source(core: Any) -> Callable[[int], list[dict[str, Any]]] | None:
 def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="jarvis-cc", description="JARVIS Control Center (lokale Weboberfläche, nur 127.0.0.1)")
     ap.add_argument("-c", "--config", help="Pfad zu einer TOML-Konfiguration")
+    ap.add_argument("--nexus-preview", action="store_true", help="experimentelle NEXUS-Ultimate-Leseansicht im V1-Fenster")
     ap.add_argument("--open", action="store_true", help="URL im Systembrowser öffnen (sonst nur ausgeben)")
     ap.add_argument("--overlay", action="store_true", help="optionales Mini-Overlay (140x140, verschiebbar) öffnen; braucht pywebview (.[ui]), Standard aus")
     ap.add_argument("--overlay-on-top", action="store_true", help="Overlay immer im Vordergrund (nur mit --overlay)")
@@ -124,15 +127,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not settings.control_center.enabled:               # vor jedem Aufbau: ein ausgeschaltetes Control Center baut nichts
             build_server(settings, None)
         core = build_core(settings)
-        server = build_server(settings, core, (lambda: open_main_window(main_url[0])) if args.overlay else None)
+        server = build_server(settings, core, (lambda: open_main_window(main_url[0])) if args.overlay else None, nexus_preview=args.nexus_preview)
     except JarvisError as exc:
         print(f"Startfehler: {exc}", file=sys.stderr)
         return 2
     server.start()
-    print(f"Control Center (echtes Backend, nur Loopback): {server.url}\nBeenden mit Strg+C.")
-    main_url.append(server.url)
+    start_url = server.url + ("&view=nexus" if args.nexus_preview else "")
+    print(f"Control Center (echtes Backend, nur Loopback): {start_url}\nBeenden mit Strg+C.")
+    main_url.append(start_url)
     if args.open:
-        webbrowser.open(server.url)
+        webbrowser.open(start_url)
     try:
         if args.overlay:
             try:

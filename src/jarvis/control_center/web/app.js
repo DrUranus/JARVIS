@@ -657,7 +657,17 @@ function resetVoice() {  // Verbindung verloren: der Mikrofonzustand ist unbekan
   drawWave();
 }
 
+function notifyPreview(kind, value) {
+  if (params.get("view") === "nexus" && document.getElementById("nexus-preview-host"))
+    document.dispatchEvent(new CustomEvent("nexus:" + kind, { detail: value }));
+}
+
 function handle(ev) {
+  if (params.get("view") === "nexus" && ["state", "hello", "emergency", "activity", "chat", "error"].includes(ev.type)) {
+    const data = ev.type === "activity" ? { working: Array.isArray(ev.data.items) && ev.data.items.some(
+      item => item.kind === "agent_task" && item.status === "RUNNING") } : ev.data;
+    notifyPreview("event", { v: ev.v, seq: ev.seq, type: ev.type, data });
+  }
   if (typeof ev.seq === "number") lastSeq = Math.max(lastSeq, ev.seq);
   addItem(el("log"), "#" + ev.seq + " " + ev.type);
   const d = ev.data;
@@ -679,17 +689,26 @@ function handle(ev) {
   renderStatus();
 }
 
-function connect() {
+function connect(freshSnapshot = false) {
+  if (freshSnapshot) lastSeq = 0;
   source = new EventSource(url("events", lastSeq));
-  source.onopen = () => { document.body.dataset.conn = "open"; el("conn").textContent = "verbunden"; renderStatus(); };
+  source.onopen = () => { notifyPreview("connection", true); document.body.dataset.conn = "open"; el("conn").textContent = "verbunden"; renderStatus(); };
   source.onmessage = (m) => { try { handle(JSON.parse(m.data)); } catch (e) { /* ungueltiges Ereignis ignorieren */ } };
   source.onerror = () => {
+    notifyPreview("connection", false);
     document.body.dataset.conn = "closed";
     setState(null);  // der letzte Zustand ist unbekannt, solange die Verbindung fehlt
     resetVoice();
     clearConfirmations();
     el("conn").textContent = "GETRENNT";
     renderStatus();
+    if (document.getElementById("nexus-preview-host")) {
+      // The observer clears all state on disconnect. Reattach this same V1
+      // client with a full snapshot instead of retaining an uncertain display.
+      source.close();
+      setTimeout(() => connect(true), 2000);
+      return;
+    }
     if (source.readyState === EventSource.CLOSED) { source.close(); setTimeout(connect, 2000); }
   };
 }
@@ -966,6 +985,7 @@ function drawCore(t, c, quality) {
 function canvasNow() { return el(document.body.dataset.mode === "dashboard" ? "orb-mini" : "orb"); }
 
 function redraw(t) {
+  if (params.get("view") === "nexus" && document.body.classList.contains("nexus-open")) return;
   drawCore(t || lastT, canvasNow(), effective());
   document.body.dataset.effects = effective();
   schedule();
@@ -1046,6 +1066,7 @@ function enterOverlay() {
   redraw();
 }
 
+if (params.get("view") === "nexus") document.addEventListener("nexus:surface", () => redraw());
 setMode("orb");
 if (params.get("view") === "overlay") enterOverlay();
 setEffects("full");

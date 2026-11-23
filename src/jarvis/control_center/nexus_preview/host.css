@@ -1,0 +1,19 @@
+body.nexus-open > main,
+body.nexus-open > #voice-bar,
+body.nexus-open > #input-form,
+body.nexus-open #mode-toggle,
+body.nexus-open #bar #brand-sub {
+  display: none;
+}
+#nexus-preview-host {
+  display: block;
+  position: relative;
+  isolation: isolate;
+  z-index: 0;
+}
+#nexus-preview-host[hidden] {
+  display: none;
+}
+#nexus-toggle {
+  margin-left: auto;
+}

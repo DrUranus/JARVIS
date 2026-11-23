@@ -1,0 +1,50 @@
+:host {
+  display: block;
+}
+.preview-status {
+  padding: 8px clamp(15px, 3.6vw, 60px);
+  font: 500 0.85rem system-ui;
+  background: #161424;
+  color: #e3daff;
+  border-bottom: 1px solid #3a314b;
+}
+.preview-status[data-alert="true"] {
+  background: #40202b;
+  color: #ffe2eb;
+}
+.preview-offline {
+  padding: 18px;
+  color: #b7aacc;
+}
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+:host .home {
+  min-height: calc(100svh - 100px);
+}
+:host .core-main {
+  min-height: min(600px, 70svh);
+}
+:host .is-unknown canvas {
+  visibility: hidden;
+}
+
+.preview-status {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.preview-status a {
+  text-decoration: underline;
+}
+.foot-right {
+  visibility: hidden;
+}
+.live-chat, .live-receipt { max-width: min(44rem, 90vw); margin: .4rem auto; color: #dcd8f1; overflow-wrap: anywhere; }
+.live-chat { max-height: 12rem; overflow: auto; text-align: left; }
+.live-chat:empty, .live-receipt:empty { display: none; }
