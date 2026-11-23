@@ -49,6 +49,19 @@ def is_retryable(status: TaskStatus, code: str | None) -> bool:
     return status is TaskStatus.FAILED and code in RETRYABLE_CODES and code not in FATAL_CODES
 
 
+# Capabilities whose steps only READ or COMPUTE: running them twice changes nothing outside JARVIS. Everything else (writing, typing, clicking, creating, running tests ...) may already have
+# acted when an agent crashed or timed out, so such a step is never repeated automatically (a second action would be a duplicate external action). Unknown names count as "may change".
+IDEMPOTENT_SUFFIXES = (".read", ".screen", ".plan", ".web", ".analyze", ".strategy")
+
+
+def may_change_outside(capabilities: Any, agent_id: str | None = None) -> bool:
+    """True if a step with these capabilities may have changed something outside JARVIS. No capabilities: only an evaluation step (no agent) is harmless."""
+    caps = sorted(str(c) for c in (capabilities or ()))
+    if not caps:
+        return agent_id is not None
+    return not all(c.endswith(IDEMPOTENT_SUFFIXES) for c in caps)
+
+
 def find_reserved(value: Any, depth: int = 0) -> str | None:
     """The first reserved bypass-style key anywhere inside plain data (None if clean)."""
     if depth > MAX_JSON_DEPTH + 2:

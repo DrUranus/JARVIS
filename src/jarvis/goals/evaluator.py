@@ -72,6 +72,9 @@ class GoalEvaluator:
             return StepVerdict(Verdict.FINAL, StepStatus.CANCELLED, "the agent task was cancelled")
         if status is TaskStatus.FAILED:
             if P.is_retryable(status, code) and step.attempts < step.max_attempts:
+                if P.may_change_outside(step.required_capabilities, step.assigned_agent):      # the agent may have acted before it failed: a repeat could duplicate an external action
+                    return StepVerdict(Verdict.FINAL, StepStatus.TIMEOUT if code == "timeout" else StepStatus.FAILED,
+                                       f"failed ({code}); not retried: the step may already have changed something outside JARVIS")
                 return StepVerdict(Verdict.RETRY, reason=f"transient failure ({code}); retrying")
             return StepVerdict(Verdict.FINAL, StepStatus.TIMEOUT if code == "timeout" else StepStatus.FAILED,
                                f"failed ({code or 'failed'})" + ("" if P.is_retryable(status, code) else "; not retryable"))

@@ -524,6 +524,8 @@ class GoalEngine:
             else:
                 self._launch(rec, sid)
             return
+        if verdict.kind is Verdict.FINAL and "not retried: the step may" in verdict.reason:      # visible in the goal result: why a transient failure was NOT repeated
+            self._warn(rec, f"step {sid}: not retried ({code}): it may already have changed something outside JARVIS; repeating it could duplicate an external action")
         if verdict.kind is Verdict.DONE:
             self._settle_step(rec, sid, StepStatus.SUCCEEDED, res.summary, code, res, res.task_id)
         else:
