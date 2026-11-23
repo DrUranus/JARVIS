@@ -6,12 +6,31 @@
     Es gibt KEINE Funktion, die UAC bestaetigt, Rechte erhoeht, Konfiguration oder Richtlinien aendert oder etwas installiert.                                    #>
 param([string]$Config = "config\nexus.example.toml", [string[]]$Only = @(), [switch]$NoManual, [switch]$Execute, [string]$Out = "abnahme-v2")
 $ErrorActionPreference = "Continue"
+$Only = @($Only | ForEach-Object { $_ -split "," } | ForEach-Object { $_.Trim().ToUpper() } | Where-Object { $_ })   # "-File ... -Only S1,S3" liefert EINEN String "S1,S3": hier aufteilen
 $py = ".\.venv\Scripts\python.exe"
 New-Item -ItemType Directory -Force $Out | Out-Null
 $results = [ordered]@{}
 function Cmd([string]$what, [scriptblock]$block) {
     if (-not $Execute) { Write-Host "TROCKENLAUF: $what" -ForegroundColor DarkGray; return }
     & $block
+}
+function Resolve-Chromium {
+    # JARVIS_CHROMIUM_PATH (falls gesetzt) gilt fuer alle Browser-Tests dieses Laufs (wird an pytest vererbt); sonst entscheidet Playwright selbst (muss zur Playwright-Version passen).
+    if (-not $Execute) { Write-Host "TROCKENLAUF: Chromium pruefen (JARVIS_CHROMIUM_PATH oder Playwright-Standard; nur lesend)" -ForegroundColor DarkGray; return "DRYRUN" }
+    if ($env:JARVIS_CHROMIUM_PATH) {
+        if (Test-Path -LiteralPath $env:JARVIS_CHROMIUM_PATH) { return "JARVIS_CHROMIUM_PATH: $env:JARVIS_CHROMIUM_PATH" }
+        Write-Host "WARNUNG: JARVIS_CHROMIUM_PATH zeigt auf eine nicht vorhandene Datei: Browser-Tests werden uebersprungen (NOT_CHECKED)." -ForegroundColor Yellow; return "MISSING: $env:JARVIS_CHROMIUM_PATH"
+    }
+    $exe = (& $py -c "from playwright.sync_api import sync_playwright as s`nwith s() as p: print(p.chromium.executable_path)" 2>$null | Select-Object -Last 1)
+    if ($LASTEXITCODE -eq 0 -and $exe -and (Test-Path -LiteralPath $exe)) { return "playwright: $exe" }
+    Write-Host "WARNUNG: Playwright-Chromium fehlt (python -m playwright install chromium) oder JARVIS_CHROMIUM_PATH setzen: Browser-Tests werden uebersprungen (NOT_CHECKED)." -ForegroundColor Yellow
+    return "MISSING"
+}
+function Resolve-Node {
+    if (-not $Execute) { Write-Host "TROCKENLAUF: node --version (nur lesend)" -ForegroundColor DarkGray; return "DRYRUN" }
+    $n = Get-Command node -ErrorAction SilentlyContinue
+    if ($n) { return ((& node --version 2>&1) -join "") }
+    Write-Host "WARNUNG: node nicht im PATH: NEXUS-DOM-Tests werden uebersprungen (NOT_CHECKED)." -ForegroundColor Yellow; return "MISSING"
 }
 function Want($id) { return ($Only.Count -eq 0) -or ($Only -contains $id) }
 
@@ -24,7 +43,8 @@ function Run-Pytest($id, $name, [string[]]$pytestArgs, [hashtable]$envVars = @{}
     foreach ($k in $envVars.Keys) { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
     $skipped = 0; $tests = 0
     if (Test-Path $xml) { [xml]$x = Get-Content $xml; $s = @($x.testsuites.testsuite); $tests = ($s | Measure-Object tests -Sum).Sum; $skipped = ($s | Measure-Object skipped -Sum).Sum }
-    $verdict = if ($code -ne 0) { "FAIL" } elseif ($skipped -gt 0) { "FAIL (skip: $skipped)" } elseif ($tests -eq 0) { "FAIL (0 Tests)" } else { "PASS" }
+    # SKIP ist weder PASS noch ein technischer Fehler: NOT_CHECKED (nicht geprueft). Es zaehlt NICHT als bestanden (Kriterium unveraendert); FAIL bleibt Testfehlern vorbehalten.
+    $verdict = if ($code -ne 0) { "FAIL" } elseif ($tests -eq 0) { "FAIL (0 Tests)" } elseif ($skipped -gt 0) { "NOT_CHECKED (skip: $skipped)" } else { "PASS" }
     return [ordered]@{ name = $name; tests = $tests; skipped = $skipped; verdict = $verdict; evidence = $xml }
 }
 
@@ -41,6 +61,8 @@ function Ask($id, $text) {
 $env0 = [ordered]@{ commit = (git rev-parse HEAD); dirty = [bool](git status --short); windows = (Get-ComputerInfo).OsName + " " + (Get-ComputerInfo).OsVersion;
     python = (& $py --version 2>&1) -join ""; date = (Get-Date -Format s); is_admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) }
 if ($env0.is_admin) { Write-Host "ABBRUCH: Die Abnahme muss in einer NICHT erhoehten PowerShell laufen (S6 prueft genau das)." -ForegroundColor Red; exit 2 }
+$env0.node = Resolve-Node
+$env0.chromium = Resolve-Chromium
 $env0 | ConvertTo-Json | Set-Content (Join-Path $Out "00-umgebung.json")
 
 # --- S1 NEXUS starten -----------------------------------------------------------------------------------------------------------------
@@ -88,8 +110,9 @@ if (Want "S7") {
     $p = Run-Pytest "07" "nexus" @("tests\test_control_center_timeline.py", "tests\test_control_center_approvals.py", "tests\test_control_center_confirmation.py")
     $e2e = $null
     $hasPw = $false; if ($Execute) { & $py -c "import playwright" 2>$null; $hasPw = ($LASTEXITCODE -eq 0) }
-    if ($hasPw) { $e2e = Run-Pytest "07" "e2e" @("tests\test_control_center_e2e_browser.py", "-k", "timeline or approvals or e10") @{ JARVIS_GUI_EVIDENCE = (Join-Path $Out "gui") } }
-    else { Write-Host "Playwright nicht installiert: Browser-E2E wird NICHT ausgefuehrt (nicht bestanden, Handschritt)." -ForegroundColor Yellow }
+    if (-not $Execute) { Write-Host "TROCKENLAUF: Browser-E2E (tests\test_control_center_e2e_browser.py -k 'timeline or approvals or e10') laeuft im echten Lauf, wenn playwright importierbar ist" -ForegroundColor DarkGray }
+    elseif ($hasPw) { $e2e = Run-Pytest "07" "e2e" @("tests\test_control_center_e2e_browser.py", "-k", "timeline or approvals or e10") @{ JARVIS_GUI_EVIDENCE = (Join-Path $Out "gui") } }
+    else { Write-Host "Python-Paket playwright nicht importierbar: Browser-E2E wird NICHT ausgefuehrt (NOT_CHECKED, Handschritt)." -ForegroundColor Yellow }
     $results.S7 = [ordered]@{ pytest = $p; e2e = $e2e; manual = (Ask "S7" "Mehrstufigen Auftrag starten: Panel 'Freigaben' (Liste, Frist, keine Knoepfe), Dialog ablehnen/ablaufen lassen/zustimmen, Zeitleiste mit Farben; Animationen-reduzieren an/aus") }
 }
 # --- S8 Not-Aus -------------------------------------------------------------------------------------------------------------------------
@@ -109,5 +132,6 @@ if (Want "S9") {
 $results | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $Out "ergebnis.json")
 $fail = ($results.GetEnumerator() | Where-Object { ($_.Value | ConvertTo-Json -Depth 6) -match '"FAIL' -or ($_.Value | ConvertTo-Json -Depth 6) -match '"manual":\s*"FAIL"' }).Count
 if (-not $Execute) { Write-Host "`nTROCKENLAUF beendet: nichts wurde gestartet oder veraendert. Echter Lauf: -Execute" -ForegroundColor Cyan; exit 0 }
-Write-Host "`nErgebnis: $Out\ergebnis.json  (FAIL-Schritte: $fail). PENDING/NA zaehlen nicht als bestanden." -ForegroundColor Cyan
-exit ([int]($fail -gt 0))
+$notChecked = ([regex]::Matches((Get-Content (Join-Path $Out "ergebnis.json") -Raw), '"NOT_CHECKED')).Count
+Write-Host "`nErgebnis: $Out\ergebnis.json  (FAIL-Schritte: $fail, NOT_CHECKED-Testgruppen: $notChecked). NOT_CHECKED, PENDING und NA zaehlen nicht als bestanden." -ForegroundColor Cyan
+if ($fail -gt 0) { exit 1 } elseif ($notChecked -gt 0) { exit 3 } else { exit 0 }
