@@ -49,7 +49,7 @@ Owner nötig, in dieser Reihenfolge:
 6. Danach, jeweils einzeln und mit Windows-Abnahme: Agenten des separaten Projekts → NEXUS-Route/JS → Qualitätstor mit Audit → Plan-Vorabprüfung.
 
 ## 7. Rückbau
-- Diese Vorbereitung: Branch nicht mergen oder `git revert` der vier Commits; alle neuen Funktionen sind aus, `nexus_feed` ist nirgends eingebunden, `scripts/v2` und `tests/support/agent_conformance.py` sind reine Hilfen.
+- Diese Vorbereitung: Branch nicht mergen oder `git revert` der Commits (Merge von `main`, nexus_feed, Konformität+Retry-Sicherheit, `scripts/v2`, Doku); alle neuen Funktionen sind aus, `nexus_feed` ist nirgends eingebunden, `scripts/v2` und `tests/support/agent_conformance.py` sind reine Hilfen.
 - Retry-Sicherheit: `GoalEvaluator.judge` zurücksetzen (eine Bedingung in `goals/evaluator.py`, `may_change_outside` in `goals/policy.py`).
 - Windows-Wrapper: Löschen von `scripts\v2` und dem Ordner `abnahme-v2-prep`; es wurde nichts installiert oder konfiguriert.
 
