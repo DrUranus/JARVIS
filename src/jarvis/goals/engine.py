@@ -356,6 +356,10 @@ class GoalEngine:
         if not roots or any(s.status not in (StepStatus.FAILED, StepStatus.TIMEOUT) or s.result is None or not P.is_retryable(TaskStatus.FAILED, s.result.error_code)
                             for s in roots):
             return None
+        risky = [s for s in roots if (s.result.error_code if s.result else None) not in P.NEVER_STARTED_CODES and P.may_change_outside(s.required_capabilities, s.assigned_agent)]
+        if risky:                                                   # the failed step may already have acted: an alternative plan could repeat the action
+            self._warn(rec, f"step {risky[0].step_id}: not replanned: it may already have changed something outside JARVIS; an alternative plan could duplicate an external action")
+            return None
         return roots[0]
 
     def _try_replan(self, rec: _Rec) -> bool:

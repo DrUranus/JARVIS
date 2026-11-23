@@ -51,6 +51,7 @@ def is_retryable(status: TaskStatus, code: str | None) -> bool:
 
 # Capabilities whose steps only READ or COMPUTE: running them twice changes nothing outside JARVIS. Everything else (writing, typing, clicking, creating, running tests ...) may already have
 # acted when an agent crashed or timed out, so such a step is never repeated automatically (a second action would be a duplicate external action). Unknown names count as "may change".
+NEVER_STARTED_CODES = frozenset({"executor_failed", "queue_full"})      # the orchestrator never ran the agent: nothing can have been done twice, a repeat is safe even for write steps
 IDEMPOTENT_SUFFIXES = (".read", ".screen", ".plan", ".web", ".analyze", ".strategy")
 
 
