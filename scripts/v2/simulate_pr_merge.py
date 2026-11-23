@@ -16,7 +16,7 @@ from pathlib import Path
 
 
 def git(cwd: Path, *args: str, check: bool = False) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=300, check=check)
+    return subprocess.run(["git", "-c", "user.email=sim@example.invalid", "-c", "user.name=merge-simulation", *args], cwd=cwd, capture_output=True, text=True, timeout=300, check=check)
 
 
 def simulate(repo: Path, ref: str, base: str = "HEAD") -> dict[str, object]:
