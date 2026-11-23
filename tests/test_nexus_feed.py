@@ -143,3 +143,29 @@ def test_the_module_is_pure_and_has_no_write_path():
 def test_it_is_wired_nowhere_yet():
     root = Path(__file__).resolve().parents[1] / "src" / "jarvis"
     assert not [p for p in root.rglob("*.py") if p.name != "nexus_feed.py" and "nexus_feed" in p.read_text(encoding="utf-8")]
+
+
+# ---- echter Controller-Adapter (nicht nur die Attrappe) und die echten V2-Ansichten --------------------------------------------------------------------------
+def test_the_real_assistant_backend_events_and_the_real_read_views_fold_into_a_consistent_feed(tmp_path):
+    from jarvis.control_center.launcher import build_views
+    from test_control_center_binding import real_core
+    core = real_core(tmp_path, JARVIS_BUSINESS_STRATEGIST="true")
+    ui = core.subsystems["assistant"].ui
+    views = build_views(core, core.subsystems["assistant"])
+    f = build_feed(list(ui.snapshot()), agents_view=views.agents({}), mission=views.mission({}))
+    assert f["connection"]["attached"] is True and f["connection"]["rejected_events"] == 0 and f["connection"]["seq_gap"] is False
+    assert f["core"] is not None and f["emergency"] == {"engaged": False, "reason": "", "report": []}
+    assert f["agents"]["available"] is True and "strategist" in [a["id"] for a in f["agents"]["items"]]      # der echte V2-Agent, aus der echten Registry
+    assert f["pages"]["agent-center"]["available"] is True and f["pages"]["overview"]["available"] is True
+    assert f["approvals"]["pending"] == [] and f["approvals"]["display_only"] is True
+
+
+def test_an_engaged_emergency_stop_of_the_real_backend_shows_up_and_nothing_else_is_invented(tmp_path):
+    from test_control_center_binding import cmd, real_core
+    core = real_core(tmp_path)
+    ui = core.subsystems["assistant"].ui
+    ui.snapshot()
+    assert ui.send(cmd("emergency_stop"))["data"]["ok"] is True
+    f = build_feed(list(ui.snapshot()) + list(ui.events_since(0)))
+    assert f["emergency"]["engaged"] is True and f["connection"]["rejected_events"] == 0
+    assert f["approvals"]["pending"] == [] and f["tasks"]["items"] == []                       # der Not-Aus erzeugt keine erfundenen Aufgaben oder Freigaben
